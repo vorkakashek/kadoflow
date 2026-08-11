@@ -217,9 +217,15 @@ onMounted(async () => {
   renderer.toneMappingExposure = 0.92
   renderer.sortObjects = true
   host.appendChild(renderer.domElement)
+  // Canvas defaults to pointer-events:auto — even under a PE:none host it can
+  // steal iOS touch and fight document scroll (hero section is PE:none → hole).
   if (lite) {
     host.style.pointerEvents = 'none'
     host.style.cursor = 'default'
+    renderer.domElement.style.pointerEvents = 'none'
+    renderer.domElement.style.touchAction = 'pan-y'
+  } else {
+    renderer.domElement.style.touchAction = 'pan-y'
   }
 
   // HDRI — mobile uses the smaller 1k warm studio.
@@ -777,6 +783,8 @@ onUnmounted(() => {
 <style scoped>
 .hero-swarm {
   cursor: grab;
+  /* Belt-and-suspenders: never let the GL surface own vertical gestures. */
+  touch-action: pan-y;
 }
 
 .hero-swarm:active {

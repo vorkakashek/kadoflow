@@ -15,6 +15,8 @@ const FADE_OUT_END = 0.88
 /** Mobile: fade much earlier in the hero→kado corridor. */
 const FADE_OUT_START_MOBILE = 0.01
 const FADE_OUT_END_MOBILE = 0.12
+/** Copy rides morph 0→1 upward (hang-in-place feel). */
+const COPY_PARALLAX_VH = 0.35
 
 const props = defineProps<{
   /** Hero-rest viewport origin — stage counters frame morph so copy doesn't slide. */
@@ -43,6 +45,8 @@ if (import.meta.client) {
 const sceneLive = ref(true)
 /** Whole hero stack opacity — never unmount; eased by morph. */
 const contentOpacity = ref(1)
+/** Text parallax Y (px). Negative = up. Morph 0→1. */
+const copyY = ref(0)
 
 let ctx: { revert: () => void } | null = null
 let gsapRef: typeof import('gsap').default | null = null
@@ -60,6 +64,12 @@ function opacityForMorph(m: number) {
   if (m <= start) return 1
   if (m >= end) return 0
   return 1 - (m - start) / (end - start)
+}
+
+function copyParallaxY(m: number) {
+  if (typeof window === 'undefined') return 0
+  const t = Math.min(1, Math.max(0, m))
+  return -t * window.innerHeight * COPY_PARALLAX_VH
 }
 
 function dismissScene() {
@@ -93,6 +103,7 @@ watch(
   (m) => {
     const op = opacityForMorph(m)
     contentOpacity.value = op
+    copyY.value = copyParallaxY(m)
     const show = op > 0.08
     setFrozen(show)
 
@@ -252,7 +263,8 @@ onUnmounted(() => {
     >
       <div
         ref="mediaEl"
-        class="pointer-events-auto absolute inset-0"
+        class="absolute inset-0"
+        :class="mobileLite ? 'pointer-events-none' : 'pointer-events-auto'"
         aria-hidden="true"
       >
         <ClientOnly>
@@ -262,7 +274,8 @@ onUnmounted(() => {
 
       <div
         ref="copyEl"
-        class="pointer-events-none absolute inset-0 z-10 flex min-h-0 flex-col"
+        class="pointer-events-none absolute inset-0 z-10 flex min-h-0 flex-col will-change-transform"
+        :style="{ transform: `translate3d(0, ${copyY}px, 0)` }"
       >
         <div
           class="hero-copy mx-auto grid h-full w-full min-h-0"

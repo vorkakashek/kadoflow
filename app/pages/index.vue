@@ -13,11 +13,7 @@ const toEl = computed(() => {
   return target ?? null
 })
 
-/** Soft snap corridor between hero ↔ kado (skipped on iOS inside the composable). */
-useSoftSectionSnap({
-  from: () => hero.value?.section ?? null,
-  to: () => kado.value?.section ?? null,
-})
+/** Soft snap off — locks touchmove on direction changes / settle and fights iOS scroll. */
 </script>
 
 <template>
