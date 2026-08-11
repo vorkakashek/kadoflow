@@ -22,3 +22,7 @@ logs
 .env
 .env.*
 !.env.example
+
+# Design docs & concept art (local only — not shipped)
+docs/
+assets/

@@ -23,6 +23,7 @@ const props = withDefaults(
 )
 
 const root = ref<HTMLElement | null>(null)
+const clipEl = ref<HTMLElement | null>(null)
 const pathD = ref('')
 const size = reactive({ w: 1, h: 1 })
 /** Tiled film grain — static PNG (no SVG feTurbulence; that tanks WebKit FPS). */
@@ -34,19 +35,24 @@ const GRAIN_OPACITY = 0.22
 /** Discrete tile offset rate — hard jumps, not eased drift. */
 const GRAIN_STEP_MS = 120
 
-const clipStyle = computed(() => {
-  if (!pathD.value || size.w < 2 || size.h < 2) return undefined
-  // Prefer shared mask string so surface + hero stay 1:1.
-  const clip = flowSurfaceMask.clipPath || `path('${pathD.value}')`
-  return {
-    clipPath: clip,
-    WebkitClipPath: clip,
+function applyClipToDom(clip: string) {
+  const el = clipEl.value
+  if (!el) return
+  if (!clip) {
+    el.style.clipPath = ''
+    el.style.removeProperty('-webkit-clip-path')
+    return
   }
-})
+  el.style.clipPath = clip
+  el.style.setProperty('-webkit-clip-path', clip)
+}
 
 function setMaskPath(d: string) {
+  if (d) pathD.value = d
   flowSurfaceMask.path = d
-  flowSurfaceMask.clipPath = d ? `path('${d}')` : ''
+  const clip = d ? `path('${d}')` : ''
+  flowSurfaceMask.clipPath = clip
+  applyClipToDom(clip)
 }
 
 /** viewBox basis — frozen during mobile morph so the path stretches with the box. */
@@ -575,12 +581,13 @@ function publish(
 
   const fill = buildPath(w, h, 0, roamT)
   pathD.value = fill
-  setMaskPath(fill)
+  // Width/height BEFORE path — watchers that freeze hero clip read size with the path.
   flowSurfaceMask.openTopPath = ''
   flowSurfaceMask.width = w
   flowSurfaceMask.height = h
   flowSurfaceMask.top = top
   flowSurfaceMask.left = left
+  setMaskPath(fill)
 }
 
 function tick(now: number) {
@@ -686,6 +693,8 @@ onMounted(async () => {
   measure()
   publish(0)
   registerFlowSurfacePathFlush((box) => publish(undefined, box))
+  // clipEl is mounted with mode=window — re-apply if publish raced ahead of the ref.
+  applyClipToDom(flowSurfaceMask.clipPath)
   ensureLoop()
 
   // Resume roam when morph returns to hero rest.
@@ -748,8 +757,8 @@ onUnmounted(() => {
   >
     <div
       v-if="props.mode === 'window'"
+      ref="clipEl"
       class="absolute inset-0"
-      :style="clipStyle"
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div
@@ -773,8 +782,8 @@ onUnmounted(() => {
 
     <div
       v-else-if="props.paintFill"
+      ref="clipEl"
       class="absolute inset-0"
-      :style="clipStyle"
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div

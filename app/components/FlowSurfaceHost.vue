@@ -40,8 +40,6 @@ const props = withDefaults(
 )
 
 const frame = ref<HTMLElement | null>(null)
-/** Hero visuals — rest pose only; never follows morph scale. */
-const heroMount = ref<HTMLElement | null>(null)
 
 let gsapMod: typeof import('gsap') | null = null
 let stMod: typeof import('gsap/ScrollTrigger') | null = null
@@ -53,9 +51,6 @@ let live = { h: 0, v: 0 }
 /** Cached viewport poses — fixed in screen space */
 let fromPose: SurfaceBox | null = null
 let toPose: SurfaceBox | null = null
-/** Rest organic clip for hero — frozen so living dent doesn't thrash WebGL. */
-let frozenHeroClip = ''
-let lastHeroClip = ''
 
 let raf = 0
 let lastTs = 0
@@ -99,10 +94,6 @@ function capturePoses() {
   const scrollEnd = scrollYForCenterCenter(toSection)
   toPose = poseAtScrollY(toDoc, scrollEnd)
 
-  // Force a fresh rest clip after layout changes.
-  frozenHeroClip = ''
-  lastHeroClip = ''
-
   return true
 }
 
@@ -115,27 +106,6 @@ function writeMaskBox(box: SurfaceBox) {
   flowSurfaceMask.pointerInteractive = live.h < IDLE_EPS && live.v < IDLE_EPS
 }
 
-/** Keep swarm/copy at hero-rest box — surface morph must not squash them. */
-function paintHeroMount() {
-  if (!heroMount.value || !fromPose) return
-  applyBox(heroMount.value, fromPose)
-
-  // One organic rest clip snapshot. Do NOT follow living dent every frame —
-  // clip-path thrash around WebGL = flicker. capturePoses() clears to refresh.
-  if (!frozenHeroClip && flowSurfaceMask.clipPath) {
-    const sizeMatch =
-      Math.abs(flowSurfaceMask.width - fromPose.width) < 2
-      && Math.abs(flowSurfaceMask.height - fromPose.height) < 2
-    if (sizeMatch) frozenHeroClip = flowSurfaceMask.clipPath
-  }
-
-  if (frozenHeroClip && frozenHeroClip !== lastHeroClip) {
-    lastHeroClip = frozenHeroClip
-    heroMount.value.style.clipPath = frozenHeroClip
-    heroMount.value.style.setProperty('-webkit-clip-path', frozenHeroClip)
-  }
-}
-
 function paint() {
   if (!frame.value || !fromPose || !toPose) return
 
@@ -144,7 +114,6 @@ function paint() {
   const touchMid = isTouchUi() && morph > 0.02 && morph < 0.98
 
   writeMaskBox(box)
-  paintHeroMount()
 
   if (touchMid) {
     // Compositor morph: basis = hero rest size, path frozen — no per-frame path rebuild.
@@ -322,7 +291,6 @@ watch(
     class="pointer-events-none fixed inset-0 z-[1]"
     aria-hidden="true"
   >
-    <!-- Stone morphs (size + pose). -->
     <div ref="frame" class="absolute overflow-visible will-change-[transform,top,left,width,height]">
       <FlowSurface
         mode="window"
@@ -330,14 +298,5 @@ watch(
         :tone-class="toneClass"
       />
     </div>
-    <!--
-      Hero shell: fixed rest pose only — outside the morphing frame so
-      surface squeeze never scales the 3D / copy (fade handles exit).
-    -->
-    <div
-      id="flow-surface-hero-mount"
-      ref="heroMount"
-      class="pointer-events-none absolute z-10 overflow-hidden"
-    />
   </div>
 </template>
