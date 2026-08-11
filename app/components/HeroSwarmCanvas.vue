@@ -294,18 +294,18 @@ onMounted(async () => {
   const frosted = (color: THREE.Color) =>
     new THREE.MeshPhysicalMaterial({
       color,
-      roughness: 0.48,
+      roughness: lite ? 0.42 : 0.48,
       metalness: 0,
-      transmission: 0.88,
-      thickness: 1.6,
+      transmission: lite ? 0.82 : 0.88,
+      thickness: lite ? 1.1 : 1.6,
       ior: 1.42,
       transparent: true,
       opacity: 1,
       attenuationColor: color.clone().lerp(new THREE.Color('#e4eef7'), 0.4),
-      attenuationDistance: 1.6,
-      clearcoat: 0.4,
-      clearcoatRoughness: 0.35,
-      envMapIntensity: 1.15,
+      attenuationDistance: lite ? 1.2 : 1.6,
+      clearcoat: lite ? 0.28 : 0.4,
+      clearcoatRoughness: lite ? 0.4 : 0.35,
+      envMapIntensity: lite ? 1.05 : 1.15,
       depthWrite: false,
     })
 
@@ -323,18 +323,25 @@ onMounted(async () => {
     })
 
   const materialPlan: THREE.Material[] = []
-  for (const color of [COLORS.green, COLORS.dark]) {
-    materialPlan.push(matte(color.clone()), glossy(color.clone()))
-  }
-  // Transmission is expensive — keep frosted only on desktop.
-  if (wide) {
+  if (lite) {
+    // Mobile: swap shiny green + glossy black for frosted glass (clear).
+    materialPlan.push(
+      matte(COLORS.green.clone()),
+      frosted(COLORS.white.clone()),
+      matte(COLORS.dark.clone()),
+      frosted(COLORS.white.clone()),
+      matte(COLORS.white.clone()),
+      frosted(COLORS.white.clone()),
+    )
+  } else {
+    for (const color of [COLORS.green, COLORS.dark]) {
+      materialPlan.push(matte(color.clone()), glossy(color.clone()))
+    }
     materialPlan.push(
       matte(COLORS.white.clone()),
       frosted(COLORS.white.clone()),
       glossy(COLORS.white.clone()),
     )
-  } else {
-    materialPlan.push(matte(COLORS.white.clone()), glossy(COLORS.white.clone()))
   }
 
   sharedGeometry = new THREE.SphereGeometry(1, sphereSegments, sphereSegments)

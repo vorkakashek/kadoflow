@@ -28,7 +28,7 @@ useViewportFocusRefs([mediaFocusEl, topFocusEl, bodyFocusEl], {
     ref="section"
     class="kado relative z-10 w-full"
     :style="{
-      paddingInline: 'var(--layout-margin)',
+      paddingInline: 'var(--layout-margin-content)',
       paddingBlock: 'var(--space-section)',
     }"
   >

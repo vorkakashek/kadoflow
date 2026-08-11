@@ -76,7 +76,15 @@ css += `  --layout-column: calc(\n`
 css += `    (var(--layout-content) - (var(--layout-columns) - 1) * var(--layout-gutter))\n`
 css += `    / var(--layout-columns)\n`
 css += `  );\n`
+css += `  /* Mobile copy/section inset — 3× edge margin; desktop = base margin. */\n`
+css += `  --layout-margin-content: calc(3 * var(--layout-margin));\n`
 css += `${spanDecls.join('\n')}\n`
+css += `}\n\n`
+
+css += `@media (min-width: 768px) {\n`
+css += `  :root {\n`
+css += `    --layout-margin-content: var(--layout-margin);\n`
+css += `  }\n`
 css += `}\n\n`
 
 css += `/* Header ↔ hero: header-inset above/below logo; sides stay layout-margin */\n`

@@ -1,12 +1,15 @@
 import { reactive } from 'vue'
 
+/** One SVG clipPath for the whole surface window (stone + hero content). */
+export const FLOW_SURFACE_CLIP_ID = 'flow-surface-clip'
+export const FLOW_SURFACE_CLIP_CSS = `url(#${FLOW_SURFACE_CLIP_ID})`
+
 /**
- * Living surface path (surface-local coords) + live viewport box.
- * `clipPath` is the shared CSS string: surface window + hero shell apply it 1:1.
+ * Living surface path + viewport box.
+ * Hero visuals mount inside the clipped window — one clip, no dual masks.
  */
 export const flowSurfaceMask = reactive({
   path: '',
-  /** Same CSS clip string surface + hero apply — single silhouette. */
   clipPath: '',
   openTopPath: '',
   width: 1,
@@ -15,8 +18,12 @@ export const flowSurfaceMask = reactive({
   left: 0,
   /** 0 = hero frame, 1 = fully morphed away */
   morph: 0,
-  /** Cursor dent — host turns this off during morph / kado */
   pointerInteractive: true,
+  /**
+   * When true, path rebuild skips roam/pointer (static silhouette).
+   * Set while WebGL+copy are mounted — living clip under canvas kills FPS.
+   */
+  freezeSilhouette: false,
 })
 
 export type FlowSurfaceBox = {
@@ -26,10 +33,8 @@ export type FlowSurfaceBox = {
   height: number
 }
 
-/** FlowSurface rebuilds path for an explicit box (same frame as host applyBox). */
 let pathFlush: ((box?: FlowSurfaceBox) => void) | null = null
-/** HomeHero writes clip-path imperatively — Vue :style lags a frame behind surface. */
-let heroClipFlush: ((mode?: 'full' | 'path') => void) | null = null
+let clipPathEl: SVGPathElement | null = null
 
 export function registerFlowSurfacePathFlush(fn: ((box?: FlowSurfaceBox) => void) | null) {
   pathFlush = fn
@@ -39,13 +44,18 @@ export function flushFlowSurfacePath(box?: FlowSurfaceBox) {
   pathFlush?.(box)
 }
 
-export function registerHeroClipFlush(fn: ((mode?: 'full' | 'path') => void) | null) {
-  heroClipFlush = fn
+export function registerFlowSurfaceClipPathEl(el: SVGPathElement | null) {
+  clipPathEl = el
+  if (el && flowSurfaceMask.path) el.setAttribute('d', flowSurfaceMask.path)
 }
 
-/** `path` = living silhouette only (cheap); `full` = box + content layout. */
-export function flushHeroClip(mode: 'full' | 'path' = 'full') {
-  heroClipFlush?.(mode)
+export function publishFlowSurfacePath(d: string) {
+  flowSurfaceMask.path = d
+  flowSurfaceMask.clipPath = d ? FLOW_SURFACE_CLIP_CSS : ''
+  if (clipPathEl) {
+    if (d) clipPathEl.setAttribute('d', d)
+    else clipPathEl.removeAttribute('d')
+  }
 }
 
 export function useFlowSurfaceMask() {

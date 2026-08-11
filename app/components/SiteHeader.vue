@@ -232,7 +232,7 @@ onUnmounted(() => {
     :class="{ 'header-chip--scrolled': scrolled }"
     aria-label="Открыть меню"
   >
-    <span>меню</span>
+    <span class="menu-fab-label">меню</span>
     <span class="flex gap-1" aria-hidden="true">
       <span class="size-1 rounded-full bg-ink" />
       <span class="size-1 rounded-full bg-ink" />
@@ -299,20 +299,28 @@ onUnmounted(() => {
 }
 
 .menu-fab {
-  /* Thumb zone: inset from layout edge + home indicator */
-  right: calc(var(--layout-margin) + var(--safe-right));
-  bottom: calc(var(--layout-margin) + var(--safe-bottom));
+  /* Thumb zone: 2× layout margin (margin itself is tight on mobile). */
+  right: calc(2 * var(--layout-margin) + var(--safe-right));
+  bottom: calc(2 * var(--layout-margin) + var(--safe-bottom));
   margin: 0;
   /* Always visible underlay + pill radius (near-circular ends). */
   border-radius: 9999px;
   padding: 10px 16px;
-  background-color: color-mix(in srgb, var(--palette-sand) 88%, transparent);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .menu-fab.header-chip--scrolled {
-  background-color: color-mix(in srgb, var(--palette-sand) 92%, transparent);
+  background-color: color-mix(in srgb, var(--palette-sand) 80%, transparent);
+  /* Keep blur — global mobile .header-chip--scrolled turns it off. */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.menu-fab-label {
+  /* Optical vertical center — raw metrics sit a hair low. */
+  transform: translateY(-2px);
 }
 
 .site-nav {

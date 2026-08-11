@@ -2,7 +2,7 @@
 /* Control widths: 390 → 768 → 1280 → 1440 → 1920 → 2560. Soft continue through 2560px. */
 
 :root {
-  --layout-margin: clamp(16px, calc(7.7460px + 2.1164vw), 24px);
+  --layout-margin: clamp(8px, calc(-8.5079px + 4.2328vw), 24px);
   --layout-gutter: clamp(16px, calc(7.7460px + 2.1164vw), 24px);
   --layout-content-max: clamp(390px, calc(49.5238px + 87.3016vw), 720px);
   --layout-header-content: clamp(32px, calc(23.7460px + 2.1164vw), 40px);
@@ -102,6 +102,8 @@
     (var(--layout-content) - (var(--layout-columns) - 1) * var(--layout-gutter))
     / var(--layout-columns)
   );
+  /* Mobile copy/section inset — 3× edge margin; desktop = base margin. */
+  --layout-margin-content: calc(3 * var(--layout-margin));
   --layout-span-1: var(--layout-column);
   --layout-span-2: calc(2 * var(--layout-column) + 1 * var(--layout-gutter));
   --layout-span-3: calc(3 * var(--layout-column) + 2 * var(--layout-gutter));
@@ -114,6 +116,12 @@
   --layout-span-10: calc(10 * var(--layout-column) + 9 * var(--layout-gutter));
   --layout-span-11: calc(11 * var(--layout-column) + 10 * var(--layout-gutter));
   --layout-span-12: calc(12 * var(--layout-column) + 11 * var(--layout-gutter));
+}
+
+@media (min-width: 768px) {
+  :root {
+    --layout-margin-content: var(--layout-margin);
+  }
 }
 
 /* Header ↔ hero: header-inset above/below logo; sides stay layout-margin */

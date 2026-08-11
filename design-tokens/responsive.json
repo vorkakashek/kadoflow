@@ -10,7 +10,7 @@
     "columns": 12
   },
   "tokens": {
-    "layout.margin": [16, 24, 32, 40, 48, 56],
+    "layout.margin": [8, 24, 32, 40, 48, 56],
     "layout.gutter": [16, 24, 32, 40, 48, 56],
     "layout.content-max": [390, 720, 1200, 1360, 1800, 2400],
     "layout.header-content": [32, 40, 48, 48, 48, 48],

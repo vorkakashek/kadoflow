@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { flowSurfaceMask, registerFlowSurfacePathFlush } from '~/composables/useFlowSurfaceMask'
+import {
+  FLOW_SURFACE_CLIP_CSS,
+  flowSurfaceMask,
+  publishFlowSurfacePath,
+  registerFlowSurfacePathFlush,
+} from '~/composables/useFlowSurfaceMask'
 import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
 
 /**
@@ -8,6 +13,9 @@ import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/m
  * when `flowSurfaceMask.pointerInteractive` is true (hero rest only).
  * Hover also pulls edge samples 15% toward fillet corners (and lets bend reach
  * 15% closer to those corners via a shorter fade).
+ *
+ * Silhouette = shared SVG <clipPath> (url(#flow-surface-clip)).
+ * Hero visuals mount in the default slot (inside this clip).
  */
 const props = withDefaults(
   defineProps<{
@@ -49,10 +57,8 @@ function applyClipToDom(clip: string) {
 
 function setMaskPath(d: string) {
   if (d) pathD.value = d
-  flowSurfaceMask.path = d
-  const clip = d ? `path('${d}')` : ''
-  flowSurfaceMask.clipPath = clip
-  applyClipToDom(clip)
+  publishFlowSurfacePath(d)
+  applyClipToDom(flowSurfaceMask.clipPath || (d ? FLOW_SURFACE_CLIP_CSS : ''))
 }
 
 /** viewBox basis — frozen during mobile morph so the path stretches with the box. */
@@ -136,10 +142,6 @@ type BendAmp = {
 let animStart = 0
 /** Roam phase frozen while host owns morph — path only tracks box size. */
 let frozenRoamT = 0
-/** Mobile morph stretch: keep one path, scale via viewBox ≠ size. */
-let stretchMorph = false
-/** Frozen path d for SVG during stretch; CSS clip gets a scaled copy. */
-let stretchPathD = ''
 
 function bendAmpFor(w: number, h: number): BendAmp {
   const scale = Math.min(1, Math.max(BEND_SCALE_FLOOR, Math.min(w, h) / BEND_REF_MIN))
@@ -422,8 +424,12 @@ function pinEdgeEnds(pts: Pt[], a: Pt, b: Pt) {
   }
 }
 
-function buildPath(w: number, h: number, topBleed = 0, t = 0) {
+function buildPath(w: number, h: number, topBleed = 0, t = 0, live = true) {
   const amp = bendAmpFor(w, h)
+  if (!live) {
+    amp.roamDent = 0
+    amp.pointerDent = 0
+  }
   const r = Math.min(RADIUS * Math.max(0.55, amp.scale), w / 2, h / 2)
   const convex = Math.min(
     amp.convex,
@@ -524,34 +530,7 @@ function publish(
 
   if (w < 2 || h < 2) return
 
-  const morph = flowSurfaceMask.morph
   const interactive = flowSurfaceMask.pointerInteractive
-  const mobile = isNarrowViewport() || isCoarsePointer()
-  const midMorph = !interactive && morph > 0.02 && morph < 0.98
-
-  // Mobile morph: freeze silhouette. Host scales the frame via CSS transform —
-  // do NOT rewrite path coords (that desyncs window clip from the basis box).
-  if (mobile && midMorph) {
-    if (!stretchMorph) {
-      stretchMorph = true
-      pathView.w = size.w > 1 ? size.w : w
-      pathView.h = size.h > 1 ? size.h : h
-      stretchPathD = pathD.value
-    }
-    size.w = w
-    size.h = h
-    flowSurfaceMask.top = top
-    flowSurfaceMask.left = left
-    flowSurfaceMask.width = w
-    flowSurfaceMask.height = h
-    flowSurfaceMask.openTopPath = ''
-    const frozen = stretchPathD || pathD.value
-    if (frozen) setMaskPath(frozen)
-    return
-  }
-
-  stretchMorph = false
-  stretchPathD = ''
 
   // Path is local to the box — if only the box moved, keep the same d.
   if (
@@ -567,21 +546,40 @@ function publish(
     return
   }
 
+  const sizeChanged =
+    Math.abs(w - size.w) >= 0.5
+    || Math.abs(h - size.h) >= 0.5
+
   size.w = w
   size.h = h
   pathView.w = w
   pathView.h = h
 
+  // Frozen silhouette while hero WebGL is live — no per-frame path churn.
+  const liveEdge = interactive && !flowSurfaceMask.freezeSilhouette
   let roamT = t
-  if (interactive) {
+  if (liveEdge) {
     frozenRoamT = t
   } else {
     roamT = frozenRoamT
   }
 
-  const fill = buildPath(w, h, 0, roamT)
+  // Size unchanged + frozen → keep existing d (don't rebuild every host paint).
+  if (
+    flowSurfaceMask.freezeSilhouette
+    && pathD.value
+    && !sizeChanged
+  ) {
+    flowSurfaceMask.openTopPath = ''
+    flowSurfaceMask.width = w
+    flowSurfaceMask.height = h
+    flowSurfaceMask.top = top
+    flowSurfaceMask.left = left
+    return
+  }
+
+  const fill = buildPath(w, h, 0, roamT, liveEdge)
   pathD.value = fill
-  // Width/height BEFORE path — watchers that freeze hero clip read size with the path.
   flowSurfaceMask.openTopPath = ''
   flowSurfaceMask.width = w
   flowSurfaceMask.height = h
@@ -595,7 +593,7 @@ function tick(now: number) {
 
   // Host owns path during morph / kado rest — continuous rebuild here doubles
   // CPU and heats phones. Roam dent only runs at hero rest.
-  if (!flowSurfaceMask.pointerInteractive) {
+  if (!flowSurfaceMask.pointerInteractive || flowSurfaceMask.freezeSilhouette) {
     pointer = null
     softPointer.str = 0
     return
@@ -616,7 +614,15 @@ function tick(now: number) {
 
 function ensureLoop() {
   // Touch UI: static edges — no per-frame path rebuild for roam/pointer.
-  if (isTouchUi()) return
+  // Also skip while hero content forces a frozen silhouette.
+  if (
+    isAppleTouchDevice()
+    || isNarrowViewport()
+    || isCoarsePointer()
+    || flowSurfaceMask.freezeSilhouette
+  ) {
+    return
+  }
   if (!flowSurfaceMask.pointerInteractive) return
   if (!raf) raf = requestAnimationFrame(tick)
 }
@@ -775,7 +781,8 @@ onUnmounted(() => {
           willChange: 'background-position',
         }"
       />
-      <div class="pointer-events-none absolute inset-0 z-10 min-h-0">
+      <!-- Hero stage slots here — same clip-path as stone/grain. -->
+      <div class="pointer-events-none absolute inset-0 z-10 min-h-0 overflow-visible">
         <slot />
       </div>
     </div>
