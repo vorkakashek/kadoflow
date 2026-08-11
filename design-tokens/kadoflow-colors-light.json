@@ -1,0 +1,229 @@
+{
+  "palette": {
+    "$description": "Kadoflow base color palette",
+    "milk": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.9607843137254902, 0.9450980392156862, 0.9098039215686274],
+        "alpha": 1,
+        "hex": "#F5F1E8"
+      }
+    },
+    "porcelain": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.984313725490196, 0.9725490196078431, 0.9490196078431372],
+        "alpha": 1,
+        "hex": "#FBF8F2"
+      }
+    },
+    "sand": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.9254901960784314, 0.9058823529411765, 0.8666666666666667],
+        "alpha": 1,
+        "hex": "#ECE7DD"
+      }
+    },
+    "ink": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.09019607843137255, 0.09803921568627451, 0.08235294117647059],
+        "alpha": 1,
+        "hex": "#171915"
+      }
+    },
+    "ash": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.4, 0.41568627450980394, 0.3803921568627451],
+        "alpha": 1,
+        "hex": "#666A61"
+      }
+    },
+    "stone": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.8470588235294118, 0.8235294117647058, 0.7764705882352941],
+        "alpha": 1,
+        "hex": "#D8D2C6"
+      }
+    },
+    "moss": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.3764705882352941, 0.4392156862745098, 0.3215686274509804],
+        "alpha": 1,
+        "hex": "#607052"
+      }
+    },
+    "forest": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.28627450980392155, 0.3411764705882353, 0.24705882352941178],
+        "alpha": 1,
+        "hex": "#49573F"
+      }
+    },
+    "mist": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.8431372549019608, 0.8745098039215686, 0.8],
+        "alpha": 1,
+        "hex": "#D7DFCC"
+      }
+    },
+    "dark-muted": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.7176470588235294, 0.7254901960784313, 0.6941176470588235],
+        "alpha": 1,
+        "hex": "#B7B9B1"
+      }
+    },
+    "dark-accent": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.6588235294117647, 0.7372549019607844, 0.5803921568627451],
+        "alpha": 1,
+        "hex": "#A8BC94"
+      }
+    },
+    "dark-line": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.20392156862745098, 0.21568627450980393, 0.18823529411764706],
+        "alpha": 1,
+        "hex": "#343730"
+      }
+    }
+  },
+  "semantic": {
+    "$description": "Kadoflow semantic colors for the Light mode",
+    "background": {
+      "canvas": {
+        "$type": "color",
+        "$value": "{palette.milk}"
+      },
+      "surface": {
+        "$type": "color",
+        "$value": "{palette.porcelain}"
+      },
+      "subtle": {
+        "$type": "color",
+        "$value": "{palette.sand}"
+      },
+      "inverse": {
+        "$type": "color",
+        "$value": "{palette.ink}"
+      }
+    },
+    "text": {
+      "primary": {
+        "$type": "color",
+        "$value": "{palette.ink}"
+      },
+      "secondary": {
+        "$type": "color",
+        "$value": "{palette.ash}"
+      },
+      "inverse": {
+        "$type": "color",
+        "$value": "{palette.milk}"
+      }
+    },
+    "border": {
+      "default": {
+        "$type": "color",
+        "$value": "{palette.stone}"
+      },
+      "inverse": {
+        "$type": "color",
+        "$value": "{palette.dark-line}"
+      }
+    },
+    "accent": {
+      "primary": {
+        "$type": "color",
+        "$value": "{palette.moss}"
+      },
+      "hover": {
+        "$type": "color",
+        "$value": "{palette.forest}"
+      },
+      "soft": {
+        "$type": "color",
+        "$value": "{palette.mist}"
+      }
+    }
+  },
+  "project": {
+    "$description": "Optional accents owned by individual Kadoflow projects",
+    "electric-blue": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.19215686274509805, 0.3607843137254902, 1],
+        "alpha": 1,
+        "hex": "#315CFF"
+      }
+    },
+    "coral": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 0.35294117647058826, 0.23921568627450981],
+        "alpha": 1,
+        "hex": "#FF5A3D"
+      }
+    },
+    "acid-lime": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.7843137254901961, 0.9607843137254902, 0.23921568627450981],
+        "alpha": 1,
+        "hex": "#C8F53D"
+      }
+    },
+    "violet": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0.47843137254901963, 0.3607843137254902, 1],
+        "alpha": 1,
+        "hex": "#7A5CFF"
+      }
+    },
+    "sun": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [1, 0.7098039215686275, 0.1803921568627451],
+        "alpha": 1,
+        "hex": "#FFB52E"
+      }
+    },
+    "cyan": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [0, 0.6862745098039216, 0.7686274509803922],
+        "alpha": 1,
+        "hex": "#00AFC4"
+      }
+    }
+  }
+}

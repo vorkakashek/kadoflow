@@ -1,0 +1,19 @@
+---
+description: Performance-first priority for Kadoflow / studio sites
+alwaysApply: true
+---
+
+# Performance first
+
+For this project (and sites built in this studio style), **performance is the top priority**.
+
+- Target **maximum sustainable FPS** and buttery scroll/animation — prefer 60fps (or device refresh) under real mobile Safari/Chrome, not only desktop.
+- When trade-offs appear (visual richness vs smoothness), **choose smoothness** unless the user explicitly accepts a cost.
+- Avoid known compositor killers unless replaced with a cheaper equivalent:
+  - SVG `feTurbulence` / heavy SVG filters on large surfaces (confirmed: alone can drop iOS ~60→24) — use tiling noise texture instead
+  - Stacking live WebGL + heavy DOM morph + scrubbed filters in the same frame
+- Prefer **baked / static assets** (tiling noise PNG/WebP, precomputed paths, instancing) over procedural per-frame work.
+- **Grain/noise is a global concern**, not an iOS-only patch: fix the technique for all platforms (e.g. texture overlay), don’t leave `feTurbulence` as the canonical approach.
+- Organic `clip-path: path(...)` is allowed when the grain path is cheap; don’t re-disable it as an iOS-only shortcut without measuring.
+- Profile on real devices; desktop FPS is not proof. A/B expensive effects one at a time.
+- Do not reintroduce disabled expensive effects “for beauty” without an explicit user request and a measured plan.

@@ -1,0 +1,28 @@
+{
+  "$description": "Kadoflow piecewise fluid on an 8dp base. Control-point values are multiples of 8 (layout/space) or 4 (type half-step). Between viewports clamp() interpolates freely. Soft decelerating continue after 1440 → 1920 → 2560. Column width is derived in CSS. Surface-top = 2×header-inset + header-content.",
+  "viewports": [390, 768, 1280, 1440, 1920, 2560],
+  "scale": {
+    "space": 8,
+    "type": 4,
+    "note": "Space/layout control points snap to 8. Type snaps to 4 (half of 8). Radius may use 4."
+  },
+  "grid": {
+    "columns": 12
+  },
+  "tokens": {
+    "layout.margin": [16, 24, 32, 40, 48, 56],
+    "layout.gutter": [16, 24, 32, 40, 48, 56],
+    "layout.content-max": [390, 720, 1200, 1360, 1800, 2400],
+    "layout.header-content": [32, 40, 48, 48, 48, 48],
+    "layout.header-inset": [16, 16, 24, 32, 40, 48],
+    "space.section": [80, 112, 160, 200, 224, 240],
+    "space.block": [32, 48, 64, 80, 88, 96],
+    "type.body": [16, 16, 20, 20, 20, 20],
+    "type.lead": [20, 20, 24, 24, 28, 28],
+    "type.nav": [16, 16, 20, 20, 20, 20],
+    "type.slogan": [20, 20, 28, 32, 40, 40],
+    "type.display": [40, 48, 64, 72, 80, 80],
+    "type.hero": [32, 40, 64, 72, 80, 88],
+    "radius.surface": [4, 4, 4, 4, 4, 4]
+  }
+}

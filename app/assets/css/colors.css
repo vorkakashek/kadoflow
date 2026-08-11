@@ -1,0 +1,18 @@
+/* Kadoflow color tokens — mapped from design-tokens/kadoflow-colors-light.json */
+
+:root {
+  --palette-milk: #f5f1e8;
+  --palette-porcelain: #fbf8f2;
+  --palette-sand: #ece7dd;
+  --palette-ink: #171915;
+  --palette-ash: #666a61;
+  --palette-stone: #d8d2c6;
+  --palette-moss: #607052;
+  --palette-forest: #49573f;
+
+  --semantic-bg-page: var(--palette-sand);
+  --semantic-bg-surface: var(--palette-stone);
+  --semantic-text-primary: var(--palette-ink);
+  --semantic-text-secondary: var(--palette-ash);
+  --semantic-text-inverse: var(--palette-milk);
+}
