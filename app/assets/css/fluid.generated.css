@@ -124,7 +124,16 @@
   }
 }
 
-/* Header ↔ hero: header-inset above/below logo; sides stay layout-margin */
+/* Header ↔ hero: surface-top tracks header chrome (mobile logo −20%, inset −15%). */
 :root {
-  --layout-surface-top: calc(2 * var(--layout-header-inset) + var(--layout-header-content));
+  --layout-surface-top: calc(
+    2 * var(--layout-header-inset) * 0.85
+    + var(--layout-header-content) * 0.8
+  );
+}
+
+@media (min-width: 768px) {
+  :root {
+    --layout-surface-top: calc(2 * var(--layout-header-inset) + var(--layout-header-content));
+  }
 }

@@ -37,17 +37,24 @@ const CAMERA_Z = 8.82
  */
 const CAMERA_ZOOM_COMPACT = 2.25
 /** Soft spring back to the moving seat on the ring. */
-const RETURN = 0.00004
+const RETURN = 0.000022
 const DAMPING = 0.982
-const CURSOR_FORCE = 0.014
-/** Single impulse scale (one knock per enter while moving). */
-const CURSOR_IMPULSE = 1.85
+/** Base cursor push (continuous while near). */
+const CURSOR_FORCE = 0.004
+/** Extra scale on the first enter knock. */
+const CURSOR_IMPULSE = 1.3
+/** Ongoing push while the cursor stays over / sweeps through a ball. */
+const CURSOR_HOLD = 0.32
 /** Extra hit padding around projected ball radius (px). */
-const CURSOR_HIT_PAD_PX = 56
-/** Min pointer travel per event (px) to count as a swipe. */
-const CURSOR_SPEED_MIN_PX = 2.5
+const CURSOR_HIT_PAD_PX = 36
+/** Screen-radius scale vs projected ball (1 = silhouette). */
+const CURSOR_HIT_SCALE = 1.12
+/** Min pointer travel per event (px) to count as a strong swipe. */
+const CURSOR_SPEED_MIN_PX = 0.6
+/** Even slow cursor still applies a fraction of hold force. */
+const CURSOR_IDLE_HOLD = 0.14
 const SEPARATION_PAD = 0.03
-const SEPARATION_FORCE = 0.03
+const SEPARATION_FORCE = 0.01
 /** Ring radius in ball-radius units. Sized so 32 seats barely kiss, not explode. */
 const RING_RADIUS_SCALE = 7.2
 /** Mobile: tighter bagel so 6 balls read as a cluster, not a wide ring. */
@@ -66,11 +73,19 @@ const MEDIA_DIVE_VH = 0.6
 const MOBILE_ANCHOR_SURFACE_Y = -0.4
 const MAX_SPEED = 0.26
 const SOFT_BOUND_SCALE = 12.5
+/**
+ * Soft leash from the moving orbit seat (× ball radius).
+ * Past this offset a spring pulls back — no hard clamp / velocity kill
+ * (those fought cursor push every frame and felt dead).
+ */
+const ORBIT_LEASH = 2.6
+/** Extra return strength when stretched past ORBIT_LEASH (× overshoot / leash). */
+const ORBIT_LEASH_SPRING = 0.0001
 /** Radians per ms along the ring path. */
-const ORBIT_SPEED = 0.00028
+const ORBIT_SPEED = 0.0001792
 /** Slow drift of the ring plane orientation (radians per ms). */
 const RING_TILT_SPEED = 0.000018
-/** Beyond this distance from seat, return spring softens further. */
+/** Beyond this distance from seat, base return spring softens further. */
 const RETURN_SOFT_DIST = 0.55
 /** Tiny idle wander off the orbit. */
 const CHAOS_IDLE = 0.000018
@@ -120,6 +135,7 @@ let balls: Ball[] = []
 let loopRunning = false
 let lastFrame = 0
 let runFrame: ((now: number) => void) | null = null
+let forceResize: (() => void) | null = null
 
 function stopLoop() {
   if (animationId) {
@@ -139,8 +155,13 @@ function startLoop() {
 watch(
   () => props.active,
   (on) => {
-    if (on) startLoop()
-    else stopLoop()
+    if (on) {
+      // Host may have been 0×0 while morph wrongly hid the stage — force a resize pass.
+      forceResize?.()
+      startLoop()
+    } else {
+      stopLoop()
+    }
   },
 )
 
@@ -217,15 +238,18 @@ onMounted(async () => {
   renderer.toneMappingExposure = 0.92
   renderer.sortObjects = true
   host.appendChild(renderer.domElement)
-  // Canvas defaults to pointer-events:auto — even under a PE:none host it can
-  // steal iOS touch and fight document scroll (hero section is PE:none → hole).
+  // Mobile: PE none so iOS scroll isn’t stolen by the canvas.
+  // Desktop: keep auto so cursor knocks reach the host listeners.
   if (lite) {
     host.style.pointerEvents = 'none'
     host.style.cursor = 'default'
     renderer.domElement.style.pointerEvents = 'none'
     renderer.domElement.style.touchAction = 'pan-y'
   } else {
-    renderer.domElement.style.touchAction = 'pan-y'
+    host.style.pointerEvents = 'auto'
+    host.style.cursor = 'grab'
+    renderer.domElement.style.pointerEvents = 'auto'
+    renderer.domElement.style.touchAction = 'none'
   }
 
   // HDRI — mobile uses the smaller 1k warm studio.
@@ -390,12 +414,16 @@ onMounted(async () => {
   let pointerActive = false
   let pointerSampled = false
   let pointerSpeedPx = 0
+  let pointerIdleTimer = 0
+  const POINTER_IDLE_MS = 280
   const size = { w: 1, h: 1 }
   const tmp = new THREE.Vector3()
   const push = new THREE.Vector3()
   const seat = new THREE.Vector3()
   const seatPull = new THREE.Vector3()
   const local = new THREE.Vector3()
+  const camRight = new THREE.Vector3()
+  const camUp = new THREE.Vector3()
   let lastBallRadius = 0
   let settleLeft = SETTLE_MS
 
@@ -521,37 +549,104 @@ onMounted(async () => {
   }
 
   const onPointerMove = (event: PointerEvent) => {
+    if (event.pointerType !== 'mouse') return
+    if (
+      event.clientX < 0
+      || event.clientY < 0
+      || event.clientX > window.innerWidth
+      || event.clientY > window.innerHeight
+    ) {
+      onPointerLeave()
+      return
+    }
+    const rect = host.getBoundingClientRect()
+    // Small pad so edge balls still get hits when the cursor grazes the mask.
+    const pad = 48
+    if (
+      event.clientX < rect.left - pad
+      || event.clientX > rect.right + pad
+      || event.clientY < rect.top - pad
+      || event.clientY > rect.bottom + pad
+    ) {
+      if (pointerActive) onPointerLeave()
+      return
+    }
     pointerActive = true
     clientToWorld(event.clientX, event.clientY)
+    bumpPointerIdle()
   }
   const onPointerDown = (event: PointerEvent) => {
+    if (event.pointerType !== 'mouse') return
+    const rect = host.getBoundingClientRect()
+    if (
+      event.clientX < rect.left
+      || event.clientX > rect.right
+      || event.clientY < rect.top
+      || event.clientY > rect.bottom
+    ) {
+      return
+    }
     pointerActive = true
     pointerSampled = false
     pointerSpeedPx = 0
     clientToWorld(event.clientX, event.clientY)
+    bumpPointerIdle()
   }
   const onPointerLeave = () => {
     pointerActive = false
     pointerSampled = false
     pointerVel.set(0, 0, 0)
     pointerSpeedPx = 0
+    if (pointerIdleTimer) {
+      window.clearTimeout(pointerIdleTimer)
+      pointerIdleTimer = 0
+    }
     for (const ball of balls) ball.pointerInside = false
+  }
+  const bumpPointerIdle = () => {
+    if (pointerIdleTimer) window.clearTimeout(pointerIdleTimer)
+    pointerIdleTimer = window.setTimeout(() => {
+      pointerIdleTimer = 0
+      onPointerLeave()
+    }, POINTER_IDLE_MS)
   }
 
   if (!lite) {
-    host.addEventListener('pointermove', onPointerMove, { passive: true })
-    host.addEventListener('pointerdown', onPointerDown, { passive: true })
-    host.addEventListener('pointerleave', onPointerLeave)
-    host.addEventListener('pointercancel', onPointerLeave)
+    // Window-level: swarm sits under PE-none stacks; host-only listeners miss hits.
+    const onWindowBlur = () => onPointerLeave()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') onPointerLeave()
+    }
+    const onDocumentMouseOut = (e: MouseEvent) => {
+      const to = e.relatedTarget as Node | null
+      if (!to || !document.documentElement.contains(to)) onPointerLeave()
+    }
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    window.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('pointerleave', onPointerLeave)
+    window.addEventListener('blur', onWindowBlur)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    document.addEventListener('mouseout', onDocumentMouseOut, { passive: true })
     removePointerListeners = () => {
-      host.removeEventListener('pointermove', onPointerMove)
-      host.removeEventListener('pointerdown', onPointerDown)
-      host.removeEventListener('pointerleave', onPointerLeave)
-      host.removeEventListener('pointercancel', onPointerLeave)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerleave', onPointerLeave)
+      window.removeEventListener('blur', onWindowBlur)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      document.removeEventListener('mouseout', onDocumentMouseOut)
+      if (pointerIdleTimer) {
+        window.clearTimeout(pointerIdleTimer)
+        pointerIdleTimer = 0
+      }
     }
   }
 
   syncCamera()
+  forceResize = () => {
+    size.w = 0
+    size.h = 0
+    syncCamera()
+  }
   resizeObserver = new ResizeObserver(syncCamera)
   resizeObserver.observe(host)
 
@@ -643,12 +738,19 @@ onMounted(async () => {
 
       seatPull.copy(seat).sub(ball.position)
       const distToSeat = seatPull.length()
+      const orbitLeash = ball.radius * ORBIT_LEASH
       let returnForce = RETURN
       if (distToSeat > RETURN_SOFT_DIST * ball.radius) {
         returnForce *= 0.28
       }
+      // Spring leash stays full-strength even while hover softens base return.
+      let leashSpring = 0
+      if (distToSeat > orbitLeash) {
+        const stretch = (distToSeat - orbitLeash) / orbitLeash
+        leashSpring = ORBIT_LEASH_SPRING * stretch
+      }
 
-      // Screen-space hit for ALL balls — knock on enter while cursor is moving
+      // Screen-space hit — enter knock + continuous hold while the cursor is near.
       let near = false
       tmp.copy(ball.position).project(camera)
       if (pointerActive && tmp.z < 1 && tmp.z > -1) {
@@ -659,49 +761,51 @@ onMounted(async () => {
         const screenRadius =
           ((ball.radius / Math.max(ballCamDist, 0.001)) / tanHalfFov) *
             halfH *
-            1.35 +
+            CURSOR_HIT_SCALE +
           CURSOR_HIT_PAD_PX
         near = pixelDist < screenRadius
 
-        if (cursorMoving && near && !ball.pointerInside) {
-          returnForce *= 0.02
+        if (near) {
           const falloff = 1 - pixelDist / Math.max(screenRadius, 1)
-          const strength =
-            CURSOR_FORCE *
-            CURSOR_IMPULSE *
-            (0.45 + 0.55 * falloff) *
-            Math.min(Math.max(pointerSpeedPx, CURSOR_SPEED_MIN_PX) / 8, 2.2)
+          const entering = cursorMoving && !ball.pointerInside
+          const moving = cursorMoving || pointerSpeedPx >= CURSOR_SPEED_MIN_PX
+          returnForce *= entering ? 0.02 : moving ? 0.08 : 0.22
 
-          if (pointerVel.lengthSq() > 1e-8) {
-            push.copy(pointerVel).normalize().multiplyScalar(strength)
-          } else {
-            local.set(1, 0, 0).applyQuaternion(camera.quaternion)
-            push.set(0, 1, 0).applyQuaternion(camera.quaternion)
-            const upX = push.x
-            const upY = push.y
-            const upZ = push.z
-            push
-              .copy(local)
-              .multiplyScalar(pointerNdc.x - pointerNdcPrev.x)
-              .addScaledVector(
-                local.set(upX, upY, upZ),
-                pointerNdc.y - pointerNdcPrev.y,
-              )
-            if (push.lengthSq() > 1e-10) {
-              push.normalize().multiplyScalar(strength)
+          const speedMul = Math.min(
+            0.75 + Math.max(pointerSpeedPx, CURSOR_SPEED_MIN_PX) / 6,
+            2.2,
+          )
+
+          let strength =
+            CURSOR_FORCE * (0.4 + 0.6 * falloff) * speedMul
+          if (entering) strength *= CURSOR_IMPULSE
+          else if (moving) strength *= CURSOR_HOLD
+          else strength *= CURSOR_IDLE_HOLD
+
+          if (strength > 1e-8) {
+            if (pointerVel.lengthSq() > 1e-8) {
+              push.copy(pointerVel).normalize().multiplyScalar(strength)
             } else {
+              const awayX = tmp.x - pointerNdc.x
+              const awayY = tmp.y - pointerNdc.y
+              const awayLen = Math.hypot(awayX, awayY) || 1
+              camRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
+              camUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
               push
-                .copy(ball.position)
-                .sub(camera.position)
-                .setLength(strength)
+                .copy(camRight)
+                .multiplyScalar((awayX / awayLen) * strength)
+                .addScaledVector(camUp, (awayY / awayLen) * strength)
+              if (push.lengthSq() < 1e-10) {
+                push.copy(ball.position).sub(pointer).setLength(strength)
+              }
             }
+            ball.velocity.add(push)
           }
-          ball.velocity.add(push)
         }
       }
       ball.pointerInside = near
 
-      ball.velocity.addScaledVector(seatPull, returnForce * step)
+      ball.velocity.addScaledVector(seatPull, (returnForce + leashSpring) * step)
 
       for (let j = i + 1; j < balls.length; j++) {
         const other = balls[j]
@@ -724,11 +828,11 @@ onMounted(async () => {
       if (speed > MAX_SPEED) ball.velocity.multiplyScalar(MAX_SPEED / speed)
       ball.position.addScaledVector(ball.velocity, 1)
 
-      // Soft leash around ring center — orbit path itself never moves
+      // Absolute safety around ring center — never let a ball reach the scene edge.
       tmp.copy(ball.position).sub(anchor)
-      const leash = tmp.length()
-      if (leash > softBound) {
-        tmp.multiplyScalar(softBound / leash)
+      const fromAnchor = tmp.length()
+      if (fromAnchor > softBound) {
+        tmp.multiplyScalar(softBound / fromAnchor)
         ball.position.copy(anchor).add(tmp)
         ball.velocity.multiplyScalar(0.8)
       }
@@ -737,8 +841,8 @@ onMounted(async () => {
     }
 
     // Decay swipe speed so a stopped cursor ends the stroke
-    pointerSpeedPx *= 0.78
-    pointerVel.multiplyScalar(0.82)
+    pointerSpeedPx *= 0.88
+    pointerVel.multiplyScalar(0.88)
 
     renderer.render(scene, camera)
   }
@@ -751,6 +855,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopLoop()
   runFrame = null
+  forceResize = null
   resizeObserver?.disconnect()
   removePointerListeners?.()
   removeScrollPause?.()

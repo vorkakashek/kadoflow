@@ -10,6 +10,8 @@ const links = [
 const scrolled = ref(false)
 const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
+/** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
+const fabBottomExtra = ref(0)
 
 /** Wait before collapse so a tiny nudge doesn’t snap the bar */
 const COLLAPSE_DELAY_MS = 220
@@ -55,6 +57,10 @@ function layoutMetrics() {
   const collapse = scrolled.value && canCollapseHeader()
   /** Offset to column 2 on a 12-col track of width `collapsed` */
   const sidePad = collapse ? (collapsed + gutter) / 12 : 0
+  /** Mobile: tighten vertical logo insets ~15%. */
+  const mobile = !canCollapseHeader()
+  const insetY = mobile ? inset * 0.85 : inset
+  const logoH = mobile ? headerContent * 0.8 : headerContent
 
   return {
     expanded,
@@ -63,8 +69,9 @@ function layoutMetrics() {
     sidePad,
     height: collapse
       ? inset * 0.5 + headerContent + inset
-      : inset * 2 + headerContent,
-    paddingTop: collapse ? inset * 0.5 : inset,
+      : insetY * 2 + logoH,
+    paddingTop: collapse ? inset * 0.5 : insetY,
+    paddingBottom: collapse ? inset : insetY,
   }
 }
 
@@ -73,12 +80,14 @@ function applyBox(
   width: number,
   height: number,
   paddingTop: number,
+  paddingBottom: number,
   sidePad: number,
 ) {
   bar.style.width = `${width}px`
   bar.style.maxWidth = '100%'
   bar.style.height = `${height}px`
   bar.style.paddingTop = `${paddingTop}px`
+  bar.style.paddingBottom = `${paddingBottom}px`
   bar.style.paddingLeft = `${sidePad}px`
   bar.style.paddingRight = `${sidePad}px`
 }
@@ -94,7 +103,7 @@ async function morph(animate: boolean) {
 
   if (!animate) {
     if (gsapMod) gsapMod.killTweensOf(bar)
-    applyBox(bar, width, m.height, m.paddingTop, m.sidePad)
+    applyBox(bar, width, m.height, m.paddingTop, m.paddingBottom, m.sidePad)
     return
   }
 
@@ -103,6 +112,7 @@ async function morph(animate: boolean) {
     width,
     height: m.height,
     paddingTop: m.paddingTop,
+    paddingBottom: m.paddingBottom,
     paddingLeft: m.sidePad,
     paddingRight: m.sidePad,
     duration: ANIM_DURATION,
@@ -142,17 +152,39 @@ function onResize() {
   void morph(false)
 }
 
+/**
+ * Keep the FAB’s visible bottom inset equal to the right inset.
+ * iOS/Android chrome show/hide changes visualViewport vs layout viewport —
+ * plain `bottom: …` then drifts while `right` stays correct.
+ */
+function syncFabViewport() {
+  const vv = window.visualViewport
+  if (!vv) {
+    fabBottomExtra.value = 0
+    return
+  }
+  fabBottomExtra.value = Math.max(
+    0,
+    window.innerHeight - vv.offsetTop - vv.height,
+  )
+}
+
 onMounted(() => {
   void morph(false)
   onScroll()
+  syncFabViewport()
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', onResize, { passive: true })
+  window.visualViewport?.addEventListener('resize', syncFabViewport)
+  window.visualViewport?.addEventListener('scroll', syncFabViewport)
 })
 
 onUnmounted(() => {
   if (collapseTimer) window.clearTimeout(collapseTimer)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onResize)
+  window.visualViewport?.removeEventListener('resize', syncFabViewport)
+  window.visualViewport?.removeEventListener('scroll', syncFabViewport)
   if (barEl.value && gsapMod) gsapMod.killTweensOf(barEl.value)
 })
 </script>
@@ -173,7 +205,6 @@ onUnmounted(() => {
         class="header-bar pointer-events-auto mx-auto grid max-w-full items-center"
         :class="{ 'header-bar--scrolled': scrolled }"
         :style="{
-          paddingBottom: 'var(--layout-header-inset)',
           gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
           columnGap: 'var(--layout-gutter)',
         }"
@@ -225,11 +256,14 @@ onUnmounted(() => {
     </div>
   </header>
 
-  <!-- Mobile thumb-zone menu — fixed to layout viewport + safe-area (not dvh). -->
+  <!-- Mobile thumb-zone menu — pinned to visual viewport bottom (matches right inset). -->
   <button
     type="button"
     class="menu-fab header-chip site-nav pointer-events-auto fixed z-40 flex items-center gap-2 text-ink md:hidden"
     :class="{ 'header-chip--scrolled': scrolled }"
+    :style="{
+      bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom))`,
+    }"
     aria-label="Открыть меню"
   >
     <span class="menu-fab-label">меню</span>
@@ -255,6 +289,12 @@ onUnmounted(() => {
   height: var(--layout-header-content);
   /* Beat global `img { max-width: 100% }` so the mark doesn’t shrink in a grid col */
   max-width: none;
+}
+
+@media (max-width: 767px) {
+  .header-logo {
+    height: calc(var(--layout-header-content) * 0.8);
+  }
 }
 
 .header-chip {
@@ -301,7 +341,7 @@ onUnmounted(() => {
 .menu-fab {
   /* Thumb zone: 2× layout margin (margin itself is tight on mobile). */
   right: calc(2 * var(--layout-margin) + var(--safe-right));
-  bottom: calc(2 * var(--layout-margin) + var(--safe-bottom));
+  /* `bottom` set inline from visualViewport so chrome hide/show keeps the same edge gap as `right`. */
   margin: 0;
   /* Always visible underlay + pill radius (near-circular ends). */
   border-radius: 9999px;

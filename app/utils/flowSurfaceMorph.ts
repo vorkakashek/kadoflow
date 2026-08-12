@@ -96,6 +96,17 @@ export function mixBox(a: SurfaceBox, b: SurfaceBox, h: number, v: number): Surf
   }
 }
 
+/** Linear interpolate two viewport/doc boxes (same space). */
+export function lerpBox(a: SurfaceBox, b: SurfaceBox, t: number): SurfaceBox {
+  const u = Math.min(1, Math.max(0, t))
+  return {
+    top: a.top + (b.top - a.top) * u,
+    left: a.left + (b.left - a.left) * u,
+    width: a.width + (b.width - a.width) * u,
+    height: a.height + (b.height - a.height) * u,
+  }
+}
+
 /** Doc box → viewport box at a given scrollY (fixed pose snapshot). */
 export function poseAtScrollY(doc: SurfaceBox, scrollY: number): SurfaceBox {
   return {
@@ -107,12 +118,54 @@ export function poseAtScrollY(doc: SurfaceBox, scrollY: number): SurfaceBox {
 }
 
 /**
+ * ScrollY where element's top aligns with `viewportFrac` of the viewport
+ * (GSAP-style `top 10%` → viewportFrac = 0.1).
+ */
+export function scrollYForTopAt(el: HTMLElement, viewportFrac: number): number {
+  const top = el.getBoundingClientRect().top + window.scrollY
+  return top - window.innerHeight * viewportFrac
+}
+
+/**
+ * ScrollY for GSAP-style `center top`
+ * (element center hits the top of the viewport).
+ */
+export function scrollYForCenterTop(el: HTMLElement): number {
+  const top = el.getBoundingClientRect().top + window.scrollY
+  return top + el.offsetHeight / 2
+}
+
+/**
  * ScrollY where ScrollTrigger end `center center` on `section` fires
  * (section center aligned with viewport center).
  */
 export function scrollYForCenterCenter(section: HTMLElement): number {
   const top = section.getBoundingClientRect().top + window.scrollY
   return top + section.offsetHeight / 2 - window.innerHeight / 2
+}
+
+/** Viewport-centered square (unbound pose). */
+export function viewportCenterSquare(sizePx: number): SurfaceBox {
+  const size = Math.max(48, sizePx)
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  return {
+    top: (vh - size) / 2,
+    left: (vw - size) / 2,
+    width: size,
+    height: size,
+  }
+}
+
+/** Inflate a doc/viewport box by padding on all sides. */
+export function padBox(box: SurfaceBox, pad: number): SurfaceBox {
+  const p = Math.max(0, pad)
+  return {
+    top: box.top - p,
+    left: box.left - p,
+    width: box.width + p * 2,
+    height: box.height + p * 2,
+  }
 }
 
 /** Viewport box (for position:fixed) */

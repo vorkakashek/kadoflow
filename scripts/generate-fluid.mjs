@@ -87,9 +87,18 @@ css += `    --layout-margin-content: var(--layout-margin);\n`
 css += `  }\n`
 css += `}\n\n`
 
-css += `/* Header ↔ hero: header-inset above/below logo; sides stay layout-margin */\n`
+css += `/* Header ↔ hero: surface-top tracks header chrome (mobile logo −20%, inset −15%). */\n`
 css += `:root {\n`
-css += `  --layout-surface-top: calc(2 * var(--layout-header-inset) + var(--layout-header-content));\n`
+css += `  --layout-surface-top: calc(\n`
+css += `    2 * var(--layout-header-inset) * 0.85\n`
+css += `    + var(--layout-header-content) * 0.8\n`
+css += `  );\n`
+css += `}\n\n`
+
+css += `@media (min-width: 768px) {\n`
+css += `  :root {\n`
+css += `    --layout-surface-top: calc(2 * var(--layout-header-inset) + var(--layout-header-content));\n`
+css += `  }\n`
 css += `}\n`
 
 mkdirSync(dirname(outPath), { recursive: true })

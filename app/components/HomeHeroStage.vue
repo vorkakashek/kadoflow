@@ -7,16 +7,22 @@
 import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
 
-const SCENE_FADE_MORPH = 0.45
+const SCENE_FADE_MORPH = 0.3
 const SCENE_RESTORE_MORPH = 0.05
-/** Morph-driven stage fade (works both scroll directions). */
-const FADE_OUT_START = 0.55
-const FADE_OUT_END = 0.88
+/** Morph-driven stage fade — keyed to min(h,v) arrive progress. */
+const FADE_OUT_START = 0.3
+const FADE_OUT_END = 0.7
 /** Mobile: fade much earlier in the hero→kado corridor. */
 const FADE_OUT_START_MOBILE = 0.01
 const FADE_OUT_END_MOBILE = 0.12
-/** Copy rides morph 0→1 upward (hang-in-place feel). */
-const COPY_PARALLAX_VH = 0.35
+/**
+ * Swarm/media bleed past the stage box (px).
+ * Must cover stacked roam+hover outward (~2× dent + bow) so the GL edge never shows.
+ */
+const SCENE_BLEED_Y = 168
+const SCENE_BLEED_X = 168
+/** Copy rides scroll from the first pixel (not the fade window). Full shift over 1vh. */
+const COPY_PARALLAX_VH = 0.55
 
 const props = defineProps<{
   /** Hero-rest viewport origin — stage counters frame morph so copy doesn't slide. */
@@ -45,7 +51,7 @@ if (import.meta.client) {
 const sceneLive = ref(true)
 /** Whole hero stack opacity — never unmount; eased by morph. */
 const contentOpacity = ref(1)
-/** Text parallax Y (px). Negative = up. Morph 0→1. */
+/** Text parallax Y (px). Negative = up. Driven by section scroll, not fade. */
 const copyY = ref(0)
 
 let ctx: { revert: () => void } | null = null
@@ -53,6 +59,7 @@ let gsapRef: typeof import('gsap').default | null = null
 let stRef: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let sceneDismissed = false
 let mediaFadeTween: { kill: () => void } | null = null
+let parallaxRaf = 0
 
 function setFrozen(on: boolean) {
   flowSurfaceMask.freezeSilhouette = on
@@ -66,16 +73,38 @@ function opacityForMorph(m: number) {
   return 1 - (m - start) / (end - start)
 }
 
-function copyParallaxY(m: number) {
-  if (typeof window === 'undefined') return 0
-  const t = Math.min(1, Math.max(0, m))
-  return -t * window.innerHeight * COPY_PARALLAX_VH
+/** Parallax from first scroll px of the hero section — independent of morph fade. */
+function updateCopyParallax() {
+  if (typeof window === 'undefined') return
+  const el = props.sectionEl
+  if (!el) {
+    copyY.value = 0
+    return
+  }
+  const sectionTop = el.getBoundingClientRect().top + window.scrollY
+  const scrolled = Math.max(0, (window.scrollY || 0) - sectionTop)
+  const range = Math.max(1, window.innerHeight)
+  const t = Math.min(1, scrolled / range)
+  copyY.value = -t * window.innerHeight * COPY_PARALLAX_VH
+}
+
+function onParallaxScroll() {
+  if (parallaxRaf) return
+  parallaxRaf = requestAnimationFrame(() => {
+    parallaxRaf = 0
+    updateCopyParallax()
+  })
 }
 
 function dismissScene() {
-  if (sceneDismissed || !mediaEl.value || !gsapRef) return
+  if (sceneDismissed || !mediaEl.value) return
   sceneDismissed = true
   mediaFadeTween?.kill()
+  if (!gsapRef) {
+    mediaEl.value.style.opacity = '0'
+    sceneLive.value = false
+    return
+  }
   mediaFadeTween = gsapRef.to(mediaEl.value, {
     opacity: 0,
     duration: 0.4,
@@ -87,13 +116,16 @@ function dismissScene() {
 }
 
 function restoreScene() {
-  if (!sceneDismissed || !gsapRef) return
   if (mask.morph > SCENE_RESTORE_MORPH) return
   sceneDismissed = false
   mediaFadeTween?.kill()
   mediaFadeTween = null
   if (mediaEl.value) {
-    gsapRef.to(mediaEl.value, { opacity: 1, duration: 0.35, ease: 'power1.out' })
+    if (gsapRef) {
+      gsapRef.to(mediaEl.value, { opacity: 1, duration: 0.35, ease: 'power1.out' })
+    } else {
+      mediaEl.value.style.opacity = '1'
+    }
   }
   sceneLive.value = true
 }
@@ -103,23 +135,52 @@ watch(
   (m) => {
     const op = opacityForMorph(m)
     contentOpacity.value = op
-    copyY.value = copyParallaxY(m)
     const show = op > 0.08
-    setFrozen(show)
+    // Freeze only mid-morph — at hero rest edges stay live + cursor dent.
+    setFrozen(m > 0.02 && m < 0.98)
 
-    // Mobile: same morph fade as PC; kill WebGL as soon as morph leaves rest.
+    // Mobile: opacity follows morph corridor; WebGL only at rest.
     if (mobileLite.value) {
-      sceneLive.value = m < 0.02
+      const live = m < 0.02
+      sceneLive.value = live
+      if (live && mediaEl.value) {
+        mediaEl.value.style.opacity = '1'
+        sceneDismissed = false
+      }
       return
     }
 
     if (!show) {
       sceneLive.value = false
+      // Mid-page boot / full fade — mark dismissed so restore can run on the way back.
+      if (!sceneDismissed) {
+        sceneDismissed = true
+        if (mediaEl.value && !mediaFadeTween) {
+          mediaEl.value.style.opacity = '0'
+        }
+      }
       return
     }
+
+    if (m > SCENE_FADE_MORPH) {
+      dismissScene()
+      return
+    }
+
+    if (m < SCENE_RESTORE_MORPH) {
+      restoreScene()
+      return
+    }
+
     if (!sceneDismissed) sceneLive.value = true
-    if (m > SCENE_FADE_MORPH) dismissScene()
-    else if (m < SCENE_RESTORE_MORPH) restoreScene()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.sectionEl,
+  () => {
+    updateCopyParallax()
   },
 )
 
@@ -176,46 +237,29 @@ async function setupExitMotion(sectionEl: HTMLElement) {
         {
           filter: 'blur(14px)',
           ease: 'none',
-          scrollTrigger: { ...exitSt, scrub: 0.35 },
+          scrollTrigger: {
+            ...exitSt,
+            scrub: 0.35,
+            // Late blur only — opacity is driven by morph min(h,v), not this scrub.
+            start: () => {
+              const h = sectionEl.offsetHeight
+              const vh = window.innerHeight
+              const pastRest = Math.max(0, h - vh) + Math.round(vh * 0.72)
+              return `top+=${pastRest} top`
+            },
+          },
         },
       )
     }
 
+    // Opacity / WebGL lifetime: morph watch only (min h,v). No early scrub fades.
     if (mediaEl.value) {
-      const mediaExit = gsap.timeline({
-        scrollTrigger: {
-          ...exitSt,
-          onUpdate: (self: { progress: number }) => {
-            const live = self.progress < 0.97
-            if (sceneLive.value !== live) sceneLive.value = live
-          },
-          onLeave: () => {
-            sceneLive.value = false
-          },
-          onEnterBack: () => {
-            if (opacityForMorph(mask.morph) > 0.08) sceneLive.value = true
-          },
+      ScrollTrigger.create({
+        ...exitSt,
+        onEnterBack: () => {
+          if (opacityForMorph(mask.morph) > 0.08) sceneLive.value = true
         },
       })
-      mediaExit.fromTo(
-        mediaEl.value,
-        { opacity: 1 },
-        { opacity: 0, duration: 0.5, ease: 'none' },
-        0.5,
-      )
-    }
-
-    const copyTl = gsap.timeline({
-      scrollTrigger: { ...exitSt, scrub: true },
-    })
-    const copyEls = [sloganEl.value, titleEl.value].filter(Boolean)
-    if (copyEls.length) {
-      copyTl.fromTo(
-        copyEls,
-        { opacity: 1 },
-        { opacity: 0, duration: 0.2, ease: 'none' },
-        0.8,
-      )
     }
 
     requestAnimationFrame(() => ScrollTrigger.refresh())
@@ -236,13 +280,18 @@ watch(
 )
 
 onMounted(() => {
-  setFrozen(true)
+  // Don't freeze at rest — living edges + hover need an unfrozen silhouette.
+  setFrozen(false)
+  updateCopyParallax()
+  window.addEventListener('scroll', onParallaxScroll, { passive: true })
 })
 
 onUnmounted(() => {
   setFrozen(false)
   mediaFadeTween?.kill()
   ctx?.revert()
+  if (parallaxRaf) cancelAnimationFrame(parallaxRaf)
+  window.removeEventListener('scroll', onParallaxScroll)
 })
 </script>
 
@@ -263,9 +312,15 @@ onUnmounted(() => {
     >
       <div
         ref="mediaEl"
-        class="absolute inset-0"
+        class="absolute"
         :class="mobileLite ? 'pointer-events-none' : 'pointer-events-auto'"
         aria-hidden="true"
+        :style="{
+          top: `-${SCENE_BLEED_Y}px`,
+          left: `-${SCENE_BLEED_X}px`,
+          width: `calc(100% + ${SCENE_BLEED_X * 2}px)`,
+          height: `calc(100% + ${SCENE_BLEED_Y * 2}px)`,
+        }"
       >
         <ClientOnly>
           <HeroSwarmCanvas class="size-full" :active="sceneLive" />
@@ -288,19 +343,19 @@ onUnmounted(() => {
           <div
             class="col-span-12 flex min-h-0 flex-col justify-between md:col-span-10 md:col-start-2"
           >
-            <p ref="sloganEl" class="hero-slogan text-ink">
-              Свобода формы. Порядок процесса.
-            </p>
-
-            <div ref="titleEl" class="flex flex-col gap-10">
+            <div ref="titleEl" class="hero-title-block flex flex-col">
               <h1 class="hero-title text-ink">
-                <span class="block">Авторская студия</span>
-                <span class="block">дизайна и разработки</span>
+                <span class="block">Авторская&nbsp;студия</span>
+                <span class="block">дизайна и&nbsp;разработки</span>
               </h1>
               <p class="hero-desc text-ash md:max-w-[36ch]">
-                Создаю выразительные сайты под ключ — от структуры до запуска.
+                Создаю выразительные сайты под&nbsp;ключ — от&nbsp;структуры до&nbsp;запуска.
               </p>
             </div>
+
+            <p ref="sloganEl" class="hero-slogan text-ink">
+              Свобода&nbsp;формы. Порядок&nbsp;процесса.
+            </p>
           </div>
         </div>
       </div>
@@ -310,9 +365,9 @@ onUnmounted(() => {
 
 <style scoped>
 .hero-copy {
-  /* Mobile: wide sides, normal top, roomier bottom. */
+  /* Mobile: same inset on sides and above the title. */
   padding-inline: var(--layout-margin-content);
-  padding-top: var(--space-block);
+  padding-top: var(--layout-margin-content);
   padding-bottom: calc(2 * var(--space-block));
 }
 
@@ -331,11 +386,47 @@ onUnmounted(() => {
   line-height: 1.05;
 }
 
-.hero-slogan,
+.hero-title-block {
+  gap: 16px;
+}
+
+.hero-slogan {
+  font-size: calc(var(--type-slogan) * 0.72);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
 .hero-desc {
   font-size: var(--type-slogan);
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1.2;
+}
+
+/* Mobile: pull type down so 17 Pro–class widths don’t pack the stack. */
+@media (max-width: 767px) {
+  .hero-slogan {
+    font-size: calc(var(--type-slogan) * 0.62);
+  }
+
+  .hero-title {
+    font-size: calc(var(--type-hero) * 0.84);
+    line-height: 1.08;
+  }
+
+  .hero-desc {
+    font-size: calc(var(--type-slogan) * 0.9);
+  }
+
+  .hero-title-block {
+    gap: 12px;
+  }
+}
+
+@media (min-width: 768px) {
+  .hero-title-block {
+    gap: 40px;
+  }
 }
 </style>

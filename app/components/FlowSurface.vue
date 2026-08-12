@@ -9,10 +9,9 @@ import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/m
 
 /**
  * Flow Surface — convex panel + clip mask.
- * Soft dent travels the perimeter; cursor adds the same inward push on hover
- * when `flowSurfaceMask.pointerInteractive` is true (hero rest only).
- * Hover also pulls edge samples 15% toward fillet corners (and lets bend reach
- * 15% closer to those corners via a shorter fade).
+ * A wide signed wave packet travels the perimeter (crest + trough).
+ * Near corners the packet/hover fattens the fillet instead of only muting the edge.
+ * Auto-wave keeps running through morph + kado; pointer bend is hero-rest only.
  *
  * Silhouette = shared SVG <clipPath> (url(#flow-surface-clip)).
  * Hero visuals mount in the default slot (inside this clip).
@@ -74,59 +73,87 @@ let raf = 0
 let grainTimer = 0
 let motionQuery: MediaQueryList | null = null
 let pointer: { x: number; y: number } | null = null
-let softPointer: { x: number; y: number; str: number } = { x: 0, y: 0, str: 0 }
+/** side: -1 inside (concave), +1 outside (convex) */
+let softPointer: { x: number; y: number; str: number; side: number } = {
+  x: 0,
+  y: 0,
+  str: 0,
+  side: 0,
+}
+/** Cleared when pointermove stops (dual-monitor: no blur, events just cease). */
+let pointerIdleTimer = 0
+/** No move for this long → treat cursor as gone (other monitor / alt-tab). */
+const POINTER_IDLE_MS = 280
 
 const RADIUS = 12
 /** Outward edge bow depth (px at full-size surface). */
 const CONVEX = 11
-/** Target spacing between edge samples — count scales with edge length */
-const EDGE_SAMPLE_PX = 12
-const EDGE_SAMPLES_MIN = 6
-const EDGE_SAMPLES_MAX = 220
-/** Cursor dent depth (px, inward) at full-size surface */
+/**
+ * Dense edge samples so a wide signed wave stays a smooth curve, not facets.
+ */
+const EDGE_SAMPLE_PX = 3
+const EDGE_SAMPLES_MIN = 16
+const EDGE_SAMPLES_MAX = 480
+/** Cursor bend depth (px) at full-size surface */
 const POINTER_DENT = 22
-/** Influence radius — wide soft push, not a pimple */
-const POINTER_RADIUS = 400
+/** Influence radius — how far from the edge the hover bend reaches */
+const POINTER_RADIUS = 620
 /** Gaussian sigma as fraction of radius (higher = flatter/wider hill) */
 const POINTER_SIGMA = 0.58
-/** Traveling hover-like dent around the perimeter (full-size) */
-const ROAM_DENT = 14
+/** Soft blend band (px) across the silhouette for inside↔outside hover sign */
+const POINTER_SIDE_BAND = 40
+/** Roam wave amplitude (matches max hover depth) */
+const ROAM_DENT = POINTER_DENT
 /** Revolutions per second */
 const ROAM_SPEED = 0.1125
-/** Roaming lobe width as fraction of full perimeter (wider = softer traveling wave) */
-const ROAM_SIGMA_FRAC = 0.16
-/** Clamp lobe width so tiny panels stay readable */
-const ROAM_SIGMA_PX_MIN = 120
-const ROAM_SIGMA_PX_MAX = 340
+/**
+ * Envelope σ along the perimeter — wide so it reads as a wave, not a bump.
+ * Oscillation wavelength is derived from σ (crest + trough in one packet).
+ */
+const ROAM_SIGMA_FRAC = 0.125
+const ROAM_SIGMA_PX_MIN = 140
+const ROAM_SIGMA_PX_MAX = 300
+/** Wavelength as multiple of σ — ~one full crest/trough inside the envelope */
+const ROAM_WAVE_LEN_K = 2.55
+/**
+ * Extra corner radius (px) when roam/hover is on a fillet —
+ * corners round harder instead of only muting the edge wave.
+ */
+const CORNER_RADIUS_BOOST = 32
+/** Cap live corner radius as a fraction of the shorter side */
+const CORNER_RADIUS_MAX_FRAC = 0.1
 /** Long soft run-up to immutable corners — short fade makes a crease */
 const CORNER_FADE_PX = 180
-/** Extra depth toward edge mid */
-const CENTER_GAIN = 0.28
-/** Catmull tension divisor — higher = less overshoot / fewer creases */
-const SPLINE_TENSION = 32
 /**
  * Min side length at which bend amplitudes are 1×.
  * Smaller surfaces scale dents down so corners stay clean.
  */
 const BEND_REF_MIN = 520
 const BEND_SCALE_FLOOR = 0.25
-/** Final Kado state keeps motion, but at a much lower amplitude */
-const KADO_BEND_SCALE = 0.32
+/** Final Kado state keeps roam; slightly softer than hero, not muted. */
+const KADO_BEND_SCALE = 0.78
 /** Minimum protected part at each edge end — lower = bow reaches farther (wider). */
-const CORNER_FADE_MIN_U = 0.2
-/** How many samples at each end blend hard toward the rest anchors */
-const END_BLEND_SAMPLES = 7
+const CORNER_FADE_MIN_U = 0.22
+/**
+ * Living bend eases off toward corners over this fraction of the edge.
+ * Keep generous — weak fade + Catmull = fork spikes at fillets.
+ */
+const DENT_CORNER_FADE_MIN_U = 0.36
+/** How many samples at each end blend hard toward the bowed rest anchors */
+const END_BLEND_SAMPLES = 18
 /**
  * Hover: pull living edge samples toward fillet corners, and shorten the
  * corner fade so bend lives 15% closer to those anchors.
  */
 const HOVER_CORNER_PULL = 0.15
-/**
- * Bow shape exponent on sin(πu). <1 flattens the hump → wider edge bend.
- */
-const BOW_WIDEN = 0.58
 /** Cap bow vs panel size (was 0.03 — choked the stronger convex). */
 const CONVEX_SIZE_FRAC = 0.045
+/**
+ * Paint/clip overscan (px). Outward crest goes outside the layout box;
+ * without this the host/fill clip kills all выпуклость (only dents stay visible).
+ * Keep ≥ stacked roam+hover dent + bow.
+ */
+const EDGE_OVERSCAN = 56
 type Pt = { x: number; y: number }
 type EdgeName = 'top' | 'right' | 'bottom' | 'left'
 type BendAmp = {
@@ -140,8 +167,15 @@ type BendAmp = {
 }
 
 let animStart = 0
-/** Roam phase frozen while host owns morph — path only tracks box size. */
-let frozenRoamT = 0
+/** Continuous roam phase in revolutions [0,1) — advanced with clamped dt (no wall-clock jumps). */
+let roamPhase = 0
+let roamLastNow = 0
+/** Cap frame dt so background tab / hitch can't teleport the wave. */
+const ROAM_DT_MAX = 1 / 28
+/** Smoothed live corner radii — raw targets jitter sample topology. */
+const smoothCornerR = { tl: 0, tr: 0, br: 0, bl: 0, primed: false }
+/** Quantized path size — host lag floats were flipping edge sample counts. */
+const pathSize = { w: 0, h: 0 }
 
 function bendAmpFor(w: number, h: number): BendAmp {
   const scale = Math.min(1, Math.max(BEND_SCALE_FLOOR, Math.min(w, h) / BEND_REF_MIN))
@@ -176,37 +210,23 @@ function sampleCount(lengthPx: number) {
 }
 
 /**
- * Catmull-ish through points. Optional start/end dirs keep the join into the
- * fixed corner cubics C¹ (no crease where edge meets fillet).
+ * Axis-constrained Hermite through edge samples.
+ * Tangents stay horizontal (top/bottom) or vertical (left/right) so the curve
+ * cannot Catmull-overshoot into the classic corner “fork” spikes.
  */
-function smoothThrough(pts: Pt[], startDir?: Pt, endDir?: Pt): string {
+function smoothAxisEdge(pts: Pt[], axis: 'h' | 'v'): string {
   if (pts.length < 2) return ''
   const parts: string[] = []
-  const k = SPLINE_TENSION
   for (let i = 0; i < pts.length - 1; i++) {
     const p1 = pts[i]
     const p2 = pts[i + 1]
-    const seg = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1
-
-    let p0: Pt
-    if (i === 0 && startDir) {
-      p0 = { x: p1.x - startDir.x * seg, y: p1.y - startDir.y * seg }
+    if (axis === 'h') {
+      const dx = (p2.x - p1.x) / 3
+      parts.push(`C ${p1.x + dx} ${p1.y} ${p2.x - dx} ${p2.y} ${p2.x} ${p2.y}`)
     } else {
-      p0 = pts[Math.max(0, i - 1)]
+      const dy = (p2.y - p1.y) / 3
+      parts.push(`C ${p1.x} ${p1.y + dy} ${p2.x} ${p2.y - dy} ${p2.x} ${p2.y}`)
     }
-
-    let p3: Pt
-    if (i === pts.length - 2 && endDir) {
-      p3 = { x: p2.x + endDir.x * seg, y: p2.y + endDir.y * seg }
-    } else {
-      p3 = pts[Math.min(pts.length - 1, i + 2)]
-    }
-
-    const c1x = p1.x + (p2.x - p0.x) / k
-    const c1y = p1.y + (p2.y - p0.y) / k
-    const c2x = p2.x - (p3.x - p1.x) / k
-    const c2y = p2.y - (p3.y - p1.y) / k
-    parts.push(`C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`)
   }
   return parts.join(' ')
 }
@@ -230,38 +250,113 @@ function cornerPinAt(u: number, spanPx: number, fadePx: number) {
   return t * t * t
 }
 
-function circDist01(a: number, b: number) {
-  const d = Math.abs(a - b) % 1
-  return Math.min(d, 1 - d)
+/**
+ * Gradual taper of inward dent toward each corner (wider / softer than bow pin).
+ * Avoids a hard crest “shelf” when the roaming bump rides into a fillet.
+ */
+function dentCornerPinAt(u: number, spanPx: number, fadePx: number) {
+  const fadeU = Math.min(
+    0.48,
+    Math.max(DENT_CORNER_FADE_MIN_U, (fadePx * 1.2) / Math.max(spanPx, 1)),
+  )
+  const endDist = Math.min(u, 1 - u)
+  if (endDist >= fadeU) return 1
+  if (endDist <= 0 || fadeU <= 0) return 0
+  return smootherstep(endDist / fadeU)
 }
 
-/** Inward dent from cursor */
-function pointerDent(x: number, y: number, amp: BendAmp) {
-  if (softPointer.str < 0.01) return 0
+/** Signed shortest circular delta from `b` → `a` in (−0.5, 0.5]. */
+function circSigned01(a: number, b: number) {
+  let d = (a - b) % 1
+  if (d > 0.5) d -= 1
+  if (d <= -0.5) d += 1
+  return d
+}
+
+/**
+ * Signed distance to the surface box: >0 outside, <0 inside.
+ */
+function boxSignedOutside(x: number, y: number, w: number, h: number) {
+  const dx = x < 0 ? -x : x > w ? x - w : 0
+  const dy = y < 0 ? -y : y > h ? y - h : 0
+  if (dx > 0 || dy > 0) return Math.hypot(dx, dy)
+  return -Math.min(x, w - x, y, h - y)
+}
+
+/**
+ * Cursor bend — outward-positive.
+ * Inside the surface → negative (впуклость); outside → positive (выпуклость).
+ */
+function pointerOutward(x: number, y: number, amp: BendAmp) {
+  if (softPointer.str < 0.01 || Math.abs(softPointer.side) < 0.02) return 0
   const dx = x - softPointer.x
   const dy = y - softPointer.y
   const dist = Math.hypot(dx, dy)
   const sigma = amp.pointerRadius * POINTER_SIGMA
   const lobe = Math.exp(-(dist * dist) / (2 * sigma * sigma))
-  return lobe * softPointer.str * amp.pointerDent
+  return lobe * softPointer.str * amp.pointerDent * softPointer.side
 }
 
 /**
- * Soft traveling lobe — raised-cosine shoulders, not a sharp gaussian peak.
- * One primary pulse only (a second opposite pulse was adding kinks).
+ * Traveling Gabor packet along the perimeter (outward-positive).
+ * `phase` is revolutions in [0,1) — advanced externally with clamped dt.
  */
-function roamDent(s: number, t: number, perimeterPx: number, amp: BendAmp) {
+function roamPacket(s: number, phase: number, perimeterPx: number, amp: BendAmp) {
   const sigmaPx = Math.min(
     ROAM_SIGMA_PX_MAX,
     Math.max(ROAM_SIGMA_PX_MIN, perimeterPx * amp.roamSigmaFrac),
   )
-  const radius = Math.max(0.05, (sigmaPx * 2.2) / Math.max(perimeterPx, 1))
-  const center = ((t * ROAM_SPEED) % 1 + 1) % 1
-  const d = circDist01(s, center)
-  if (d >= radius) return 0
-  // Raised cosine: flat-ish top, soft flanks — no pointed crest
-  const lobe = 0.5 + 0.5 * Math.cos((Math.PI * d) / radius)
-  return lobe * lobe * amp.roamDent
+  const lambda = Math.max(sigmaPx * 1.6, sigmaPx * ROAM_WAVE_LEN_K)
+  const center = ((phase % 1) + 1) % 1
+  const dPx = circSigned01(s, center) * Math.max(perimeterPx, 1)
+  // Continuous gaussian — no hard env cutoff (that popped the wave shoulders).
+  const env = Math.exp(-(dPx * dPx) / (2 * sigmaPx * sigmaPx))
+  const osc = Math.cos((2 * Math.PI * dPx) / lambda)
+  const shaped = osc >= 0 ? osc : osc * 0.85
+  return { env, wave: env * shaped * amp.roamDent }
+}
+
+function roamWave(s: number, phase: number, perimeterPx: number, amp: BendAmp) {
+  return roamPacket(s, phase, perimeterPx, amp).wave
+}
+
+function roamEnvelope(s: number, phase: number, perimeterPx: number, amp: BendAmp) {
+  return roamPacket(s, phase, perimeterPx, amp).env
+}
+
+function pointerStrengthAt(x: number, y: number, amp: BendAmp) {
+  if (softPointer.str < 0.01) return 0
+  const dx = x - softPointer.x
+  const dy = y - softPointer.y
+  const dist = Math.hypot(dx, dy)
+  const sigma = amp.pointerRadius * POINTER_SIGMA
+  return softPointer.str * Math.exp(-(dist * dist) / (2 * sigma * sigma))
+}
+
+/** 0..1 — roam packet or hover sitting on a corner fillet. */
+function cornerLiveAmount(
+  sCorner: number,
+  cx: number,
+  cy: number,
+  t: number,
+  perimeterPx: number,
+  amp: BendAmp,
+) {
+  if (amp.roamDent <= 0 && amp.pointerDent <= 0) return 0
+  const roam = roamEnvelope(sCorner, t, perimeterPx, amp)
+  const hover = pointerStrengthAt(cx, cy, amp)
+  return Math.min(1, Math.max(roam, hover))
+}
+
+function liveCornerRadius(baseR: number, amount: number, w: number, h: number, amp: BendAmp) {
+  const boost = CORNER_RADIUS_BOOST * amount * Math.max(0.55, amp.scale)
+  const maxR = Math.min(w, h) * CORNER_RADIUS_MAX_FRAC
+  return Math.min(maxR, baseR + boost)
+}
+
+function smoothToward(current: number, target: number, primed: boolean) {
+  if (!primed) return target
+  return current + (target - current) * 0.14
 }
 
 function edgeSpans(w: number, h: number, r: number, topBleed: number) {
@@ -285,66 +380,79 @@ function edgeSpans(w: number, h: number, r: number, topBleed: number) {
 }
 
 /**
- * Sample a convex edge, then apply roaming + cursor inward dents.
- * u 0→1 along the edge between fillets.
- * On hover, samples ease toward the nearer fillet corner (HOVER_CORNER_PULL).
+ * Outward circular-arc sagitta for edge sample u∈[0,1].
+ * Chord length = spanPx, max depth = convex (circle through both ends).
+ */
+function circularBow(u: number, spanPx: number, convex: number): number {
+  const s = Math.max(0, convex)
+  if (s < 0.001 || spanPx < 1) return 0
+  const L = spanPx
+  const R = (L * L) / (8 * s) + s / 2
+  const x = (u - 0.5) * L
+  const y = Math.sqrt(Math.max(0, R * R - x * x)) - (R - s)
+  return Number.isFinite(y) ? Math.max(0, y) : 0
+}
+
+/**
+ * Sample a convex edge, then apply roaming wave + signed cursor bend.
+ * r0 / r1 — live radii at the start / end fillets (may differ per corner).
  */
 function sampleConvexEdge(
   edge: EdgeName,
   w: number,
   h: number,
-  r: number,
+  r0: number,
+  r1: number,
+  rCount: number,
   convex: number,
   topBleed: number,
   t: number,
   amp: BendAmp,
-): Pt[] {
+  perimeterPx: number,
+  s0: number,
+): { live: Pt[]; rest: Pt[] } {
   const y0 = -topBleed
   const usableH = h + topBleed
-  const spans = edgeSpans(w, h, r, topBleed)
-  const span = edge === 'top' || edge === 'bottom' ? spans.top : spans.right
-  const s0
-    = edge === 'top'
-      ? spans.sTop
-      : edge === 'right'
-        ? spans.sRight
-        : edge === 'bottom'
-          ? spans.sBottom
-          : spans.sLeft
-  const n = sampleCount(span)
-  const pts: Pt[] = []
+  const span
+    = edge === 'top' || edge === 'bottom'
+      ? Math.max(1, w - r0 - r1)
+      : Math.max(1, usableH - r0 - r1)
+  // Sample count from rest radius — live corner fattening must not retopologize the edge.
+  const spanForCount
+    = edge === 'top' || edge === 'bottom'
+      ? Math.max(1, w - 2 * rCount)
+      : Math.max(1, usableH - 2 * rCount)
+  const n = sampleCount(spanForCount)
+  const live: Pt[] = []
+  const rest: Pt[] = []
 
-  // Fillet anchors for this edge (immutable join points)
   let anchorA: Pt
   let anchorB: Pt
   if (edge === 'top') {
-    anchorA = { x: r, y: y0 }
-    anchorB = { x: w - r, y: y0 }
+    anchorA = { x: r0, y: y0 }
+    anchorB = { x: w - r1, y: y0 }
   } else if (edge === 'right') {
-    anchorA = { x: w, y: y0 + r }
-    anchorB = { x: w, y: y0 + usableH - r }
+    anchorA = { x: w, y: y0 + r0 }
+    anchorB = { x: w, y: y0 + usableH - r1 }
   } else if (edge === 'bottom') {
-    anchorA = { x: w - r, y: h }
-    anchorB = { x: r, y: h }
+    anchorA = { x: w - r0, y: h }
+    anchorB = { x: r1, y: h }
   } else {
-    anchorA = { x: 0, y: y0 + usableH - r }
-    anchorB = { x: 0, y: y0 + r }
+    anchorA = { x: 0, y: y0 + usableH - r0 }
+    anchorB = { x: 0, y: y0 + r1 }
   }
 
-  // Let living bend reach closer to corners while the cursor is engaged
-  const hover = softPointer.str
-  const fadePx = amp.cornerFadePx * (1 - HOVER_CORNER_PULL * hover)
-  const cornerPull = HOVER_CORNER_PULL * hover
+  const hoverIn = softPointer.str * Math.max(0, -softPointer.side)
+  const fadePx = amp.cornerFadePx * (1 - HOVER_CORNER_PULL * hoverIn)
+  const cornerPull = HOVER_CORNER_PULL * hoverIn
 
   for (let i = 0; i <= n; i++) {
     const u = i / n
     const cornerPin = cornerPinAt(u, span, fadePx)
-    // Kill outward bow near corners — otherwise Catmull + tip = ear spike.
-    // BOW_WIDEN < 1 → flatter/wider lobe than plain sin.
-    const bow
-      = Math.pow(Math.sin(Math.PI * u), BOW_WIDEN) * convex * cornerPin
-    const midBoost = 1 + CENTER_GAIN * Math.sin(Math.PI * u)
-    const s = s0 + (u * span) / spans.total
+    const livePin = dentCornerPinAt(u, span, fadePx)
+    const bow = circularBow(u, span, convex) * cornerPin
+    // Phase along REST edge length — live corner fattening must not shift s (wave jumps).
+    const s = s0 + (u * spanForCount) / Math.max(perimeterPx, 1)
 
     let x = 0
     let y = 0
@@ -352,33 +460,33 @@ function sampleConvexEdge(
     let ny = 0
 
     if (edge === 'top') {
-      x = r + span * u
+      x = r0 + span * u
       y = y0 - bow
       nx = 0
       ny = 1
     } else if (edge === 'right') {
       x = w + bow
-      y = y0 + r + span * u
+      y = y0 + r0 + span * u
       nx = -1
       ny = 0
     } else if (edge === 'bottom') {
-      x = w - r - span * u
+      x = w - r0 - span * u
       y = h + bow
       nx = 0
       ny = -1
     } else {
       x = -bow
-      y = y0 + usableH - r - span * u
+      y = y0 + usableH - r0 - span * u
       nx = 1
       ny = 0
     }
 
-    const cursorDent = pointerDent(x, y, amp)
-    const idleDent = roamDent(s, t, spans.total, amp)
-    // Both reactions stay visible, but do not stack linearly into a sharp peak.
-    const dent = Math.hypot(cursorDent, idleDent) * cornerPin * midBoost
-    let px = x + nx * dent
-    let py = y + ny * dent
+    rest.push({ x, y })
+
+    const outward
+      = (roamWave(s, t, perimeterPx, amp) + pointerOutward(x, y, amp)) * livePin
+    let px = x - nx * outward
+    let py = y - ny * outward
 
     if (cornerPull > 0.001) {
       const corner = u < 0.5 ? anchorA : anchorB
@@ -386,36 +494,38 @@ function sampleConvexEdge(
       py += (corner.y - py) * cornerPull
     }
 
-    pts.push({ x: px, y: py })
+    live.push({ x: px, y: py })
   }
-  return pts
+  return { live, rest }
 }
 
-/** Pull the last few samples onto the rest anchors so the fillet join stays flat */
-function pinEdgeEnds(pts: Pt[], a: Pt, b: Pt) {
+/**
+ * Blend live samples toward bowed rest near fillets (not the flat chord —
+ * chord pinning against a bowed mid-edge is what spiked the corners).
+ * Always copy endpoints — sharing refs with corner anchors double-shifted them
+ * under overscan and forked every fillet.
+ */
+function pinEdgeEnds(pts: Pt[], rest: Pt[], a: Pt, b: Pt) {
   const n = pts.length
   if (n < 3) {
-    pts[0] = a
-    pts[n - 1] = b
+    pts[0] = { x: a.x, y: a.y }
+    pts[n - 1] = { x: b.x, y: b.y }
     return
   }
   const blend = Math.min(END_BLEND_SAMPLES, Math.floor((n - 1) / 2))
-  pts[0] = a
-  pts[n - 1] = b
+  pts[0] = { x: a.x, y: a.y }
+  pts[n - 1] = { x: b.x, y: b.y }
+  rest[0] = { x: a.x, y: a.y }
+  rest[n - 1] = { x: b.x, y: b.y }
   for (let i = 1; i <= blend; i++) {
-    // Keep near-corner samples almost on the rest edge; recover only late
     const t = smootherstep(i / (blend + 1)) ** 2
-    const fromA = pts[i]
+    const from = pts[i]
     const fromB = pts[n - 1 - i]
-    const u = i / (n - 1)
-    const restA = { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }
-    const restB = {
-      x: a.x + (b.x - a.x) * (1 - u),
-      y: a.y + (b.y - a.y) * (1 - u),
-    }
+    const restA = rest[i] ?? from
+    const restB = rest[n - 1 - i] ?? fromB
     pts[i] = {
-      x: restA.x + (fromA.x - restA.x) * t,
-      y: restA.y + (fromA.y - restA.y) * t,
+      x: restA.x + (from.x - restA.x) * t,
+      y: restA.y + (from.y - restA.y) * t,
     }
     pts[n - 1 - i] = {
       x: restB.x + (fromB.x - restB.x) * t,
@@ -430,61 +540,127 @@ function buildPath(w: number, h: number, topBleed = 0, t = 0, live = true) {
     amp.roamDent = 0
     amp.pointerDent = 0
   }
-  const r = Math.min(RADIUS * Math.max(0.55, amp.scale), w / 2, h / 2)
+  const o = EDGE_OVERSCAN
+  const rBase = Math.min(RADIUS * Math.max(0.55, amp.scale), w / 2, h / 2)
   const convex = Math.min(
     amp.convex,
     w * CONVEX_SIZE_FRAC * amp.scale,
     h * CONVEX_SIZE_FRAC * amp.scale,
   )
 
-  // Living silhouette always in fill space. openTop keeps the same corners/sides
-  // and only adds a flat lid above for hero media — no second corner radius.
-  const top = sampleConvexEdge('top', w, h, r, convex, 0, t, amp)
-  const right = sampleConvexEdge('right', w, h, r, convex, 0, t, amp)
-  const bottom = sampleConvexEdge('bottom', w, h, r, convex, 0, t, amp)
-  const left = sampleConvexEdge('left', w, h, r, convex, 0, t, amp)
+  // Perimeter / phase uses the rest radius; live corners only fatten fillets.
+  const spans = edgeSpans(w, h, rBase, 0)
+  const cHalf = (spans.corner * 0.5) / spans.total
+  const sTR = spans.sRight - cHalf
+  const sBR = spans.sBottom - cHalf
+  const sBL = spans.sLeft - cHalf
+  const sTL = 1 - cHalf
 
-  const topA = { x: r, y: 0 }
-  const topB = { x: w - r, y: 0 }
-  const rightA = { x: w, y: r }
-  const rightB = { x: w, y: h - r }
-  const bottomA = { x: w - r, y: h }
-  const bottomB = { x: r, y: h }
-  const leftA = { x: 0, y: h - r }
-  const leftB = { x: 0, y: r }
+  const rTL = smoothToward(
+    smoothCornerR.tl,
+    liveCornerRadius(rBase, cornerLiveAmount(sTL, 0, 0, t, spans.total, amp), w, h, amp),
+    smoothCornerR.primed,
+  )
+  const rTR = smoothToward(
+    smoothCornerR.tr,
+    liveCornerRadius(rBase, cornerLiveAmount(sTR, w, 0, t, spans.total, amp), w, h, amp),
+    smoothCornerR.primed,
+  )
+  const rBR = smoothToward(
+    smoothCornerR.br,
+    liveCornerRadius(rBase, cornerLiveAmount(sBR, w, h, t, spans.total, amp), w, h, amp),
+    smoothCornerR.primed,
+  )
+  const rBL = smoothToward(
+    smoothCornerR.bl,
+    liveCornerRadius(rBase, cornerLiveAmount(sBL, 0, h, t, spans.total, amp), w, h, amp),
+    smoothCornerR.primed,
+  )
+  smoothCornerR.tl = rTL
+  smoothCornerR.tr = rTR
+  smoothCornerR.br = rBR
+  smoothCornerR.bl = rBL
+  smoothCornerR.primed = true
 
-  pinEdgeEnds(top, topA, topB)
-  pinEdgeEnds(right, rightA, rightB)
-  pinEdgeEnds(bottom, bottomA, bottomB)
-  pinEdgeEnds(left, leftA, leftB)
+  const topE = sampleConvexEdge('top', w, h, rTL, rTR, rBase, convex, 0, t, amp, spans.total, spans.sTop)
+  const rightE = sampleConvexEdge('right', w, h, rTR, rBR, rBase, convex, 0, t, amp, spans.total, spans.sRight)
+  const bottomE = sampleConvexEdge('bottom', w, h, rBR, rBL, rBase, convex, 0, t, amp, spans.total, spans.sBottom)
+  const leftE = sampleConvexEdge('left', w, h, rBL, rTL, rBase, convex, 0, t, amp, spans.total, spans.sLeft)
+
+  const top = topE.live
+  const right = rightE.live
+  const bottom = bottomE.live
+  const left = leftE.live
+
+  const topA = { x: rTL, y: 0 }
+  const topB = { x: w - rTR, y: 0 }
+  const rightA = { x: w, y: rTR }
+  const rightB = { x: w, y: h - rBR }
+  const bottomA = { x: w - rBR, y: h }
+  const bottomB = { x: rBL, y: h }
+  const leftA = { x: 0, y: h - rBL }
+  const leftB = { x: 0, y: rTL }
+
+  pinEdgeEnds(top, topE.rest, topA, topB)
+  pinEdgeEnds(right, rightE.rest, rightA, rightB)
+  pinEdgeEnds(bottom, bottomE.rest, bottomA, bottomB)
+  pinEdgeEnds(left, leftE.rest, leftA, leftB)
+
+  const shift = (p: Pt) => {
+    p.x += o
+    p.y += o
+  }
+  for (const pts of [top, right, bottom, left]) {
+    for (const p of pts) shift(p)
+  }
+  // Keep fillet anchors identical to shifted edge ends (no second overscan).
+  topA.x = top[0].x
+  topA.y = top[0].y
+  topB.x = top[top.length - 1].x
+  topB.y = top[top.length - 1].y
+  rightA.x = right[0].x
+  rightA.y = right[0].y
+  rightB.x = right[right.length - 1].x
+  rightB.y = right[right.length - 1].y
+  bottomA.x = bottom[0].x
+  bottomA.y = bottom[0].y
+  bottomB.x = bottom[bottom.length - 1].x
+  bottomB.y = bottom[bottom.length - 1].y
+  leftA.x = left[0].x
+  leftA.y = left[0].y
+  leftB.x = left[left.length - 1].x
+  leftB.y = left[left.length - 1].y
 
   const k = 0.5522847498307936
-  const kr = k * r
-  const tr = `C ${w - r + kr} 0 ${w} ${r - kr} ${rightA.x} ${rightA.y}`
-  const br = `C ${w} ${h - r + kr} ${w - r + kr} ${h} ${bottomA.x} ${bottomA.y}`
-  const bl = `C ${r - kr} ${h} 0 ${h - r + kr} ${leftA.x} ${leftA.y}`
-  const tl = `C 0 ${r - kr} ${r - kr} 0 ${topA.x} ${topA.y}`
+  const krTR = k * rTR
+  const krBR = k * rBR
+  const krBL = k * rBL
+  const krTL = k * rTL
+  const tr = `C ${topB.x + krTR} ${topB.y} ${rightA.x} ${rightA.y - krTR} ${rightA.x} ${rightA.y}`
+  const br = `C ${rightB.x} ${rightB.y + krBR} ${bottomA.x + krBR} ${bottomA.y} ${bottomA.x} ${bottomA.y}`
+  const bl = `C ${bottomB.x - krBL} ${bottomB.y} ${leftA.x} ${leftA.y + krBL} ${leftA.x} ${leftA.y}`
+  const tl = `C ${leftB.x} ${leftB.y - krTL} ${topA.x - krTL} ${topA.y} ${topA.x} ${topA.y}`
 
   const sides = [
     tr,
-    smoothThrough(right, { x: 0, y: 1 }, { x: 0, y: 1 }),
+    smoothAxisEdge(right, 'v'),
     br,
-    smoothThrough(bottom, { x: -1, y: 0 }, { x: -1, y: 0 }),
+    smoothAxisEdge(bottom, 'h'),
     bl,
-    smoothThrough(left, { x: 0, y: -1 }, { x: 0, y: -1 }),
+    smoothAxisEdge(left, 'v'),
     tl,
   ].join(' ')
 
   if (topBleed <= 0.5) {
     return [
       `M ${topA.x} ${topA.y}`,
-      smoothThrough(top, { x: 1, y: 0 }, { x: 1, y: 0 }),
+      smoothAxisEdge(top, 'h'),
       sides,
       'Z',
     ].join(' ')
   }
 
-  const yBleed = -topBleed
+  const yBleed = o - topBleed
   return [
     `M ${topA.x} ${yBleed}`,
     `L ${topB.x} ${yBleed}`,
@@ -495,10 +671,7 @@ function buildPath(w: number, h: number, topBleed = 0, t = 0, live = true) {
   ].join(' ')
 }
 
-function publish(
-  t = (performance.now() - animStart) / 1000,
-  box?: { top: number; left: number; width: number; height: number },
-) {
+function publish(box?: { top: number; left: number; width: number; height: number }) {
   const el = root.value
 
   // Prefer host morph box (same numbers as applyBox). During morph the host owns
@@ -513,7 +686,7 @@ function publish(
     h = Math.max(1, box.height)
     top = box.top
     left = box.left
-  } else if (!flowSurfaceMask.pointerInteractive && flowSurfaceMask.width > 2) {
+  } else if (flowSurfaceMask.width > 2) {
     w = flowSurfaceMask.width
     h = flowSurfaceMask.height
     top = flowSurfaceMask.top
@@ -530,55 +703,26 @@ function publish(
 
   if (w < 2 || h < 2) return
 
-  const interactive = flowSurfaceMask.pointerInteractive
-
-  // Path is local to the box — if only the box moved, keep the same d.
+  // Hold path size steady through sub-pixel host lag — flipping w/h retopologizes edges.
   if (
-    !interactive
-    && pathD.value
-    && Math.abs(w - size.w) < 0.5
-    && Math.abs(h - size.h) < 0.5
+    pathSize.w < 2
+    || Math.abs(w - pathSize.w) >= 0.75
+    || Math.abs(h - pathSize.h) >= 0.75
   ) {
-    flowSurfaceMask.top = top
-    flowSurfaceMask.left = left
-    flowSurfaceMask.width = w
-    flowSurfaceMask.height = h
-    return
+    pathSize.w = w
+    pathSize.h = h
   }
-
-  const sizeChanged =
-    Math.abs(w - size.w) >= 0.5
-    || Math.abs(h - size.h) >= 0.5
+  const pathW = pathSize.w
+  const pathH = pathSize.h
 
   size.w = w
   size.h = h
-  pathView.w = w
-  pathView.h = h
+  pathView.w = pathW + EDGE_OVERSCAN * 2
+  pathView.h = pathH + EDGE_OVERSCAN * 2
 
-  // Frozen silhouette while hero WebGL is live — no per-frame path churn.
-  const liveEdge = interactive && !flowSurfaceMask.freezeSilhouette
-  let roamT = t
-  if (liveEdge) {
-    frozenRoamT = t
-  } else {
-    roamT = frozenRoamT
-  }
-
-  // Size unchanged + frozen → keep existing d (don't rebuild every host paint).
-  if (
-    flowSurfaceMask.freezeSilhouette
-    && pathD.value
-    && !sizeChanged
-  ) {
-    flowSurfaceMask.openTopPath = ''
-    flowSurfaceMask.width = w
-    flowSurfaceMask.height = h
-    flowSurfaceMask.top = top
-    flowSurfaceMask.left = left
-    return
-  }
-
-  const fill = buildPath(w, h, 0, roamT, liveEdge)
+  const allowRoam = !isTouchUi()
+  // Always use continuous roamPhase — never wall-clock (that teleports after hitches).
+  const fill = buildPath(pathW, pathH, 0, roamPhase, allowRoam)
   pathD.value = fill
   flowSurfaceMask.openTopPath = ''
   flowSurfaceMask.width = w
@@ -591,39 +735,47 @@ function publish(
 function tick(now: number) {
   raf = 0
 
-  // Host owns path during morph / kado rest — continuous rebuild here doubles
-  // CPU and heats phones. Roam dent only runs at hero rest.
-  if (!flowSurfaceMask.pointerInteractive || flowSurfaceMask.freezeSilhouette) {
+  if (isTouchUi()) return
+
+  if (!roamLastNow) roamLastNow = now
+  let dt = (now - roamLastNow) / 1000
+  roamLastNow = now
+  if (dt > ROAM_DT_MAX) dt = ROAM_DT_MAX
+  if (dt > 0) {
+    roamPhase = (roamPhase + dt * ROAM_SPEED) % 1
+  }
+
+  // Soft cursor bend only at hero rest; roam keeps running everywhere.
+  if (flowSurfaceMask.pointerInteractive && !flowSurfaceMask.freezeSilhouette) {
+    const targetStr = pointer ? 1 : 0
+    softPointer.str += (targetStr - softPointer.str) * 0.12
+    if (pointer) {
+      softPointer.x += (pointer.x - softPointer.x) * 0.18
+      softPointer.y += (pointer.y - softPointer.y) * 0.18
+      const sd = boxSignedOutside(pointer.x, pointer.y, size.w, size.h)
+      const targetSide = Math.max(-1, Math.min(1, sd / POINTER_SIDE_BAND))
+      softPointer.side += (targetSide - softPointer.side) * 0.2
+    } else {
+      softPointer.side += (0 - softPointer.side) * 0.12
+      if (softPointer.str < 0.002) {
+        softPointer.str = 0
+        softPointer.side = 0
+      }
+    }
+  } else {
     pointer = null
     softPointer.str = 0
-    return
+    softPointer.side = 0
   }
 
-  const targetStr = pointer ? 1 : 0
-  softPointer.str += (targetStr - softPointer.str) * 0.12
-  if (pointer) {
-    softPointer.x += (pointer.x - softPointer.x) * 0.18
-    softPointer.y += (pointer.y - softPointer.y) * 0.18
-  } else if (softPointer.str < 0.002) {
-    softPointer.str = 0
-  }
-
-  publish((now - animStart) / 1000)
+  publish()
   raf = requestAnimationFrame(tick)
 }
 
 function ensureLoop() {
-  // Touch UI: static edges — no per-frame path rebuild for roam/pointer.
-  // Also skip while hero content forces a frozen silhouette.
-  if (
-    isAppleTouchDevice()
-    || isNarrowViewport()
-    || isCoarsePointer()
-    || flowSurfaceMask.freezeSilhouette
-  ) {
-    return
-  }
-  if (!flowSurfaceMask.pointerInteractive) return
+  // Desktop: continuous roam on every settled pose (hero + kado + beyond).
+  if (isTouchUi()) return
+  if (motionQuery?.matches) return
   if (!raf) raf = requestAnimationFrame(tick)
 }
 
@@ -644,21 +796,65 @@ function onPointer(e: PointerEvent) {
     pointer = null
     return
   }
+  // Dual-monitor / off-window: coords leave the viewport while focus stays.
+  if (
+    e.clientX < 0
+    || e.clientY < 0
+    || e.clientX > window.innerWidth
+    || e.clientY > window.innerHeight
+  ) {
+    clearPointerHover()
+    return
+  }
   const rect = root.value.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
   const pad = bendAmpFor(rect.width, rect.height).pointerRadius
   if (x < -pad || y < -pad || x > rect.width + pad || y > rect.height + pad) {
     pointer = null
+    bumpPointerIdle()
     return
   }
   pointer = { x, y }
+  bumpPointerIdle()
   ensureLoop()
 }
 
-function onPointerLeave() {
+function clearPointerHover() {
   pointer = null
+  softPointer.str = 0
+  softPointer.side = 0
+  if (pointerIdleTimer) {
+    window.clearTimeout(pointerIdleTimer)
+    pointerIdleTimer = 0
+  }
   ensureLoop()
+}
+
+function bumpPointerIdle() {
+  if (pointerIdleTimer) window.clearTimeout(pointerIdleTimer)
+  pointerIdleTimer = window.setTimeout(() => {
+    pointerIdleTimer = 0
+    clearPointerHover()
+  }, POINTER_IDLE_MS)
+}
+
+function onPointerLeave() {
+  clearPointerHover()
+}
+
+function onWindowBlur() {
+  clearPointerHover()
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'hidden') clearPointerHover()
+}
+
+/** Leaves the document (often when crossing to another monitor). */
+function onDocumentMouseOut(e: MouseEvent) {
+  const to = e.relatedTarget as Node | null
+  if (!to || !document.documentElement.contains(to)) clearPointerHover()
 }
 
 function syncGrainScale() {
@@ -683,31 +879,37 @@ function syncGrainMotion() {
   const el = grainEl.value
   if (motionQuery?.matches) {
     if (el) el.style.backgroundPosition = '0 0'
+    if (raf) {
+      cancelAnimationFrame(raf)
+      raf = 0
+    }
     return
   }
-  // Mid-morph: freeze — don't fight scroll/morph compositing.
+  // Mid-morph: freeze grain — don't fight scroll/morph compositing.
   if (flowSurfaceMask.morph > 0.02 && flowSurfaceMask.morph < 0.98) {
     return
   }
   stepGrainOffset()
   grainTimer = window.setInterval(stepGrainOffset, GRAIN_STEP_MS)
+  ensureLoop()
 }
 
 onMounted(async () => {
   await nextTick()
   animStart = performance.now()
+  roamLastNow = animStart
   measure()
-  publish(0)
-  registerFlowSurfacePathFlush((box) => publish(undefined, box))
+  publish()
+  registerFlowSurfacePathFlush((box) => publish(box))
   // clipEl is mounted with mode=window — re-apply if publish raced ahead of the ref.
   applyClipToDom(flowSurfaceMask.clipPath)
   ensureLoop()
 
-  // Resume roam when morph returns to hero rest.
+  // Keep roam loop alive across poses (hero → kado), not only pointerInteractive.
   watch(
-    () => flowSurfaceMask.pointerInteractive,
-    (interactive) => {
-      if (interactive) ensureLoop()
+    () => [flowSurfaceMask.pointerInteractive, flowSurfaceMask.morph, flowSurfaceMask.freezeSilhouette] as const,
+    () => {
+      ensureLoop()
     },
   )
 
@@ -735,6 +937,9 @@ onMounted(async () => {
   if (!isTouchUi()) {
     window.addEventListener('pointermove', onPointer, { passive: true })
     window.addEventListener('pointerleave', onPointerLeave, { passive: true })
+    window.addEventListener('blur', onWindowBlur)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    document.addEventListener('mouseout', onDocumentMouseOut, { passive: true })
   }
 })
 
@@ -743,6 +948,10 @@ onUnmounted(() => {
   window.removeEventListener('resize', syncGrainScale)
   cancelAnimationFrame(raf)
   raf = 0
+  if (pointerIdleTimer) {
+    window.clearTimeout(pointerIdleTimer)
+    pointerIdleTimer = 0
+  }
   if (grainTimer) {
     window.clearInterval(grainTimer)
     grainTimer = 0
@@ -752,7 +961,22 @@ onUnmounted(() => {
   ro?.disconnect()
   window.removeEventListener('pointermove', onPointer)
   window.removeEventListener('pointerleave', onPointerLeave)
+  window.removeEventListener('blur', onWindowBlur)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.removeEventListener('mouseout', onDocumentMouseOut)
 })
+const overscanBoxStyle = {
+  top: `-${EDGE_OVERSCAN}px`,
+  left: `-${EDGE_OVERSCAN}px`,
+  width: `calc(100% + ${EDGE_OVERSCAN * 2}px)`,
+  height: `calc(100% + ${EDGE_OVERSCAN * 2}px)`,
+}
+const slotInsetStyle = {
+  top: `${EDGE_OVERSCAN}px`,
+  left: `${EDGE_OVERSCAN}px`,
+  right: `${EDGE_OVERSCAN}px`,
+  bottom: `${EDGE_OVERSCAN}px`,
+}
 </script>
 
 <template>
@@ -764,7 +988,8 @@ onUnmounted(() => {
     <div
       v-if="props.mode === 'window'"
       ref="clipEl"
-      class="absolute inset-0"
+      class="absolute"
+      :style="overscanBoxStyle"
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div
@@ -781,8 +1006,11 @@ onUnmounted(() => {
           willChange: 'background-position',
         }"
       />
-      <!-- Hero stage slots here — same clip-path as stone/grain. -->
-      <div class="pointer-events-none absolute inset-0 z-10 min-h-0 overflow-visible">
+      <!-- Hero stage — layout box inset; clip shell is overscanned for outward crests. -->
+      <div
+        class="pointer-events-none absolute z-10 min-h-0 overflow-visible"
+        :style="slotInsetStyle"
+      >
         <slot />
       </div>
     </div>
@@ -790,7 +1018,8 @@ onUnmounted(() => {
     <div
       v-else-if="props.paintFill"
       ref="clipEl"
-      class="absolute inset-0"
+      class="absolute"
+      :style="overscanBoxStyle"
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div

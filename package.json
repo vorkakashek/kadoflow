@@ -7,7 +7,7 @@
     "predev": "npm run tokens:fluid",
     "pregenerate": "npm run tokens:fluid",
     "build": "npm run tokens:fluid && nuxt build",
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --host",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare"

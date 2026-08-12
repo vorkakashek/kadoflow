@@ -4,14 +4,12 @@ import { heroToKadoPlan } from '~/utils/flowSurfaceMorph'
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
 
-const fromEl = computed(() => {
-  const slot = hero.value?.surfaceSlot
-  return slot ?? null
-})
-const toEl = computed(() => {
-  const target = kado.value?.surfaceTarget
-  return target ?? null
-})
+const fromEl = computed(() => hero.value?.surfaceSlot ?? null)
+const toEl = computed(() => kado.value?.surfaceTarget ?? null)
+const stoneEl = computed(() => kado.value?.stoneEl ?? null)
+const termEl = computed(() => kado.value?.termTarget ?? null)
+const wordEl = computed(() => kado.value?.kadoflowWord ?? null)
+const bodyEl = computed(() => kado.value?.bodyFocusEl ?? null)
 
 /** Soft snap off — locks touchmove on direction changes / settle and fights iOS scroll. */
 </script>
@@ -21,10 +19,14 @@ const toEl = computed(() => {
     <FlowSurfaceHost
       :from-el="fromEl"
       :to-el="toEl"
+      :stone-el="stoneEl"
+      :term-el="termEl"
+      :word-el="wordEl"
+      :body-el="bodyEl"
       :plan="heroToKadoPlan"
     />
     <SiteHeader />
-    <main class="relative z-10">
+    <main class="pointer-events-none relative z-10">
       <HomeHero ref="hero" />
       <HomeKado ref="kado" />
       <!-- Temporary scroll room for morph / parallax tests -->

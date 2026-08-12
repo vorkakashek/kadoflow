@@ -1,0 +1,12 @@
+---
+description: Always start Nuxt dev server with --host for phone/LAN access
+alwaysApply: true
+---
+
+# Dev server
+
+When starting the local site (`npm run dev` / Nuxt), always use **network host** mode so it can be opened from a phone on the same Wi‑Fi.
+
+- Prefer `npm run dev` (script already includes `--host`).
+- If invoking Nuxt directly: `nuxt dev --host` (never plain `nuxt dev` only).
+- After start, tell the user both Local and Network URLs (LAN IP).

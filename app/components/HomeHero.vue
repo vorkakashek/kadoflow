@@ -12,7 +12,7 @@ defineExpose({ section, surfaceSlot })
 <template>
   <section
     ref="section"
-    class="hero relative z-10 w-full overflow-visible touch-pan-y"
+    class="hero pointer-events-none relative z-10 w-full overflow-visible touch-pan-y"
     style="height: var(--app-screen)"
   >
     <div

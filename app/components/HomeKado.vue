@@ -3,13 +3,25 @@
  * Home — «Кадо́ — путь цветов.»
  * Grid: empty col 1 & 12 · photo cols 2–6 · text cols 7–11.
  * Body: line-by-line ash→ink fill on scroll (1.5× type).
+ * Mobile surface waypoints: stone → term → Kadoflow word → center square.
  */
+const BRAND = 'Kadoflow'
 const BODY_TEXT =
   'Kadoflow переносит этот принцип в цифровую среду: создаёт для каждой задачи собственный визуальный язык и собирает его в работающую систему.'
+/** Scroll lag for the whole fill timeline. */
+const FILL_SCRUB = 1.1
+/** Delay between line starts (timeline units; each line still lasts 1). */
+const FILL_LINE_STAGGER = 0.7
 
 const section = ref<HTMLElement | null>(null)
+/** Stone morph target (desktop end + mobile waypoint 1). */
 const surfaceTarget = ref<HTMLElement | null>(null)
-const mediaFocusEl = ref<HTMLElement | null>(null)
+/** Rock image — scroll marker «top 10%». */
+const stoneEl = ref<HTMLElement | null>(null)
+/** Title + phonetic block — mobile waypoint after stone. */
+const termTarget = ref<HTMLElement | null>(null)
+/** First word “Kadoflow” — mobile waypoint with pad (set after line-fill build). */
+const kadoflowWord = ref<HTMLElement | null>(null)
 const topFocusEl = ref<HTMLElement | null>(null)
 const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
@@ -17,9 +29,13 @@ const bodyEl = ref<HTMLElement | null>(null)
 defineExpose({
   section,
   surfaceTarget,
+  stoneEl,
+  termTarget,
+  kadoflowWord,
+  bodyFocusEl,
 })
 
-useViewportFocusRefs([mediaFocusEl, topFocusEl], {
+useViewportFocusRefs([stoneEl, topFocusEl], {
   blur: 16,
   delay: 0.14,
   duration: 0.75,
@@ -35,6 +51,8 @@ let rebuildTimer = 0
 /** Measure word tops → wrap each visual line (ash base + ink clip L→R). */
 function buildLineFill(host: HTMLElement): HTMLElement[] {
   host.textContent = ''
+  // Keep previous word el until the new brand node exists — nulling it rebuilt the
+  // whole Flow Surface corridor and could hide hero on first paint.
   const measure = document.createElement('span')
   measure.style.whiteSpace = 'normal'
   host.appendChild(measure)
@@ -64,23 +82,42 @@ function buildLineFill(host: HTMLElement): HTMLElement[] {
 
   host.textContent = ''
   const inkEls: HTMLElement[] = []
-  for (const lineText of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    let lineText = lines[i]!
     const row = document.createElement('span')
     row.className = 'kado-body__line'
 
-    const ash = document.createElement('span')
-    ash.className = 'kado-body__ash'
-    ash.textContent = lineText
+    if (i === 0 && lineText.startsWith(BRAND)) {
+      const brand = document.createElement('span')
+      brand.className = 'kado-brand'
+      brand.textContent = BRAND
+      row.appendChild(brand)
+      kadoflowWord.value = brand
+      lineText = lineText.slice(BRAND.length).replace(/^\s+/, '')
+      // Explicit space node — leading space inside the next span can collapse.
+      if (lineText.length) row.appendChild(document.createTextNode(' '))
+    }
 
-    const ink = document.createElement('span')
-    ink.className = 'kado-body__ink'
-    ink.setAttribute('aria-hidden', 'true')
-    ink.textContent = lineText
-    ink.style.clipPath = 'inset(0 100% 0 0)'
+    if (lineText.length) {
+      const run = document.createElement('span')
+      run.className = 'kado-body__run'
 
-    row.append(ash, ink)
+      const ash = document.createElement('span')
+      ash.className = 'kado-body__ash'
+      ash.textContent = lineText
+
+      const ink = document.createElement('span')
+      ink.className = 'kado-body__ink'
+      ink.setAttribute('aria-hidden', 'true')
+      ink.textContent = lineText
+      ink.style.clipPath = 'inset(0 100% 0 0)'
+
+      run.append(ash, ink)
+      row.appendChild(run)
+      inkEls.push(ink)
+    }
+
     host.appendChild(row)
-    inkEls.push(ink)
   }
   return inkEls
 }
@@ -96,6 +133,7 @@ async function setupLineFill() {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     host.textContent = BODY_TEXT
     host.style.color = 'var(--palette-ink)'
+    kadoflowWord.value = null
     return
   }
 
@@ -117,8 +155,7 @@ async function setupLineFill() {
         trigger,
         start: 'top 85%',
         end: 'bottom 40%',
-        scrub: true,
-        // Don't rebuild markers on iOS URL-bar height flicker.
+        scrub: FILL_SCRUB,
         invalidateOnRefresh: false,
       },
     })
@@ -127,7 +164,7 @@ async function setupLineFill() {
         ink,
         { clipPath: 'inset(0px 100% 0px 0px)' },
         { clipPath: 'inset(0px 0% 0px 0px)', ease: 'none', duration: 1 },
-        i,
+        i * FILL_LINE_STAGGER,
       )
     })
   }, section.value ?? undefined)
@@ -149,8 +186,6 @@ onMounted(async () => {
   await nextTick()
   await setupLineFill()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
-  // Rebuild only on real width changes — never on iOS URL-bar height flicker
-  // (window.resize + height-only RO was hard-stopping scroll in the hero).
   if (bodyFocusEl.value) {
     resizeObserver = new ResizeObserver(() => {
       const w = bodyFocusEl.value?.clientWidth ?? 0
@@ -172,7 +207,7 @@ onUnmounted(() => {
 <template>
   <section
     ref="section"
-    class="kado relative z-10 w-full"
+    class="kado pointer-events-auto relative z-10 w-full"
     :style="{
       paddingInline: 'var(--layout-margin-content)',
       paddingBlock: 'var(--space-section)',
@@ -187,20 +222,15 @@ onUnmounted(() => {
         rowGap: 'var(--space-block)',
       }"
     >
-      <!-- Empty cols 1 & 12 · photo band cols 2–6 (image centered) · text 7–11 -->
       <div class="relative col-span-12 flex justify-center md:col-span-5 md:col-start-2">
         <div class="relative w-fit max-w-full">
           <div
             ref="surfaceTarget"
-            class="pointer-events-none absolute left-1/2 top-[10%] -z-10 -translate-x-1/2"
+            class="kado-surface-target pointer-events-none absolute left-1/2 top-[10%] -z-10 -translate-x-1/2"
             aria-hidden="true"
-            :style="{
-              width: 'var(--layout-span-4)',
-              height: '80%',
-            }"
           />
           <img
-            ref="mediaFocusEl"
+            ref="stoneEl"
             src="/home/rock.png"
             alt="Камень"
             class="kado-focus relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
@@ -222,15 +252,19 @@ onUnmounted(() => {
             :style="{
               gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
               columnGap: 'var(--layout-gutter)',
-              rowGap: '12px',
             }"
           >
-            <h2 class="kado-title col-span-6">
-              Кадо́ — путь цветов.
-            </h2>
-            <p class="kado-phonetic col-span-6">
-              [/ ka-dō]
-            </p>
+            <div
+              ref="termTarget"
+              class="kado-term col-span-6"
+            >
+              <h2 class="kado-title">
+                Кадо́ — путь цветов.
+              </h2>
+              <p class="kado-phonetic">
+                [/ ka-dō]
+              </p>
+            </div>
             <p class="kado-deck col-span-6 md:col-span-4 md:col-start-2">
               Японское искусство композиции, где свобода природной формы обретает точный порядок.
             </p>
@@ -243,9 +277,7 @@ onUnmounted(() => {
             <p
               ref="bodyEl"
               class="kado-body relative w-full"
-            >
-              {{ BODY_TEXT }}
-            </p>
+            />
           </div>
         </div>
       </div>
@@ -254,9 +286,34 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.kado-surface-target {
+  /* Mobile: +4 cols vs desktop rest pose (4 → 8). */
+  width: var(--layout-span-8);
+  height: 80%;
+}
+
+@media (min-width: 768px) {
+  .kado-surface-target {
+    width: var(--layout-span-4);
+  }
+}
+
 .kado-focus {
   will-change: filter, opacity;
   transform: translateZ(0);
+}
+
+.kado-term {
+  display: flex;
+  flex-direction: column;
+  /* Mobile: half the previous 12px title↔phonetic gap. */
+  row-gap: 6px;
+}
+
+@media (min-width: 768px) {
+  .kado-term {
+    row-gap: 12px;
+  }
 }
 
 .kado-title {
@@ -275,6 +332,7 @@ onUnmounted(() => {
 }
 
 .kado-deck {
+  margin-top: 12px;
   font-size: var(--type-lead);
   font-weight: 500;
   letter-spacing: -0.02em;
@@ -288,13 +346,25 @@ onUnmounted(() => {
   line-height: 1.25;
 }
 
+@media (min-width: 768px) {
+  .kado-body {
+    font-size: var(--type-slogan);
+  }
+}
+
 .kado-body :deep(.kado-body__line) {
   position: relative;
   display: block;
 }
 
+.kado-body :deep(.kado-body__run) {
+  position: relative;
+  display: inline-block;
+}
+
 .kado-body :deep(.kado-body__ash) {
-  color: var(--palette-ash);
+  /* Lighter than ash so ink fill reads clearly on sand */
+  color: color-mix(in srgb, var(--palette-ash) 32%, var(--palette-sand));
 }
 
 .kado-body :deep(.kado-body__ink) {
@@ -303,5 +373,9 @@ onUnmounted(() => {
   color: var(--palette-ink);
   clip-path: inset(0 100% 0 0);
   pointer-events: none;
+}
+
+.kado-body :deep(.kado-brand) {
+  color: var(--palette-ink);
 }
 </style>
