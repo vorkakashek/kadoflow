@@ -792,6 +792,29 @@ async function bootScene() {
     }
   }
 
+  // Pause draws while the window is unfocused (other monitor / typing in Cursor).
+  // preserveDrawingBuffer keeps the last frame — no throttled-rAF clear flashes.
+  const onFocusPause = () => {
+    stopLoop()
+  }
+  const onFocusResume = () => {
+    if (props.active && document.visibilityState === 'visible') startLoop()
+  }
+  const onPageVisibility = () => {
+    if (document.visibilityState === 'hidden') stopLoop()
+    else onFocusResume()
+  }
+  window.addEventListener('blur', onFocusPause)
+  window.addEventListener('focus', onFocusResume)
+  document.addEventListener('visibilitychange', onPageVisibility)
+  const prevRemovePointer = removePointerListeners
+  removePointerListeners = () => {
+    prevRemovePointer?.()
+    window.removeEventListener('blur', onFocusPause)
+    window.removeEventListener('focus', onFocusResume)
+    document.removeEventListener('visibilitychange', onPageVisibility)
+  }
+
   syncCamera({ force: true })
   forceResize = () => {
     // Match current host; do not wipe size.w (setSize on a forced 0→w clear-flashes).
