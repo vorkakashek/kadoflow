@@ -1,17 +1,19 @@
 <script setup lang="ts">
 /**
  * Hero swarm — tilted torus spiral (ring + helix twist), slow plane drift.
- * Desktop: cursor knocks balls; they return to moving seats.
- * Mobile (Android + iOS): 6 balls, AA + 1k HDRI, baked helix.
+ * ≥1200: cursor knocks balls; they return to moving seats.
+ * <1200: no pointer interaction (mobile/tablet baked or calm orbit).
  */
 import * as THREE from 'three'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import {
   isAppleTouchDevice,
   isCoarsePointer,
+  isMobileChromeHeightOnlyResize,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 import { flowSurfaceMask } from '~/composables/useFlowSurfaceMask'
+import { useBrandPreload } from '~/composables/useBrandPreload'
 
 /** Flip this to A/B studio looks (files in /public/env). */
 const HDRI_PRESETS = {
@@ -20,22 +22,21 @@ const HDRI_PRESETS = {
   studioWarm: '/env/studio_small_03_1k.hdr',
 } as const
 const ACTIVE_HDRI: keyof typeof HDRI_PRESETS = 'studioSoft'
-/** Desktop breakpoint — full ball count + richer materials. */
+/** Desktop breakpoint — full ball count, richer materials, cursor interaction. */
 const DESKTOP_MIN_WIDTH = 1200
 const BALL_COUNT_DESKTOP = 32
 const BALL_COUNT_TABLET = 16
 /** Mobile: few high-quality balls on a baked orbit (no physics / pointer). */
 const BALL_COUNT_MOBILE = 6
-/** Target on-screen diameter in CSS pixels at the cluster depth. */
-const BALL_DIAMETER_PX = 200
-/** Default camera distance (desktop). */
+/** Camera distance — framing is fluid via on-screen diameter, not a zoom cliff. */
 const CAMERA_Z = 8.82
-/**
- * Compact: pull camera back by this factor so the swarm reads smaller.
- * Ball diameter scales by the inverse so the zoom actually shows
- * (world radius otherwise tracks camera distance).
- */
-const CAMERA_ZOOM_COMPACT = 2.25
+/** Same control widths as design-tokens/responsive.json. */
+const FLUID_VIEWPORTS = [390, 768, 1280, 1440, 1920, 2560]
+/** On-screen ball diameter (px) at those widths — 390 ≈ current phone, 2560 ≈ 2K. */
+const FLUID_DIAMETER_W = [90, 118, 156, 176, 192, 200]
+/** Diameter contribution from viewport height (short heroes keep balls in check). */
+const FLUID_HEIGHTS = [667, 800, 900, 1080, 1440]
+const FLUID_DIAMETER_H = [96, 118, 142, 176, 200]
 /** Soft spring back to the moving seat on the ring. */
 const RETURN = 0.000022
 const DAMPING = 0.982
@@ -55,10 +56,6 @@ const CURSOR_SPEED_MIN_PX = 0.6
 const CURSOR_IDLE_HOLD = 0.14
 const SEPARATION_PAD = 0.03
 const SEPARATION_FORCE = 0.01
-/** Ring radius in ball-radius units. Sized so 32 seats barely kiss, not explode. */
-const RING_RADIUS_SCALE = 7.2
-/** Mobile: tighter bagel so 6 balls read as a cluster, not a wide ring. */
-const RING_RADIUS_SCALE_MOBILE = 4.2
 /** Torus tube radius as a fraction of the major ring radius. */
 const SPIRAL_TUBE_RATIO = 0.3
 /** How many helix twists per full lap around the ring. */
@@ -94,6 +91,43 @@ const CHAOS_POP_CHANCE = 0.0014
 const CHAOS_POP_FORCE = 0.012
 /** Lock to seats on boot / resize so separation doesn't grenade the swarm. */
 const SETTLE_MS = 700
+/** Debounce real window resizes before a full scene reboot. */
+const REBOOT_MS = 320
+
+function lerpStops(x: number, stops: number[], values: number[]) {
+  if (x <= stops[0]) return values[0]
+  const last = stops.length - 1
+  if (x >= stops[last]) return values[last]
+  for (let i = 0; i < last; i++) {
+    if (x <= stops[i + 1]) {
+      const t = (x - stops[i]) / (stops[i + 1] - stops[i])
+      return values[i] + (values[i + 1] - values[i]) * t
+    }
+  }
+  return values[last]
+}
+
+/**
+ * Fluid ball size from width, height, and aspect — no 1200px cliff.
+ * Phone and 2K are the liked anchors; everything between interpolates.
+ */
+function swarmLayout(w: number, h: number) {
+  const fromW = lerpStops(w, FLUID_VIEWPORTS, FLUID_DIAMETER_W)
+  const fromH = lerpStops(h, FLUID_HEIGHTS, FLUID_DIAMETER_H)
+  const aspect = w / Math.max(h, 1)
+  // Portrait: trust width more (hero is tall). Landscape: let height pull down.
+  const wH = Math.min(0.46, Math.max(0.16, (aspect - 0.48) / 2.4))
+  let diameterPx = fromW * (1 - wH) + fromH * wH
+  diameterPx = Math.min(diameterPx, h * 0.16, w * 0.28)
+  diameterPx = Math.max(72, diameterPx)
+  const geo = Math.sqrt(w * h)
+  const ringScale = lerpStops(
+    geo,
+    [560, 780, 1100, 1400, 1920],
+    [4.2, 5.0, 6.1, 6.75, 7.2],
+  )
+  return { diameterPx, ringScale, cameraZ: CAMERA_Z }
+}
 
 type Ball = {
   mesh: THREE.Mesh
@@ -136,6 +170,56 @@ let loopRunning = false
 let lastFrame = 0
 let runFrame: ((now: number) => void) | null = null
 let forceResize: (() => void) | null = null
+/** Snap seats after hide→show so morph resizes can't ratchet world positions. */
+let resetSeats: (() => void) | null = null
+let lockOrbitLayout: (() => void) | null = null
+let unlockOrbitLayout: (() => void) | null = null
+let bootGen = 0
+let resizeTimer = 0
+let resizePaintTimer = 0
+let lastLayoutKey = ''
+let removeWindowResize: (() => void) | null = null
+let firstSceneReady = false
+
+function layoutKey() {
+  return `${window.innerWidth}|${window.innerHeight}`
+}
+
+function disposeScene() {
+  stopLoop()
+  runFrame = null
+  forceResize = null
+  resetSeats = null
+  lockOrbitLayout = null
+  unlockOrbitLayout = null
+  window.clearTimeout(resizePaintTimer)
+  resizePaintTimer = 0
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  removePointerListeners?.()
+  removePointerListeners = null
+  removeScrollPause?.()
+  removeScrollPause = null
+  sharedGeometry?.dispose()
+  sharedGeometry = null
+  envMap?.dispose()
+  envMap = null
+  microNormal?.dispose()
+  microNormal = null
+  microRough?.dispose()
+  microRough = null
+  for (const ball of balls) {
+    const material = ball.mesh.material
+    if (Array.isArray(material)) material.forEach((m) => m.dispose())
+    else material.dispose()
+  }
+  balls = []
+  if (renderer) {
+    renderer.dispose()
+    renderer.domElement.remove()
+    renderer = null
+  }
+}
 
 function stopLoop() {
   if (animationId) {
@@ -149,14 +233,14 @@ function startLoop() {
   if (!runFrame || loopRunning || !renderer) return
   loopRunning = true
   lastFrame = performance.now()
-  animationId = requestAnimationFrame(runFrame)
+  // Paint immediately — don't wait a rAF (blank composite = one-frame flash).
+  runFrame(lastFrame)
 }
 
 watch(
   () => props.active,
   (on) => {
     if (on) {
-      // Host may have been 0×0 while morph wrongly hid the stage — force a resize pass.
       forceResize?.()
       startLoop()
     } else {
@@ -195,9 +279,41 @@ function prepDataMap(tex: THREE.Texture, repeat = 2.4) {
   return tex
 }
 
-onMounted(async () => {
+onMounted(() => {
+  lastLayoutKey = layoutKey()
+  void bootScene()
+  const onWinResize = () => {
+    if (isMobileChromeHeightOnlyResize()) return
+    window.clearTimeout(resizeTimer)
+    resizeTimer = window.setTimeout(() => {
+      const key = layoutKey()
+      if (key === lastLayoutKey) return
+      lastLayoutKey = key
+      void bootScene()
+    }, REBOOT_MS)
+  }
+  window.addEventListener('resize', onWinResize, { passive: true })
+  removeWindowResize = () => {
+    window.removeEventListener('resize', onWinResize)
+    window.clearTimeout(resizeTimer)
+  }
+})
+
+onUnmounted(() => {
+  bootGen += 1
+  removeWindowResize?.()
+  removeWindowResize = null
+  disposeScene()
+})
+
+async function bootScene() {
+  const gen = ++bootGen
+  disposeScene()
   const host = canvasHost.value
   if (!host) return
+
+  const preload = useBrandPreload()
+  if (!firstSceneReady) preload.setSceneProgress(0.06)
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const isCoarse = isCoarsePointer()
@@ -210,6 +326,9 @@ onMounted(async () => {
   const lite = isMobile || isIOS
   const wide =
     Math.max(window.innerWidth, host.clientWidth) >= DESKTOP_MIN_WIDTH
+  /** Cursor knocks only on wide desktop — never below 1200. */
+  const interactive = wide
+  const layout = swarmLayout(window.innerWidth, window.innerHeight)
   const ballCount = wide
     ? BALL_COUNT_DESKTOP
     : lite
@@ -217,50 +336,60 @@ onMounted(async () => {
       : BALL_COUNT_TABLET
   const sphereSegments = wide && !isCoarse ? 64 : lite ? 40 : 32
   const pixelRatioCap = wide && !isCoarse ? 2 : lite ? 1.5 : 1.25
-  const cameraZ = wide ? CAMERA_Z : CAMERA_Z * CAMERA_ZOOM_COMPACT
-  const ballDiameterPx = wide
-    ? BALL_DIAMETER_PX
-    : BALL_DIAMETER_PX / CAMERA_ZOOM_COMPACT
+  const cameraZ = layout.cameraZ
+  const ballDiameterPx = layout.diameterPx
+  const ringScale = layout.ringScale
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50)
   camera.position.set(0, 0.12, cameraZ)
 
-  renderer = new THREE.WebGLRenderer({
+  const gl = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
     powerPreference: 'high-performance',
+    // Keep last frame when rAF is throttled (other monitor / unfocused window).
+    // Without this the buffer clears between presents → random GL flashes.
+    preserveDrawingBuffer: true,
   })
-  renderer.setClearColor(0x000000, 0)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 0.92
-  renderer.sortObjects = true
-  host.appendChild(renderer.domElement)
-  // Mobile: PE none so iOS scroll isn’t stolen by the canvas.
-  // Desktop: keep auto so cursor knocks reach the host listeners.
-  if (lite) {
+  gl.setClearColor(0x000000, 0)
+  gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
+  gl.outputColorSpace = THREE.SRGBColorSpace
+  gl.toneMapping = THREE.ACESFilmicToneMapping
+  gl.toneMappingExposure = 0.92
+  gl.sortObjects = true
+  // Avoid auto-clear gaps if a frame is skipped mid-composite.
+  gl.autoClear = true
+  // Below 1200: PE none so scroll isn't stolen and knocks stay off.
+  // Wide desktop: keep auto so cursor knocks reach the host listeners.
+  if (!interactive) {
     host.style.pointerEvents = 'none'
     host.style.cursor = 'default'
-    renderer.domElement.style.pointerEvents = 'none'
-    renderer.domElement.style.touchAction = 'pan-y'
+    gl.domElement.style.pointerEvents = 'none'
+    gl.domElement.style.touchAction = 'pan-y'
   } else {
     host.style.pointerEvents = 'auto'
     host.style.cursor = 'grab'
-    renderer.domElement.style.pointerEvents = 'auto'
-    renderer.domElement.style.touchAction = 'none'
+    gl.domElement.style.pointerEvents = 'auto'
+    gl.domElement.style.touchAction = 'none'
   }
 
   // HDRI — mobile uses the smaller 1k warm studio.
   {
-    const pmrem = new THREE.PMREMGenerator(renderer)
+    const pmrem = new THREE.PMREMGenerator(gl)
     pmrem.compileEquirectangularShader()
 
-    const texLoader = new THREE.TextureLoader()
+    const manager = new THREE.LoadingManager()
+    manager.onProgress = (_url, loaded, total) => {
+      if (firstSceneReady) return
+      const ratio = total > 0 ? loaded / total : 0
+      preload.setSceneProgress(0.08 + ratio * 0.72)
+    }
+
+    const texLoader = new THREE.TextureLoader(manager)
     const hdrUrl = wide ? HDRI_PRESETS[ACTIVE_HDRI] : HDRI_PRESETS.studioWarm
     const assetLoads: Promise<THREE.DataTexture | THREE.Texture>[] = [
-      new HDRLoader().loadAsync(hdrUrl),
+      new HDRLoader(manager).loadAsync(hdrUrl),
     ]
     if (wide) {
       assetLoads.push(
@@ -269,6 +398,15 @@ onMounted(async () => {
       )
     }
     const assets = await Promise.all(assetLoads)
+    if (gen !== bootGen) {
+      if (renderer !== gl) {
+        gl.dispose()
+        gl.domElement.remove()
+      }
+      pmrem.dispose()
+      return
+    }
+    if (!firstSceneReady) preload.setSceneProgress(0.86)
     const hdrTex = assets[0] as THREE.DataTexture
 
     envMap = pmrem.fromEquirectangular(hdrTex).texture
@@ -282,6 +420,9 @@ onMounted(async () => {
       microRough = prepDataMap(assets[2], 2.6)
     }
   }
+
+  renderer = gl
+  host.appendChild(gl.domElement)
 
   const hemi = new THREE.HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.28)
   scene.add(hemi)
@@ -426,6 +567,8 @@ onMounted(async () => {
   const camUp = new THREE.Vector3()
   let lastBallRadius = 0
   let settleLeft = SETTLE_MS
+  /** Once true, orbit anchor/radius ignore host size churn (morph / pin). */
+  let orbitLocked = false
 
   const pointOnOrbit = (angle: number, phase: number, out: THREE.Vector3) => {
     // Torus helix: major angle around the bagel, minor angle winds the tube.
@@ -451,39 +594,52 @@ onMounted(async () => {
     settleLeft = SETTLE_MS
   }
 
-  const worldRadiusForPixels = (diameterPx: number) => {
+  const worldRadiusForPixels = (diameterPx: number, layoutH: number) => {
     const dist = camera.position.distanceTo(anchor)
     const visibleHeight =
       2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * dist
-    return (diameterPx * 0.5 * visibleHeight) / Math.max(size.h, 1)
+    return (diameterPx * 0.5 * visibleHeight) / Math.max(layoutH, 1)
   }
 
-  const syncCamera = () => {
+  const syncCamera = (opts?: { unlock?: boolean; force?: boolean }) => {
+    // While hidden, morph keeps resizing the host — don't update orbit math.
+    if (!props.active && !opts?.force) return
     const w = host.clientWidth
     const h = host.clientHeight
     if (w < 2 || h < 2 || !renderer) return
-    // Ignore sub-pixel / transform noise — reseating the swarm every frame = flicker.
-    if (Math.abs(w - size.w) < 1 && Math.abs(h - size.h) < 1 && size.w > 0) return
-    size.w = w
-    size.h = h
-    renderer.setSize(w, h, false)
-    camera.aspect = w / h
-    camera.updateProjectionMatrix()
+
+    // Ignore 1px jitter from layout/subpixel — setSize clears the buffer.
+    const sizeChanged =
+      Math.abs(w - size.w) >= 2 || Math.abs(h - size.h) >= 2 || size.w === 0
+    if (sizeChanged) {
+      size.w = w
+      size.h = h
+      renderer.setSize(w, h, false)
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+      // Fill the freshly cleared buffer before the next composite.
+      if (props.active) renderer.render(scene, camera)
+    }
+
+    // Canvas may stretch with the morphing frame; orbit stays on the first rest layout
+    // so hide→show cycles can't ratchet the cluster upward.
+    if (orbitLocked && !opts?.unlock) return
 
     const column = readLayoutSpan1Px(host)
     const rightNdc = 1 - ((column * 2 + w * 0.16) / w) * 2
 
-    // Desktop: bias to the right column band. Mobile: center X, 30% down the surface.
     let anchorNdcX = rightNdc
     let anchorNdcY = 0.02
     if (lite) {
+      // Stable screen metrics — not the morphing host box.
       const screen = readAppScreenPx()
+      const layoutH = Math.max(screen * 0.92, h)
       const topExtraPx = screen * MEDIA_TOP_EXTRA_VH
       const divePx = screen * MEDIA_DIVE_VH
-      const slotPx = Math.max(h - topExtraPx - divePx, h * 0.45)
+      const slotPx = Math.max(layoutH - topExtraPx - divePx, layoutH * 0.45)
       const cssY = topExtraPx + slotPx * MOBILE_ANCHOR_SURFACE_Y
       anchorNdcX = 0
-      anchorNdcY = 1 - (2 * cssY) / h
+      anchorNdcY = 1 - (2 * cssY) / layoutH
     }
 
     camera.getWorldDirection(planeNormal)
@@ -499,8 +655,9 @@ onMounted(async () => {
 
     camera.lookAt(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
 
-    const radius = worldRadiusForPixels(ballDiameterPx)
-    ringRadius = radius * (lite ? RING_RADIUS_SCALE_MOBILE : RING_RADIUS_SCALE)
+    const layoutH = lite ? Math.max(readAppScreenPx() * 0.92, h) : h
+    const radius = worldRadiusForPixels(ballDiameterPx, layoutH)
+    ringRadius = radius * ringScale
 
     for (let i = 0; i < balls.length; i++) {
       const ball = balls[i]
@@ -508,15 +665,9 @@ onMounted(async () => {
       ball.mesh.scale.setScalar(radius)
     }
 
-    // First layout or real size jump — re-seat. Skipping this after a tiny
-    // first measure left balls overlapping at the new radius → grenade.
-    if (
-      lastBallRadius < 1e-6 ||
-      Math.abs(radius - lastBallRadius) > radius * 0.04
-    ) {
-      seatAll()
-      lastBallRadius = radius
-    }
+    seatAll()
+    lastBallRadius = radius
+    orbitLocked = true
   }
 
   const clientToWorld = (clientX: number, clientY: number) => {
@@ -611,7 +762,7 @@ onMounted(async () => {
     }, POINTER_IDLE_MS)
   }
 
-  if (!lite) {
+  if (interactive) {
     // Window-level: swarm sits under PE-none stacks; host-only listeners miss hits.
     const onWindowBlur = () => onPointerLeave()
     const onVisibilityChange = () => {
@@ -641,13 +792,32 @@ onMounted(async () => {
     }
   }
 
-  syncCamera()
+  syncCamera({ force: true })
   forceResize = () => {
+    // Match current host; do not wipe size.w (setSize on a forced 0→w clear-flashes).
+    syncCamera({ force: true })
+  }
+  resetSeats = () => {
+    seatAll()
+    if (balls[0]) lastBallRadius = balls[0].radius
+  }
+  lockOrbitLayout = () => {
+    orbitLocked = true
+  }
+  unlockOrbitLayout = () => {
+    orbitLocked = false
     size.w = 0
     size.h = 0
-    syncCamera()
+    syncCamera({ unlock: true, force: true })
   }
-  resizeObserver = new ResizeObserver(syncCamera)
+  resizeObserver = new ResizeObserver(() => {
+    // Coalesce morph/layout chatter — each setSize was a potential flash.
+    if (resizePaintTimer) return
+    resizePaintTimer = window.setTimeout(() => {
+      resizePaintTimer = 0
+      syncCamera()
+    }, 32)
+  })
   resizeObserver.observe(host)
 
   // No scroll stopLoop — that froze/restarted the GL layer every finger move (flicker).
@@ -848,33 +1018,21 @@ onMounted(async () => {
   }
 
   runFrame = tick
+  if (gen !== bootGen) return
   if (props.active) startLoop()
   else stopLoop()
-})
 
-onUnmounted(() => {
-  stopLoop()
-  runFrame = null
-  forceResize = null
-  resizeObserver?.disconnect()
-  removePointerListeners?.()
-  removeScrollPause?.()
-  sharedGeometry?.dispose()
-  envMap?.dispose()
-  microNormal?.dispose()
-  microRough?.dispose()
-  for (const ball of balls) {
-    const material = ball.mesh.material
-    if (Array.isArray(material)) material.forEach((m) => m.dispose())
-    else material.dispose()
+  if (!firstSceneReady) {
+    preload.setSceneProgress(0.96)
+    renderer.render(scene, camera)
+    requestAnimationFrame(() => {
+      firstSceneReady = true
+      preload.markSceneReady()
+    })
+  } else {
+    renderer.render(scene, camera)
   }
-  balls = []
-  if (renderer) {
-    renderer.dispose()
-    renderer.domElement.remove()
-    renderer = null
-  }
-})
+}
 </script>
 
 <template>
@@ -890,6 +1048,13 @@ onUnmounted(() => {
   cursor: grab;
   /* Belt-and-suspenders: never let the GL surface own vertical gestures. */
   touch-action: pan-y;
+}
+
+/* Under the brand preloader: keep the GL layer out of the compositor.
+   Prefer opacity — a child with visibility:visible can override a hidden parent. */
+.hero-swarm--cold {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .hero-swarm:active {

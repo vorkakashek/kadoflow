@@ -5,6 +5,7 @@
  * Stage is rest-sized and offset so frame morph clips over it (no layout squash).
  */
 import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfaceMask'
+import { useBrandPreload } from '~/composables/useBrandPreload'
 import { isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
 
 const SCENE_FADE_MORPH = 0.3
@@ -12,9 +13,10 @@ const SCENE_RESTORE_MORPH = 0.05
 /** Morph-driven stage fade — keyed to min(h,v) arrive progress. */
 const FADE_OUT_START = 0.3
 const FADE_OUT_END = 0.7
-/** Mobile: fade much earlier in the hero→kado corridor. */
-const FADE_OUT_START_MOBILE = 0.01
-const FADE_OUT_END_MOBILE = 0.12
+/** Mobile: earlier corridor, still long enough to read as a fade (not a hard cut). */
+const FADE_OUT_START_MOBILE = 0.08
+const FADE_OUT_END_MOBILE = 0.42
+const SCENE_FADE_MORPH_MOBILE = 0.1
 /**
  * Swarm/media bleed past the stage box (px).
  * Must cover stacked roam+hover outward (~2× dent + bow) so the GL edge never shows.
@@ -34,21 +36,38 @@ const props = defineProps<{
 }>()
 
 const mask = useFlowSurfaceMask()
+const preload = useBrandPreload()
 /** Frame-local offset: keep stage glued to rest pose in the viewport. */
 const stageLeft = computed(() => props.restLeft - mask.left)
 const stageTop = computed(() => props.restTop - mask.top)
 const focusEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
+const swarmCoverEl = ref<HTMLElement | null>(null)
 const copyEl = ref<HTMLElement | null>(null)
 const sloganEl = ref<HTMLElement | null>(null)
 const titleEl = ref<HTMLElement | null>(null)
+const descEl = ref<HTMLElement | null>(null)
+const introPending = ref(true)
 
 const mobileLite = ref(false)
+/** Cursor knocks on the swarm — desktop width only (≥1200). */
+const swarmInteractive = ref(false)
+function syncSwarmInteractive() {
+  if (typeof window === 'undefined') return
+  swarmInteractive.value = window.innerWidth >= 1200
+}
 if (import.meta.client) {
   mobileLite.value = isNarrowViewport() || isCoarsePointer()
+  syncSwarmInteractive()
 }
 
 const sceneLive = ref(true)
+/** WebGL rAF — deferred on mobile until iris veil is done (revealT≈1). */
+const swarmLoopReady = ref(false)
+const swarmActive = computed(
+  () =>
+    sceneLive.value && preload.revealed.value && swarmLoopReady.value,
+)
 /** Whole hero stack opacity — never unmount; eased by morph. */
 const contentOpacity = ref(1)
 /** Text parallax Y (px). Negative = up. Driven by section scroll, not fade. */
@@ -71,6 +90,10 @@ function opacityForMorph(m: number) {
   if (m <= start) return 1
   if (m >= end) return 0
   return 1 - (m - start) / (end - start)
+}
+
+function sceneFadeMorph() {
+  return mobileLite.value ? SCENE_FADE_MORPH_MOBILE : SCENE_FADE_MORPH
 }
 
 /** Parallax from first scroll px of the hero section — independent of morph fade. */
@@ -96,18 +119,16 @@ function onParallaxScroll() {
   })
 }
 
-function dismissScene() {
+async function dismissScene() {
   if (sceneDismissed || !mediaEl.value) return
   sceneDismissed = true
   mediaFadeTween?.kill()
-  if (!gsapRef) {
-    mediaEl.value.style.opacity = '0'
-    sceneLive.value = false
-    return
-  }
-  mediaFadeTween = gsapRef.to(mediaEl.value, {
+  await ensureGsap()
+  if (!mediaEl.value) return
+  // Keep WebGL alive through the fade, then freeze — same feel on mobile + desktop.
+  mediaFadeTween = gsapRef!.to(mediaEl.value, {
     opacity: 0,
-    duration: 0.4,
+    duration: mobileLite.value ? 0.35 : 0.4,
     ease: 'power1.out',
     onComplete: () => {
       sceneLive.value = false
@@ -120,14 +141,18 @@ function restoreScene() {
   sceneDismissed = false
   mediaFadeTween?.kill()
   mediaFadeTween = null
+  sceneLive.value = true
   if (mediaEl.value) {
     if (gsapRef) {
-      gsapRef.to(mediaEl.value, { opacity: 1, duration: 0.35, ease: 'power1.out' })
+      gsapRef.to(mediaEl.value, {
+        opacity: 1,
+        duration: mobileLite.value ? 0.3 : 0.35,
+        ease: 'power1.out',
+      })
     } else {
       mediaEl.value.style.opacity = '1'
     }
   }
-  sceneLive.value = true
 }
 
 watch(
@@ -138,17 +163,6 @@ watch(
     const show = op > 0.08
     // Freeze only mid-morph — at hero rest edges stay live + cursor dent.
     setFrozen(m > 0.02 && m < 0.98)
-
-    // Mobile: opacity follows morph corridor; WebGL only at rest.
-    if (mobileLite.value) {
-      const live = m < 0.02
-      sceneLive.value = live
-      if (live && mediaEl.value) {
-        mediaEl.value.style.opacity = '1'
-        sceneDismissed = false
-      }
-      return
-    }
 
     if (!show) {
       sceneLive.value = false
@@ -162,8 +176,8 @@ watch(
       return
     }
 
-    if (m > SCENE_FADE_MORPH) {
-      dismissScene()
+    if (m > sceneFadeMorph()) {
+      void dismissScene()
       return
     }
 
@@ -199,8 +213,12 @@ async function setupExitMotion(sectionEl: HTMLElement) {
 
   const mobile = isNarrowViewport() || isCoarsePointer()
   mobileLite.value = mobile
-  // Mobile: no scroll exit blur/opacity — content just leaves with the clip.
-  if (mobile) return
+  syncSwarmInteractive()
+  // Mobile: no scroll exit blur — 3D fade is morph-driven (same dismissScene as desktop).
+  if (mobile) {
+    void ensureGsap()
+    return
+  }
 
   await ensureGsap()
   const gsap = gsapRef!
@@ -283,7 +301,133 @@ onMounted(() => {
   // Don't freeze at rest — living edges + hover need an unfrozen silhouette.
   setFrozen(false)
   updateCopyParallax()
+  syncSwarmInteractive()
   window.addEventListener('scroll', onParallaxScroll, { passive: true })
+  window.addEventListener('resize', syncSwarmInteractive, { passive: true })
+
+  // First-screen entrance after brand preloader iris.
+  if (preload.revealed.value) {
+    introPending.value = false
+    swarmLoopReady.value = true
+  } else {
+    introPending.value = true
+    swarmLoopReady.value = false
+  }
+
+  watch(
+    () => preload.revealed.value,
+    async (on) => {
+      if (!on) {
+        swarmLoopReady.value = false
+        return
+      }
+      // Sync hide before any await — media stays invisible until the intro fade.
+      if (mediaEl.value) {
+        mediaEl.value.style.opacity = '0'
+        mediaEl.value.style.visibility = 'hidden'
+      }
+
+      const { default: gsap } = await import('gsap')
+      const titleLines = titleEl.value
+        ? Array.from(titleEl.value.querySelectorAll('.hero-title .block'))
+        : []
+
+      if (mediaEl.value) gsap.set(mediaEl.value, { autoAlpha: 0 })
+      // Opaque stone lid over WebGL — Chrome still flashes the GL layer on first promote.
+      if (swarmCoverEl.value) gsap.set(swarmCoverEl.value, { autoAlpha: 1 })
+      if (titleLines.length) gsap.set(titleLines, { autoAlpha: 0, y: 22 })
+      else if (titleEl.value) gsap.set(titleEl.value, { autoAlpha: 0, y: 22 })
+      if (descEl.value) gsap.set(descEl.value, { autoAlpha: 0, y: 14 })
+      if (sloganEl.value) gsap.set(sloganEl.value, { autoAlpha: 0, y: 16 })
+      if (titleEl.value) gsap.set(titleEl.value, { autoAlpha: 1 })
+
+      introPending.value = false
+      await nextTick()
+
+      const mobile = mobileLite.value
+      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
+
+      const liftSwarmCover = (at = 0) => {
+        if (!swarmCoverEl.value) return
+        tl.to(
+          swarmCoverEl.value,
+          { autoAlpha: 0, duration: 0.55, ease: 'power2.out' },
+          at,
+        )
+      }
+
+      if (mobile) {
+        // Surface + copy under iris; WebGL only after veil (mid-mask GL froze once).
+        if (mediaEl.value) {
+          tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.85 }, 0.28)
+        }
+        const stop = watch(
+          () => preload.revealT.value,
+          (t) => {
+            if (t < 0.97) return
+            stop()
+            swarmLoopReady.value = true
+            // Prime a couple frames under the stone lid, then lift it.
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                if (swarmCoverEl.value) {
+                  gsap.to(swarmCoverEl.value, {
+                    autoAlpha: 0,
+                    duration: 0.55,
+                    ease: 'power2.out',
+                  })
+                }
+              })
+            })
+          },
+          { immediate: true },
+        )
+      } else {
+        // Desktop: run GL under the stone lid first, then fade media + lift lid.
+        swarmLoopReady.value = true
+        if (mediaEl.value) {
+          tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.85 }, 0.28)
+        }
+        // Lid lifts after GL has painted — user never sees the promote flash.
+        liftSwarmCover(0.42)
+      }
+
+      if (mobile) {
+        if (sloganEl.value) {
+          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 0.45)
+        }
+        if (titleLines.length) {
+          tl.to(
+            titleLines,
+            { autoAlpha: 1, y: 0, duration: 0.8, stagger: 0.14 },
+            0.85,
+          )
+        } else if (titleEl.value) {
+          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.8 }, 0.85)
+        }
+        if (descEl.value) {
+          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.7 }, 1.25)
+        }
+      } else {
+        if (titleLines.length) {
+          tl.to(
+            titleLines,
+            { autoAlpha: 1, y: 0, duration: 0.8, stagger: 0.14 },
+            0.5,
+          )
+        } else if (titleEl.value) {
+          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.8 }, 0.5)
+        }
+        if (descEl.value) {
+          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.7 }, 0.95)
+        }
+        if (sloganEl.value) {
+          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 1.4)
+        }
+      }
+    },
+    { immediate: true },
+  )
 })
 
 onUnmounted(() => {
@@ -292,6 +436,7 @@ onUnmounted(() => {
   ctx?.revert()
   if (parallaxRaf) cancelAnimationFrame(parallaxRaf)
   window.removeEventListener('scroll', onParallaxScroll)
+  window.removeEventListener('resize', syncSwarmInteractive)
 })
 </script>
 
@@ -313,7 +458,10 @@ onUnmounted(() => {
       <div
         ref="mediaEl"
         class="absolute"
-        :class="mobileLite ? 'pointer-events-none' : 'pointer-events-auto'"
+        :class="[
+          swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
+          introPending ? 'hero-intro-hide' : '',
+        ]"
         aria-hidden="true"
         :style="{
           top: `-${SCENE_BLEED_Y}px`,
@@ -323,13 +471,24 @@ onUnmounted(() => {
         }"
       >
         <ClientOnly>
-          <HeroSwarmCanvas class="size-full" :active="sceneLive" />
+          <HeroSwarmCanvas
+            class="size-full"
+            :class="{ 'hero-swarm--cold': !swarmActive }"
+            :active="swarmActive"
+          />
         </ClientOnly>
+        <!-- Hides the first GL compositor flash; lifted after a stable frame. -->
+        <div
+          ref="swarmCoverEl"
+          class="hero-swarm-cover"
+          aria-hidden="true"
+        />
       </div>
 
       <div
         ref="copyEl"
         class="pointer-events-none absolute inset-0 z-10 flex min-h-0 flex-col will-change-transform"
+        :class="{ 'hero-intro-hide': introPending }"
         :style="{ transform: `translate3d(0, ${copyY}px, 0)` }"
       >
         <div
@@ -343,17 +502,23 @@ onUnmounted(() => {
           <div
             class="col-span-12 flex min-h-0 flex-col justify-between md:col-span-10 md:col-start-2"
           >
-            <div ref="titleEl" class="hero-title-block flex flex-col">
+            <div
+              ref="titleEl"
+              class="hero-title-block flex flex-col order-2 md:order-1"
+            >
               <h1 class="hero-title text-ink">
                 <span class="block">Авторская&nbsp;студия</span>
                 <span class="block">дизайна и&nbsp;разработки</span>
               </h1>
-              <p class="hero-desc text-ash md:max-w-[36ch]">
+              <p ref="descEl" class="hero-desc text-ash md:max-w-[36ch]">
                 Создаю выразительные сайты под&nbsp;ключ — от&nbsp;структуры до&nbsp;запуска.
               </p>
             </div>
 
-            <p ref="sloganEl" class="hero-slogan text-ink">
+            <p
+              ref="sloganEl"
+              class="hero-slogan text-ink order-1 md:order-2"
+            >
               Свобода&nbsp;формы. Порядок&nbsp;процесса.
             </p>
           </div>
@@ -364,6 +529,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.hero-intro-hide {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.hero-swarm-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--palette-stone);
+  pointer-events: none;
+}
+
 .hero-copy {
   /* Mobile: same inset on sides and above the title. */
   padding-inline: var(--layout-margin-content);

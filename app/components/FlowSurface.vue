@@ -8,10 +8,12 @@ import {
 import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
 
 /**
- * Flow Surface — convex panel + clip mask.
+ * Flow Surface — rounded-rect panel + clip mask.
+ * Rest silhouette is geometrically straight faces + corner radii (no barrel bow).
  * A wide signed wave packet travels the perimeter (crest + trough).
  * Near corners the packet/hover fattens the fillet instead of only muting the edge.
- * Auto-wave keeps running through morph + kado; pointer bend is hero-rest only.
+ * Auto-wave keeps running through morph + kado (softer at destination);
+ * pointer bend is hero-rest only.
  *
  * Silhouette = shared SVG <clipPath> (url(#flow-surface-clip)).
  * Hero visuals mount in the default slot (inside this clip).
@@ -86,8 +88,6 @@ let pointerIdleTimer = 0
 const POINTER_IDLE_MS = 280
 
 const RADIUS = 12
-/** Outward edge bow depth (px at full-size surface). */
-const CONVEX = 11
 /**
  * Dense edge samples so a wide signed wave stays a smooth curve, not facets.
  */
@@ -130,35 +130,29 @@ const CORNER_FADE_PX = 180
  */
 const BEND_REF_MIN = 520
 const BEND_SCALE_FLOOR = 0.25
-/** Final Kado state keeps roam; slightly softer than hero, not muted. */
-const KADO_BEND_SCALE = 0.78
-/** Minimum protected part at each edge end — lower = bow reaches farther (wider). */
-const CORNER_FADE_MIN_U = 0.22
 /**
- * Living bend eases off toward corners over this fraction of the edge.
- * Keep generous — weak fade + Catmull = fork spikes at fillets.
+ * Kado (morph→1): quieter roam wave. Hero (morph→0) stays at full strength.
  */
+const KADO_ROAM_SCALE = 0.4
+/** Living bend eases off toward corners over this fraction of the edge. */
 const DENT_CORNER_FADE_MIN_U = 0.36
-/** How many samples at each end blend hard toward the bowed rest anchors */
+/** How many samples at each end blend hard toward the rest anchors */
 const END_BLEND_SAMPLES = 18
 /**
  * Hover: pull living edge samples toward fillet corners, and shorten the
  * corner fade so bend lives 15% closer to those anchors.
  */
 const HOVER_CORNER_PULL = 0.15
-/** Cap bow vs panel size (was 0.03 — choked the stronger convex). */
-const CONVEX_SIZE_FRAC = 0.045
 /**
  * Paint/clip overscan (px). Outward crest goes outside the layout box;
  * without this the host/fill clip kills all выпуклость (only dents stay visible).
- * Keep ≥ stacked roam+hover dent + bow.
+ * Keep ≥ stacked roam+hover dent.
  */
 const EDGE_OVERSCAN = 56
 type Pt = { x: number; y: number }
 type EdgeName = 'top' | 'right' | 'bottom' | 'left'
 type BendAmp = {
   scale: number
-  convex: number
   pointerDent: number
   roamDent: number
   roamSigmaFrac: number
@@ -180,15 +174,14 @@ const pathSize = { w: 0, h: 0 }
 function bendAmpFor(w: number, h: number): BendAmp {
   const scale = Math.min(1, Math.max(BEND_SCALE_FLOOR, Math.min(w, h) / BEND_REF_MIN))
   const morph = Math.min(1, Math.max(0, flowSurfaceMask.morph))
-  const stateScale = 1 - morph * (1 - KADO_BEND_SCALE)
-  const bendScale = scale * stateScale
+  const roamState = 1 - morph * (1 - KADO_ROAM_SCALE)
   // Mobile: static silhouette — living dents were fighting scroll on Android.
   const touch = isTouchUi()
   return {
     scale,
-    convex: CONVEX * bendScale,
-    pointerDent: touch ? 0 : POINTER_DENT * bendScale,
-    roamDent: touch ? 0 : ROAM_DENT * bendScale,
+    // Pointer dent is hero-rest only; keep size-scaled, not kado-softened.
+    pointerDent: touch ? 0 : POINTER_DENT * scale,
+    roamDent: touch ? 0 : ROAM_DENT * scale * roamState,
     // Keep wave relatively wide even on small surfaces
     roamSigmaFrac: ROAM_SIGMA_FRAC * Math.max(0.75, scale),
     // Longer fade on small panels so the corner approach stays soft
@@ -237,21 +230,7 @@ function smootherstep(t: number) {
 }
 
 /**
- * Soft pin: the flank toward each corner stays nearly flat much longer,
- * then eases in — this is what removes the crease into the fillet.
- */
-function cornerPinAt(u: number, spanPx: number, fadePx: number) {
-  const fadeU = Math.min(0.5, Math.max(CORNER_FADE_MIN_U, fadePx / Math.max(spanPx, 1)))
-  const endDist = Math.min(u, 1 - u)
-  if (endDist >= fadeU) return 1
-  if (endDist <= 0 || fadeU <= 0) return 0
-  const t = smootherstep(endDist / fadeU)
-  // Stay suppressed near the corner; only the outer half of the fade recovers
-  return t * t * t
-}
-
-/**
- * Gradual taper of inward dent toward each corner (wider / softer than bow pin).
+ * Gradual taper of inward dent toward each corner.
  * Avoids a hard crest “shelf” when the roaming bump rides into a fillet.
  */
 function dentCornerPinAt(u: number, spanPx: number, fadePx: number) {
@@ -380,21 +359,7 @@ function edgeSpans(w: number, h: number, r: number, topBleed: number) {
 }
 
 /**
- * Outward circular-arc sagitta for edge sample u∈[0,1].
- * Chord length = spanPx, max depth = convex (circle through both ends).
- */
-function circularBow(u: number, spanPx: number, convex: number): number {
-  const s = Math.max(0, convex)
-  if (s < 0.001 || spanPx < 1) return 0
-  const L = spanPx
-  const R = (L * L) / (8 * s) + s / 2
-  const x = (u - 0.5) * L
-  const y = Math.sqrt(Math.max(0, R * R - x * x)) - (R - s)
-  return Number.isFinite(y) ? Math.max(0, y) : 0
-}
-
-/**
- * Sample a convex edge, then apply roaming wave + signed cursor bend.
+ * Sample a straight rest edge, then apply roaming wave + signed cursor bend.
  * r0 / r1 — live radii at the start / end fillets (may differ per corner).
  */
 function sampleConvexEdge(
@@ -404,7 +369,6 @@ function sampleConvexEdge(
   r0: number,
   r1: number,
   rCount: number,
-  convex: number,
   topBleed: number,
   t: number,
   amp: BendAmp,
@@ -448,9 +412,7 @@ function sampleConvexEdge(
 
   for (let i = 0; i <= n; i++) {
     const u = i / n
-    const cornerPin = cornerPinAt(u, span, fadePx)
     const livePin = dentCornerPinAt(u, span, fadePx)
-    const bow = circularBow(u, span, convex) * cornerPin
     // Phase along REST edge length — live corner fattening must not shift s (wave jumps).
     const s = s0 + (u * spanForCount) / Math.max(perimeterPx, 1)
 
@@ -461,21 +423,21 @@ function sampleConvexEdge(
 
     if (edge === 'top') {
       x = r0 + span * u
-      y = y0 - bow
+      y = y0
       nx = 0
       ny = 1
     } else if (edge === 'right') {
-      x = w + bow
+      x = w
       y = y0 + r0 + span * u
       nx = -1
       ny = 0
     } else if (edge === 'bottom') {
       x = w - r0 - span * u
-      y = h + bow
+      y = h
       nx = 0
       ny = -1
     } else {
-      x = -bow
+      x = 0
       y = y0 + usableH - r0 - span * u
       nx = 1
       ny = 0
@@ -500,8 +462,7 @@ function sampleConvexEdge(
 }
 
 /**
- * Blend live samples toward bowed rest near fillets (not the flat chord —
- * chord pinning against a bowed mid-edge is what spiked the corners).
+ * Blend live samples toward straight rest near fillets.
  * Always copy endpoints — sharing refs with corner anchors double-shifted them
  * under overscan and forked every fillet.
  */
@@ -542,11 +503,6 @@ function buildPath(w: number, h: number, topBleed = 0, t = 0, live = true) {
   }
   const o = EDGE_OVERSCAN
   const rBase = Math.min(RADIUS * Math.max(0.55, amp.scale), w / 2, h / 2)
-  const convex = Math.min(
-    amp.convex,
-    w * CONVEX_SIZE_FRAC * amp.scale,
-    h * CONVEX_SIZE_FRAC * amp.scale,
-  )
 
   // Perimeter / phase uses the rest radius; live corners only fatten fillets.
   const spans = edgeSpans(w, h, rBase, 0)
@@ -582,10 +538,10 @@ function buildPath(w: number, h: number, topBleed = 0, t = 0, live = true) {
   smoothCornerR.bl = rBL
   smoothCornerR.primed = true
 
-  const topE = sampleConvexEdge('top', w, h, rTL, rTR, rBase, convex, 0, t, amp, spans.total, spans.sTop)
-  const rightE = sampleConvexEdge('right', w, h, rTR, rBR, rBase, convex, 0, t, amp, spans.total, spans.sRight)
-  const bottomE = sampleConvexEdge('bottom', w, h, rBR, rBL, rBase, convex, 0, t, amp, spans.total, spans.sBottom)
-  const leftE = sampleConvexEdge('left', w, h, rBL, rTL, rBase, convex, 0, t, amp, spans.total, spans.sLeft)
+  const topE = sampleConvexEdge('top', w, h, rTL, rTR, rBase, 0, t, amp, spans.total, spans.sTop)
+  const rightE = sampleConvexEdge('right', w, h, rTR, rBR, rBase, 0, t, amp, spans.total, spans.sRight)
+  const bottomE = sampleConvexEdge('bottom', w, h, rBR, rBL, rBase, 0, t, amp, spans.total, spans.sBottom)
+  const leftE = sampleConvexEdge('left', w, h, rBL, rTL, rBase, 0, t, amp, spans.total, spans.sLeft)
 
   const top = topE.live
   const right = rightE.live

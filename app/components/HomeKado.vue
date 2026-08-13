@@ -10,8 +10,8 @@ const BODY_TEXT =
   'Kadoflow переносит этот принцип в цифровую среду: создаёт для каждой задачи собственный визуальный язык и собирает его в работающую систему.'
 /** Scroll lag for the whole fill timeline. */
 const FILL_SCRUB = 1.1
-/** Delay between line starts (timeline units; each line still lasts 1). */
-const FILL_LINE_STAGGER = 0.7
+/** Gap between line starts (= line duration so N+1 waits until N finishes). */
+const FILL_LINE_STAGGER = 1
 
 const section = ref<HTMLElement | null>(null)
 /** Stone morph target (desktop end + mobile waypoint 1). */
@@ -88,11 +88,18 @@ function buildLineFill(host: HTMLElement): HTMLElement[] {
     row.className = 'kado-body__line'
 
     if (i === 0 && lineText.startsWith(BRAND)) {
-      const brand = document.createElement('span')
-      brand.className = 'kado-brand'
-      brand.textContent = BRAND
-      row.appendChild(brand)
-      kadoflowWord.value = brand
+      const wrap = document.createElement('span')
+      wrap.className = 'kado-brand'
+      const pin = document.createElement('span')
+      pin.className = 'kado-surface-pin kado-surface-pin--pad'
+      pin.setAttribute('data-flow-pin', 'word')
+      pin.setAttribute('aria-hidden', 'true')
+      const label = document.createElement('span')
+      label.className = 'kado-brand__text'
+      label.textContent = BRAND
+      wrap.append(pin, label)
+      row.appendChild(wrap)
+      kadoflowWord.value = wrap
       lineText = lineText.slice(BRAND.length).replace(/^\s+/, '')
       // Explicit space node — leading space inside the next span can collapse.
       if (lineText.length) row.appendChild(document.createTextNode(' '))
@@ -258,6 +265,11 @@ onUnmounted(() => {
               ref="termTarget"
               class="kado-term col-span-6"
             >
+              <div
+                class="kado-surface-pin"
+                data-flow-pin="term"
+                aria-hidden="true"
+              />
               <h2 class="kado-title">
                 Кадо́ — путь цветов.
               </h2>
@@ -304,10 +316,29 @@ onUnmounted(() => {
 }
 
 .kado-term {
+  position: relative;
   display: flex;
   flex-direction: column;
   /* Mobile: half the previous 12px title↔phonetic gap. */
   row-gap: 6px;
+  overflow: visible;
+}
+
+.kado-surface-pin {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.kado-surface-pin--pad {
+  inset: calc(-1 * var(--layout-margin));
+}
+
+.kado-title,
+.kado-phonetic {
+  position: relative;
+  z-index: 1;
 }
 
 @media (min-width: 768px) {
@@ -339,11 +370,16 @@ onUnmounted(() => {
   line-height: 1.35;
 }
 
+.kado-body-wrap {
+  overflow: visible;
+}
+
 .kado-body {
   font-size: calc(var(--type-slogan) * 1.5);
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1.25;
+  overflow: visible;
 }
 
 @media (min-width: 768px) {
@@ -376,6 +412,13 @@ onUnmounted(() => {
 }
 
 .kado-body :deep(.kado-brand) {
+  position: relative;
+  display: inline-block;
   color: var(--palette-ink);
+}
+
+.kado-body :deep(.kado-brand__text) {
+  position: relative;
+  z-index: 1;
 }
 </style>

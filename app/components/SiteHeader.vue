@@ -10,8 +10,13 @@ const links = [
 const scrolled = ref(false)
 const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
+const fabEl = ref<HTMLElement | null>(null)
+const logoEl = ref<HTMLElement | null>(null)
+const navEl = ref<HTMLElement | null>(null)
+const menuBtnEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
 const fabBottomExtra = ref(0)
+const introPending = ref(true)
 
 /** Wait before collapse so a tiny nudge doesn’t snap the bar */
 const COLLAPSE_DELAY_MS = 220
@@ -177,6 +182,54 @@ onMounted(() => {
   window.addEventListener('resize', onResize, { passive: true })
   window.visualViewport?.addEventListener('resize', syncFabViewport)
   window.visualViewport?.addEventListener('scroll', syncFabViewport)
+
+  const preload = useBrandPreload()
+  introPending.value = !preload.revealed.value
+
+  watch(
+    () => preload.revealed.value,
+    async (on) => {
+      if (!on) return
+      const g = await gsap()
+
+      const domOf = (v: unknown): HTMLElement | null => {
+        if (!v) return null
+        if (v instanceof HTMLElement) return v
+        const el = (v as { $el?: unknown }).$el
+        return el instanceof HTMLElement ? el : null
+      }
+
+      const logo = domOf(logoEl.value)
+      const menuBtn = domOf(menuBtnEl.value)
+      const fab = domOf(fabEl.value)
+      const navLinks = navEl.value
+        ? Array.from(navEl.value.querySelectorAll('.nav-link'))
+        : []
+
+      if (logo) g.set(logo, { autoAlpha: 0, y: -12 })
+      if (navLinks.length) g.set(navLinks, { autoAlpha: 0, y: -10 })
+      if (menuBtn) g.set(menuBtn, { autoAlpha: 0, y: -10 })
+      if (fab) g.set(fab, { autoAlpha: 0, y: 16 })
+      if (shellEl.value) g.set(shellEl.value, { autoAlpha: 1 })
+
+      introPending.value = false
+      await nextTick()
+
+      const tl = g.timeline({ defaults: { ease: 'power3.out' } })
+      // Stagger after iris — logo → links → menu / FAB.
+      if (logo) tl.to(logo, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.35)
+      if (navLinks.length) {
+        tl.to(
+          navLinks,
+          { autoAlpha: 1, y: 0, duration: 0.6, stagger: 0.1 },
+          0.55,
+        )
+      }
+      if (menuBtn) tl.to(menuBtn, { autoAlpha: 1, y: 0, duration: 0.6 }, 0.95)
+      if (fab) tl.to(fab, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.7)
+    },
+    { immediate: true },
+  )
 })
 
 onUnmounted(() => {
@@ -198,6 +251,7 @@ onUnmounted(() => {
     <div
       ref="shellEl"
       class="w-full"
+      :class="{ 'header-intro-hide': introPending }"
       :style="{ paddingInline: 'var(--layout-margin)' }"
     >
       <div
@@ -210,6 +264,7 @@ onUnmounted(() => {
         }"
       >
         <NuxtLink
+          ref="logoEl"
           to="/"
           class="header-logo-link col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
           aria-label="Kadoflow — на главную"
@@ -226,6 +281,7 @@ onUnmounted(() => {
         </NuxtLink>
 
         <nav
+          ref="navEl"
           class="header-chip site-nav col-span-5 col-start-6 hidden w-fit items-center gap-x-2 justify-self-start md:flex md:col-span-3 md:col-start-8 lg:gap-x-3"
           :class="{ 'header-chip--scrolled': scrolled }"
           aria-label="Основная"
@@ -241,6 +297,7 @@ onUnmounted(() => {
         </nav>
 
         <button
+          ref="menuBtnEl"
           type="button"
           class="header-chip site-nav col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
           :class="{ 'header-chip--scrolled': scrolled }"
@@ -258,9 +315,10 @@ onUnmounted(() => {
 
   <!-- Mobile thumb-zone menu — pinned to visual viewport bottom (matches right inset). -->
   <button
+    ref="fabEl"
     type="button"
     class="menu-fab header-chip site-nav pointer-events-auto fixed z-40 flex items-center gap-2 text-ink md:hidden"
-    :class="{ 'header-chip--scrolled': scrolled }"
+    :class="{ 'header-chip--scrolled': scrolled, 'header-intro-hide': introPending }"
     :style="{
       bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom))`,
     }"
@@ -275,6 +333,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.header-intro-hide {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .header-bar {
   box-sizing: border-box;
 }

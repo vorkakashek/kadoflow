@@ -2,7 +2,8 @@
 /**
  * Fixed Flow Surface — one clipped window.
  * Desktop: hero → stone (plan h/v lag).
- * Mobile: scrub hero→stone, then trigger-tweens stone→term→Kadoflow→center.
+ * Mobile: scrub hero→stone, hop to term/word, then pin the frame into the
+ * target so scroll carries it (no rAF follow). Center stays viewport-fixed.
  */
 import {
   applyBox,
@@ -10,7 +11,6 @@ import {
   heroToKadoPlan,
   lerpBox,
   mixBox,
-  padBox,
   poseAtScrollY,
   readBox,
   readDocBox,
@@ -47,11 +47,6 @@ const STAGE_RANK: Record<MobileStage, number> = {
 
 const HOP_DURATION = 0.42
 const HOP_EASE = 'power2.inOut'
-/** Soft follow while pinned — keep tiny lag so scroll jitter doesn’t chatter. */
-const FOLLOW_LAG = 0.02
-/** If farther than this (px), snap closer before lerping. */
-const FOLLOW_MAX_GAP = 10
-const FOLLOW_SETTLE_PX = 0.35
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
 
@@ -83,7 +78,10 @@ const props = withDefaults(
 )
 
 const frame = ref<HTMLElement | null>(null)
+const shellEl = ref<HTMLElement | null>(null)
 const clipPathEl = ref<SVGPathElement | null>(null)
+/** Teleport target for a pinned hop — null keeps the frame in the fixed shell. */
+const pinTo = ref<HTMLElement | null>(null)
 /** Hero-rest pose — stage keeps this size/origin; frame morphs around it. */
 const stageRest = reactive({ top: 0, left: 0, w: 1, h: 1 })
 const heroSectionEl = computed(() => {
@@ -114,13 +112,11 @@ let liveBox: SurfaceBox | null = null
 /** Snapshot used as hop tween start (destination tracks live each frame). */
 let hopFromBox: SurfaceBox | null = null
 let hopProgress = 0
-let followTarget: SurfaceBox | null = null
-/** Unrounded follow pose — paint snaps to px, this keeps smooth lag. */
-let followLive: SurfaceBox | null = null
-let followRaf = 0
-let followLastTs = 0
 /** Last good Kadoflow box in *document* space — viewport via docToViewport. */
 let lastWordDoc: SurfaceBox | null = null
+/** Pin host currently holding the frame (term/word slot). */
+let pinHost: HTMLElement | null = null
+let pinRo: ResizeObserver | null = null
 /** performance.now() until which reverse stage hops are ignored. */
 let stageLockUntil = 0
 
@@ -167,22 +163,6 @@ function roundBox(box: SurfaceBox): SurfaceBox {
     width: Math.max(1, Math.round(box.width)),
     height: Math.max(1, Math.round(box.height)),
   }
-}
-
-function boxGap(a: SurfaceBox, b: SurfaceBox) {
-  return Math.max(
-    Math.abs(a.top - b.top),
-    Math.abs(a.left - b.left),
-    Math.abs(a.width - b.width),
-    Math.abs(a.height - b.height),
-  )
-}
-
-/** Pull `from` toward `to` until the gap is at most `maxGap`. */
-function clampGap(from: SurfaceBox, to: SurfaceBox, maxGap: number): SurfaceBox {
-  const gap = boxGap(from, to)
-  if (gap <= maxGap) return from
-  return lerpBox(from, to, 1 - maxGap / gap)
 }
 
 function captureDesktopPoses() {
@@ -300,7 +280,7 @@ function writeMaskBox(box: SurfaceBox, morph: number) {
 }
 
 function paintBox(box: SurfaceBox, morph: number) {
-  if (!frame.value) return
+  if (!frame.value || pinTo.value) return
   const next = roundBox(box)
   if (
     liveBox
@@ -349,22 +329,113 @@ function paintScrub(scrollY = window.scrollY) {
   paintBox(lerpBox(heroPose, stonePose, ease), p)
 }
 
-/** Live viewport box for “Kadoflow” — never reuse a stale viewport snapshot. */
-function wordPose(): SurfaceBox | null {
-  const pad = layoutMarginPx()
-  const live = readBox(props.wordEl)
-  if (live) {
-    const doc = readDocBox(props.wordEl)
-    if (doc) lastWordDoc = doc
-    return padBox(live, pad)
+/** Pin slot inside a hop target (`[data-flow-pin]`), else the target itself. */
+function pinSlot(hop: Exclude<MobileHop, 'center'>): HTMLElement | null {
+  if (hop === 'term') {
+    const term = props.termEl
+    if (!term) return null
+    return (term.querySelector('[data-flow-pin]') as HTMLElement | null) ?? term
   }
-  if (lastWordDoc) return padBox(docToViewport(lastWordDoc), pad)
+  const word = props.wordEl
+  if (!word) return null
+  return (word.querySelector('[data-flow-pin]') as HTMLElement | null) ?? word
+}
+
+function syncPinnedMask() {
+  const el = frame.value
+  if (!el || !pinTo.value) return
+  const r = el.getBoundingClientRect()
+  const box = roundBox({
+    top: r.top,
+    left: r.left,
+    width: Math.max(1, r.width),
+    height: Math.max(1, r.height),
+  })
+  if (
+    liveBox
+    && box.top === liveBox.top
+    && box.left === liveBox.left
+    && box.width === liveBox.width
+    && box.height === liveBox.height
+  ) {
+    return
+  }
+  liveBox = box
+  writeMaskBox(box, 1)
+  flushFlowSurfacePath(box)
+}
+
+function unpinFrame() {
+  const el = frame.value
+  if (!pinTo.value || !el) return
+  const r = el.getBoundingClientRect()
+  pinRo?.disconnect()
+  pinRo = null
+  const box = roundBox({
+    top: r.top,
+    left: r.left,
+    width: Math.max(1, r.width),
+    height: Math.max(1, r.height),
+  })
+  // Freeze in viewport coords so the teleport back to the shell doesn't jump.
+  el.style.position = 'fixed'
+  applyBox(el, box)
+  liveBox = box
+  writeMaskBox(box, 1)
+  flushFlowSurfacePath(box)
+  pinTo.value = null
+  pinHost = null
+  void nextTick(() => {
+    if (!frame.value || pinTo.value) return
+    frame.value.style.position = 'absolute'
+    applyBox(frame.value, box)
+  })
+}
+
+function pinFrame(hop: Exclude<MobileHop, 'center'>) {
+  const host = pinSlot(hop)
+  const el = frame.value
+  if (!host || !el) return
+  if (pinTo.value === host) {
+    syncPinnedMask()
+    return
+  }
+  unpinFrame()
+  pinHost = host
+  el.style.top = '0px'
+  el.style.left = '0px'
+  el.style.width = '100%'
+  el.style.height = '100%'
+  el.style.right = 'auto'
+  el.style.bottom = 'auto'
+  el.style.transform = ''
+  pinTo.value = host
+  pinRo?.disconnect()
+  pinRo = new ResizeObserver(() => syncPinnedMask())
+  pinRo.observe(host)
+  void nextTick(() => syncPinnedMask())
+}
+
+function settleHop(hop: MobileHop) {
+  if (hop === 'term' || hop === 'word') pinFrame(hop)
+}
+
+/** Live viewport box for “Kadoflow” — pin slot already includes margin pad. */
+function wordPose(): SurfaceBox | null {
+  const slot = pinSlot('word')
+  const live = readBox(slot)
+  if (live) {
+    const doc = readDocBox(slot)
+    if (doc) lastWordDoc = doc
+    return live
+  }
+  if (lastWordDoc) return docToViewport(lastWordDoc)
   return null
 }
 
-/** Live viewport box for the active pin target (tracks while scrolling). */
+/** Live viewport box for the hop destination. */
 function hopPose(hop: MobileHop): SurfaceBox | null {
-  if (hop === 'term') return readBox(props.termEl)
+  if (hop === 'term') return readBox(pinSlot('term')) ?? readBox(props.termEl)
   if (hop === 'word') return wordPose()
   return centerPose
 }
@@ -374,71 +445,6 @@ function killHopTween() {
   hopTween = null
   hopFromBox = null
   hopProgress = 0
-}
-
-function stopFollow() {
-  if (followRaf) {
-    cancelAnimationFrame(followRaf)
-    followRaf = 0
-  }
-  followLastTs = 0
-  followTarget = null
-  followLive = null
-}
-
-function sampleFollowTarget() {
-  if (mobileStage === 'term' || mobileStage === 'word') {
-    followTarget = hopPose(mobileStage)
-    return
-  }
-  if (mobileStage === 'center') {
-    followTarget = centerPose
-    return
-  }
-  followTarget = null
-}
-
-function tickFollow(now: number) {
-  followRaf = 0
-  if (!mobileActive || hopTween || mobileStage === 'scrub') return
-
-  sampleFollowTarget()
-  if (!followTarget) return
-
-  if (!followLastTs) followLastTs = now
-  const dt = Math.min(0.064, Math.max(0, (now - followLastTs) / 1000))
-  followLastTs = now
-
-  if (!followLive) followLive = liveBox ? { ...liveBox } : { ...followTarget }
-
-  followLive = clampGap(followLive, followTarget, FOLLOW_MAX_GAP)
-  const k = 1 - Math.exp(-dt / FOLLOW_LAG)
-  followLive = lerpBox(followLive, followTarget, k)
-  if (boxGap(followLive, followTarget) <= FOLLOW_SETTLE_PX) {
-    followLive = { ...followTarget }
-  }
-
-  paintBox(followLive, 1)
-
-  if (boxGap(followLive, followTarget) > FOLLOW_SETTLE_PX) {
-    followRaf = requestAnimationFrame(tickFollow)
-  }
-}
-
-function ensureFollow() {
-  if (!mobileActive || hopTween) return
-  if (mobileStage !== 'term' && mobileStage !== 'word' && mobileStage !== 'center') return
-  if (!followRaf) {
-    followLastTs = 0
-    followRaf = requestAnimationFrame(tickFollow)
-  }
-}
-
-/** Scroll sample — don't hard-snap; soft follow handles paint. */
-function onPinnedScroll() {
-  if (!mobileActive || mobileStage === 'scrub' || hopTween) return
-  sampleFollowTarget()
-  ensureFollow()
 }
 
 /**
@@ -470,57 +476,76 @@ function tweenToHop(hop: MobileHop, animate: boolean) {
   const dest = hopPose(hop)
   if (!dest) return
 
-  stopFollow()
+  const wasPinned = !!pinTo.value
+  const fromRect = wasPinned ? frame.value.getBoundingClientRect() : null
+  unpinFrame()
   mobileStage = hop
   killHopTween()
 
-  const from = liveBox ?? dest
-  if (!animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    paintBox(dest, 1)
-    ensureFollow()
-    return
+  const startHop = () => {
+    if (!frame.value) return
+    if (fromRect) {
+      const from = roundBox({
+        top: fromRect.top,
+        left: fromRect.left,
+        width: Math.max(1, fromRect.width),
+        height: Math.max(1, fromRect.height),
+      })
+      applyBox(frame.value, from)
+      liveBox = from
+    }
+    const from = liveBox ?? dest
+    if (!animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      paintBox(dest, 1)
+      settleHop(hop)
+      return
+    }
+
+    let fallbackDest = { ...dest }
+    hopFromBox = { ...from }
+    hopProgress = 0
+    const gsap = gsapMod!.default
+    const proxy = { t: 0 }
+    hopTween = gsap.to(proxy, {
+      t: 1,
+      duration: HOP_DURATION,
+      ease: HOP_EASE,
+      onUpdate: () => {
+        hopProgress = proxy.t
+        const liveDest = hopPose(hop)
+        if (liveDest) fallbackDest = { ...liveDest }
+        paintBox(lerpBox(hopFromBox!, fallbackDest, hopProgress), 1)
+      },
+      onComplete: () => {
+        hopTween = null
+        hopFromBox = null
+        hopProgress = 0
+        const finalDest = hopPose(hop) ?? fallbackDest
+        paintBox(finalDest, 1)
+        settleHop(hop)
+      },
+    })
   }
 
-  // Keep a fallback dest if word/term briefly fails mid-tween — never fall back to term on word hops.
-  let fallbackDest = { ...dest }
-  hopFromBox = { ...from }
-  hopProgress = 0
-  const gsap = gsapMod.default
-  const proxy = { t: 0 }
-  hopTween = gsap.to(proxy, {
-    t: 1,
-    duration: HOP_DURATION,
-    ease: HOP_EASE,
-    onUpdate: () => {
-      hopProgress = proxy.t
-      const liveDest = hopPose(hop)
-      if (liveDest) fallbackDest = { ...liveDest }
-      // Live destination: frozen viewport dest caused overshoot (scroll moved the word up).
-      paintBox(lerpBox(hopFromBox!, fallbackDest, hopProgress), 1)
-    },
-    onComplete: () => {
-      hopTween = null
-      hopFromBox = null
-      hopProgress = 0
-      const finalDest = hopPose(hop) ?? fallbackDest
-      paintBox(finalDest, 1)
-      sampleFollowTarget()
-      ensureFollow()
-    },
-  })
+  if (wasPinned) void nextTick(startHop)
+  else startHop()
 }
 
 /**
  * Hand control back to the scrub corridor immediately.
- * No hopTween — a return tween was blocking scrub onUpdate and jumped morph 1→0 at the end
- * (hero popped in with no fade).
+ * Unpin first so the frame is viewport-fixed again, then paint the scrub pose.
  */
 function enterScrub() {
   mobileStage = 'scrub'
-  stopFollow()
   killHopTween()
-  if (!heroPose || !stonePose) return
-  paintScrub()
+  const wasPinned = !!pinTo.value
+  unpinFrame()
+  const paint = () => {
+    if (!heroPose || !stonePose) return
+    paintScrub()
+  }
+  if (wasPinned) void nextTick(paint)
+  else paint()
 }
 
 function stageFromScroll(): MobileStage {
@@ -641,7 +666,7 @@ function reconcileFromScroll() {
   const next = stageFromScroll()
   if (next === mobileStage) {
     if (next === 'scrub' && !hopTween) paintScrub()
-    else onPinnedScroll()
+    else if (next === 'center' && !hopTween && centerPose) paintBox(centerPose, 1)
     return
   }
 
@@ -710,7 +735,9 @@ function killMorph() {
   for (const t of mobileTriggers) t.kill()
   mobileTriggers = []
   killHopTween()
-  stopFollow()
+  unpinFrame()
+  pinRo?.disconnect()
+  pinRo = null
   clearLayoutResync()
   suppressStageCallbacks = false
   if (raf) {
@@ -725,7 +752,7 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
   const triggerFrom = sectionOf(props.fromEl!)
   if (!stoneMark || !body || !heroPose || !stonePose) return
 
-  // Soft-follow + stage reconcile (missed leaveBacks when scrolling up).
+  // Stage reconcile (missed leaveBacks when scrolling up).
   mobileTriggers.push(
     ScrollTrigger.create({
       start: 0,
@@ -922,6 +949,10 @@ function onResize() {
   if (isMobileChromeHeightOnlyResize()) return
   capturePoses()
   if (mobileActive) {
+    if (pinTo.value) {
+      syncPinnedMask()
+      return
+    }
     syncMobileStage(false)
     return
   }
@@ -979,7 +1010,7 @@ watch(
 </script>
 
 <template>
-  <div class="pointer-events-none fixed inset-0 z-[1]">
+  <div ref="shellEl" class="pointer-events-none fixed inset-0 z-[1]">
     <svg
       width="0"
       height="0"
@@ -994,24 +1025,27 @@ watch(
       </defs>
     </svg>
 
-    <div
-      ref="frame"
-      class="absolute overflow-visible will-change-[top,left,width,height]"
-    >
-      <FlowSurface
-        mode="window"
-        class="inset-0 size-full"
-        :tone-class="toneClass"
+    <Teleport :to="pinTo || 'body'" :disabled="!pinTo">
+      <div
+        ref="frame"
+        data-flow-surface-frame
+        class="absolute overflow-visible will-change-[top,left,width,height]"
       >
-        <HomeHeroStage
-          v-if="stageRest.w > 2"
-          :rest-top="stageRest.top"
-          :rest-left="stageRest.left"
-          :stage-width="stageRest.w"
-          :stage-height="stageRest.h"
-          :section-el="heroSectionEl"
-        />
-      </FlowSurface>
-    </div>
+        <FlowSurface
+          mode="window"
+          class="inset-0 size-full"
+          :tone-class="toneClass"
+        >
+          <HomeHeroStage
+            v-if="stageRest.w > 2"
+            :rest-top="stageRest.top"
+            :rest-left="stageRest.left"
+            :stage-width="stageRest.w"
+            :stage-height="stageRest.h"
+            :section-el="heroSectionEl"
+          />
+        </FlowSurface>
+      </div>
+    </Teleport>
   </div>
 </template>
