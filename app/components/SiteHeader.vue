@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { isMobileChromeHeightOnlyResize } from '~/utils/mobileViewport'
 import { headerLinks } from '~/utils/siteNav'
+import { setChipBgOrigin } from '~/utils/chipHoverBg'
 
 const { open: canvasOpen, surfaceOn: canvasSurface, toggleCanvas } = usePageCanvas()
 const links = headerLinks
@@ -15,6 +16,11 @@ const menuBtnEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
 const fabBottomExtra = ref(0)
 const introPending = ref(true)
+
+function onChipPointer(e: PointerEvent) {
+  const el = e.currentTarget
+  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
+}
 
 /** Page canvas pins body (scrollY→0) — ignore that fake scroll for collapse morph. */
 function canvasLocksScroll() {
@@ -370,8 +376,7 @@ onUnmounted(() => {
 <template>
   <header
     class="pointer-events-none fixed inset-x-0 top-0 z-[100] site-header"
-    :class="{ 'site-header--canvas': canvasSurface }"
-    :aria-hidden="canvasSurface ? 'true' : undefined"
+    :inert="canvasSurface"
   >
     <!--
       GSAP tweens width + side + vertical inset together (md+ only).
@@ -466,12 +471,15 @@ onUnmounted(() => {
         <button
           ref="menuBtnEl"
           type="button"
-          class="menu-btn header-chip site-nav col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
+          class="menu-btn header-chip site-nav chip-scale-host col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
           :class="{ 'header-chip--scrolled': scrolled }"
           :aria-expanded="canvasOpen"
           :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+          @pointerenter="onChipPointer"
+          @pointerleave="onChipPointer"
           @click="toggleCanvas"
         >
+          <span class="chip-scale-bg" aria-hidden="true" />
           <span class="menu-btn-label">меню</span>
           <span class="menu-dots" aria-hidden="true">
             <span class="menu-dot" />
@@ -486,21 +494,23 @@ onUnmounted(() => {
   <button
     ref="fabEl"
     type="button"
-    class="menu-fab menu-btn header-chip site-nav pointer-events-auto fixed z-[100] flex items-center gap-2 text-ink md:hidden"
+    class="menu-fab menu-btn header-chip site-nav chip-scale-host pointer-events-auto fixed z-[100] flex items-center gap-2 text-ink md:hidden"
     :class="{
       'header-chip--scrolled': scrolled,
       'header-intro-hide': introPending,
-      'site-header--canvas': canvasSurface,
     }"
-    :aria-hidden="canvasSurface ? 'true' : undefined"
+    :inert="canvasSurface"
     :tabindex="canvasSurface ? -1 : 0"
     :style="{
       bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom))`,
     }"
     :aria-expanded="canvasOpen"
     :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+    @pointerenter="onChipPointer"
+    @pointerleave="onChipPointer"
     @click="toggleCanvas"
   >
+    <span class="chip-scale-bg" aria-hidden="true" />
     <span class="menu-fab-label">меню</span>
     <span class="menu-dots" aria-hidden="true">
       <span class="menu-dot" />
@@ -519,21 +529,11 @@ onUnmounted(() => {
   transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
 }
 
-/* Page Canvas brings its own chrome — hide site header while the surface is up. */
-.site-header--canvas {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.menu-fab {
-  transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
-}
-
-.menu-fab.site-header--canvas {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+/* Instant while the close overlay still covers — a 0.32s fade after zoom
+   looks like the header remounting. */
+html.page-canvas-lock .site-header,
+html.page-canvas-lock .menu-fab {
+  transition: none;
 }
 
 .header-bar {
@@ -606,6 +606,7 @@ onUnmounted(() => {
 }
 
 .menu-btn {
+  position: relative;
   cursor: pointer;
   border-radius: 9999px;
   /* ~1.5× chip horizontal padding (2× then −25%) */
@@ -613,23 +614,9 @@ onUnmounted(() => {
   margin-inline: -18px;
 }
 
-.menu-btn:hover,
-.menu-btn:focus-visible {
-  background-color: color-mix(in srgb, var(--palette-stone) 78%, var(--palette-sand));
-}
-
-.menu-btn:active {
-  background-color: var(--palette-stone);
-}
-
-.menu-btn:hover.header-chip--scrolled,
-.menu-btn:focus-visible.header-chip--scrolled {
-  background-color: color-mix(in srgb, var(--palette-stone) 70%, var(--palette-sand));
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
 .menu-dots {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -673,17 +660,14 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(12px);
 }
 
-.menu-fab:hover,
-.menu-fab:focus-visible {
-  background-color: color-mix(in srgb, var(--palette-stone) 82%, var(--palette-sand));
-}
-
-.menu-fab:active {
+.menu-fab:active .chip-scale-bg {
   background-color: var(--palette-stone);
 }
 
 .menu-btn-label,
 .menu-fab-label {
+  position: relative;
+  z-index: 1;
   /* Optical vertical center — raw metrics sit a hair low. */
   transform: translateY(-2px);
 }

@@ -10,6 +10,7 @@
     "dev": "nuxt dev --host",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
+    "previews": "node scripts/capture-previews.mjs",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/three": "^0.185.4",
+    "playwright-core": "^1.62.1",
     "tailwindcss": "^4.3.3"
   }
 }

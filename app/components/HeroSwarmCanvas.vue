@@ -154,6 +154,10 @@ const props = withDefaults(
   { active: true },
 )
 
+const emit = defineEmits<{
+  lit: []
+}>()
+
 const canvasHost = ref<HTMLElement | null>(null)
 
 let renderer: THREE.WebGLRenderer | null = null
@@ -514,6 +518,7 @@ async function bootScene() {
       assets = await assetsPromise
     } catch {
       pmrem.dispose()
+      if (gen === bootGen) emit('lit')
       return
     }
     if (gen !== bootGen || renderer !== gl) {
@@ -544,6 +549,10 @@ async function bootScene() {
         mat.needsUpdate = true
       }
     }
+
+    syncCamera({ force: true })
+    gl.render(scene, camera)
+    emit('lit')
   }
   void applyEnvAssets()
 

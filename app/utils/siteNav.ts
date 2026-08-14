@@ -11,8 +11,12 @@ export interface SiteNavFrame {
   blurb: string
   /** Display index in canvas (01…). */
   index: string
-  /** Preview motif class key for CSS miniature. */
+  /** Preview motif class key for CSS miniature (fallback if shot missing). */
   motif: 'home' | 'projects' | 'services' | 'about' | 'contact'
+  /** Static color viewport shot. */
+  preview: string
+  /** Baked grayscale sibling — no CSS filter on the tile. */
+  previewBw: string
 }
 
 /** Header shortcuts (subset). */
@@ -32,6 +36,8 @@ export const canvasFrames: SiteNavFrame[] = [
     blurb: 'Позиционирование и первый экран',
     index: '01',
     motif: 'home',
+    preview: '/previews/home.jpg',
+    previewBw: '/previews/home-bw.jpg',
   },
   {
     id: 'projects',
@@ -41,6 +47,8 @@ export const canvasFrames: SiteNavFrame[] = [
     blurb: 'Каталог кейсов',
     index: '02',
     motif: 'projects',
+    preview: '/previews/projects.jpg',
+    previewBw: '/previews/projects-bw.jpg',
   },
   {
     id: 'services',
@@ -50,6 +58,8 @@ export const canvasFrames: SiteNavFrame[] = [
     blurb: 'Форматы работы под ключ',
     index: '03',
     motif: 'services',
+    preview: '/previews/services.jpg',
+    previewBw: '/previews/services-bw.jpg',
   },
   {
     id: 'about',
@@ -59,6 +69,8 @@ export const canvasFrames: SiteNavFrame[] = [
     blurb: 'Студия, подход, автор',
     index: '04',
     motif: 'about',
+    preview: '/previews/about.jpg',
+    previewBw: '/previews/about-bw.jpg',
   },
   {
     id: 'contact',
@@ -68,6 +80,8 @@ export const canvasFrames: SiteNavFrame[] = [
     blurb: 'Обсудить проект',
     index: '05',
     motif: 'contact',
+    preview: '/previews/contact.jpg',
+    previewBw: '/previews/contact-bw.jpg',
   },
 ]
 

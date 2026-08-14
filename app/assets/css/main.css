@@ -120,3 +120,47 @@
     max-width: 100%;
   }
 }
+
+/* Chip hover fill — scales from the pointer. */
+.chip-scale-host {
+  isolation: isolate;
+}
+
+.chip-scale-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--palette-stone) 78%, var(--palette-sand));
+  transform: scale(0);
+  transform-origin: var(--chip-bg-x, 50%) var(--chip-bg-y, 50%);
+  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chip-scale-host:hover .chip-scale-bg {
+    transform: scale(1);
+  }
+}
+
+.chip-scale-host:focus-visible .chip-scale-bg {
+  transform: scale(1);
+}
+
+.chip-scale-host:active .chip-scale-bg {
+  background-color: var(--palette-stone);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip-scale-bg {
+    transform: none;
+    opacity: 0;
+    transition: opacity 0.01s linear;
+  }
+
+  .chip-scale-host:hover .chip-scale-bg,
+  .chip-scale-host:focus-visible .chip-scale-bg {
+    opacity: 1;
+  }
+}

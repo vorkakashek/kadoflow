@@ -1,23 +1,25 @@
 /**
- * Page Canvas / workspace menu — shared open state + page-shell docking.
+ * Page Canvas / workspace menu — shared open state.
  */
 export function usePageCanvas() {
   const open = useState('page-canvas-open', () => false)
-  /** True while a motion run is in flight — for UI hints only; open/close always interrupt. */
+  /** True while a motion run is in flight — block reopen until close/hop ends. */
   const busy = useState('page-canvas-busy', () => false)
   /**
-   * Canvas layer is painted (open zoom + close zoom). Stays true after `open`
-   * flips false so the close flight can finish. Site chrome keys off this.
+   * Canvas layer is painted for the menu session (including the iris clip).
+   * Live page hides after the iris finishes; header stays under the overlay.
    */
   const surfaceOn = useState('page-canvas-surface', () => false)
   /**
-   * When set, `.page-shell` Teleports into this selector (live dock inside a frame).
-   * Prefer a real slot node over fixed+scroll sync — no wobble on mobile.
+   * Next home mount should skip the hero entrance (SPA hop, including Page Canvas).
+   * Direct / refresh visits still play the intro.
    */
-  const dockTo = useState<string | null>('page-canvas-dock-to', () => null)
+  const skipHeroIntro = useState('skip-hero-intro', () => false)
+  /** Home swarm has IBL + a looping frame — safe to reveal after an in-app hop. */
+  const heroSwarmReady = useState('hero-swarm-ready', () => false)
 
   function openCanvas() {
-    if (open.value) return
+    if (open.value || busy.value) return
     open.value = true
   }
 
@@ -27,6 +29,7 @@ export function usePageCanvas() {
   }
 
   function toggleCanvas() {
+    if (busy.value && !open.value) return
     open.value = !open.value
   }
 
@@ -34,28 +37,10 @@ export function usePageCanvas() {
     open,
     busy,
     surfaceOn,
-    dockTo,
+    skipHeroIntro,
+    heroSwarmReady,
     openCanvas,
     closeCanvas,
     toggleCanvas,
   }
 }
-
-export type PageShellParts = {
-  shell: HTMLElement
-  paint: HTMLElement
-}
-
-export function getPageShell(): PageShellParts | null {
-  if (!import.meta.client) return null
-  // Settle covers clone `.page-shell` — never treat them as the live shell.
-  const shell = document.querySelector(
-    '.page-shell:not(.pc-shell-settle-cover)',
-  ) as HTMLElement | null
-  const paint = shell?.querySelector('.page-shell__paint') as HTMLElement | null
-  if (!shell || !paint) return null
-  return { shell, paint }
-}
-
-export const PAGE_SHELL_DOCK_ID = 'pc-live-dock'
-export const PAGE_SHELL_DOCK_SELECTOR = `#${PAGE_SHELL_DOCK_ID}`

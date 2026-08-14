@@ -31,32 +31,41 @@ let targetY = 0
 let lerpRaf = 0
 let reducedMotion = false
 
+const { surfaceOn: canvasSurface } = usePageCanvas()
+const onCanvas = computed(() => canvasSurface.value)
+
+function navScroller(): HTMLElement | null {
+  if (!onCanvas.value) return null
+  return document.querySelector('[data-pc-scroller]') as HTMLElement | null
+}
+
 function metrics() {
-  const sh = document.documentElement.scrollHeight
-  const ch = window.innerHeight
+  const nav = navScroller()
+  const sh = nav ? nav.scrollHeight : document.documentElement.scrollHeight
+  const ch = nav ? nav.clientHeight : window.innerHeight
+  const sy = nav ? nav.scrollTop : window.scrollY
   const maxScroll = Math.max(0, sh - ch)
-  const inset = Math.max(64, Math.round(ch * EDGE_Y_RATIO))
+  const inset = Math.max(64, Math.round(window.innerHeight * EDGE_Y_RATIO))
   edgeY.value = inset
-  const usable = Math.max(0, ch - inset * 2 - TRACK_PAD * 2)
+  const usable = Math.max(0, window.innerHeight - inset * 2 - TRACK_PAD * 2)
   trackH.value = usable
   needed.value = maxScroll > 1 && usable > MIN_THUMB
   if (!needed.value) {
     visible.value = false
     targetY = 0
     thumbY.value = 0
-    return { maxScroll: 0, usable: 0, ch, sh, inset }
+    return { maxScroll: 0, usable: 0, ch, sh, inset, nav }
   }
   const ratio = ch / Math.max(sh, 1)
   const raw = usable * ratio
   const capped = Math.min(usable * MAX_THUMB_RATIO, raw)
   thumbH.value = Math.min(usable, Math.max(MIN_THUMB, capped))
   const maxY = Math.max(0, usable - thumbH.value)
-  const sy = window.scrollY
   targetY = maxScroll > 0 ? maxY * (sy / maxScroll) : 0
   if (dragging || reducedMotion) {
     thumbY.value = targetY
   }
-  return { maxScroll, usable, ch, sh, inset }
+  return { maxScroll, usable, ch, sh, inset, nav }
 }
 
 function tickLerp() {
@@ -90,10 +99,6 @@ function syncFromScroll() {
 
 function flash() {
   if (!needed.value && !metrics().maxScroll) return
-  if (document.documentElement.classList.contains('page-canvas-lock')) {
-    visible.value = false
-    return
-  }
   if (document.documentElement.classList.contains('preload-lock')) {
     visible.value = false
     return
@@ -115,11 +120,13 @@ function onScroll() {
 }
 
 function scrollToThumbY(y: number) {
-  const { maxScroll, usable } = metrics()
+  const { maxScroll, usable, nav } = metrics()
   if (maxScroll <= 0) return
   const maxY = Math.max(0, usable - thumbH.value)
   const t = maxY > 0 ? Math.min(1, Math.max(0, y / maxY)) : 0
-  window.scrollTo(0, t * maxScroll)
+  const next = t * maxScroll
+  if (nav) nav.scrollTop = next
+  else window.scrollTo(0, next)
 }
 
 function onThumbPointerDown(e: PointerEvent) {
@@ -173,6 +180,25 @@ function onResize() {
   syncFromScroll()
 }
 
+let navBound: HTMLElement | null = null
+
+function bindNavScroll(el: HTMLElement | null) {
+  if (navBound === el) return
+  if (navBound) navBound.removeEventListener('scroll', onScroll)
+  navBound = el
+  if (navBound) navBound.addEventListener('scroll', onScroll, { passive: true })
+}
+
+watch(
+  onCanvas,
+  async (on) => {
+    await nextTick()
+    bindNavScroll(on ? navScroller() : null)
+    syncFromScroll()
+  },
+  { flush: 'post' },
+)
+
 onMounted(() => {
   reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   metrics()
@@ -182,6 +208,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  bindNavScroll(null)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onResize)
   window.clearTimeout(hideTimer)
@@ -192,7 +219,10 @@ onUnmounted(() => {
 <template>
   <div
     class="custom-scrollbar"
-    :class="{ 'custom-scrollbar--on': visible && needed }"
+    :class="{
+      'custom-scrollbar--on': visible && needed,
+      'custom-scrollbar--canvas': onCanvas,
+    }"
     :style="{ paddingTop: `${edgeY}px`, paddingBottom: `${edgeY}px` }"
     aria-hidden="true"
   >
@@ -235,6 +265,10 @@ onUnmounted(() => {
 
 .custom-scrollbar--on {
   opacity: 1;
+}
+
+.custom-scrollbar--canvas {
+  z-index: 90;
 }
 
 .custom-scrollbar__track {

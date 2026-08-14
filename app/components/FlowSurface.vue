@@ -691,7 +691,10 @@ function tick(now: number) {
 
   if (isTouchUi()) return
   // Frozen silhouette (e.g. Page Canvas outzoom) — keep last path, no roam/pointer churn.
-  if (flowSurfaceMask.freezeSilhouette) return
+  if (flowSurfaceMask.freezeSilhouette) {
+    roamLastNow = 0
+    return
+  }
 
   if (!roamLastNow) roamLastNow = now
   let dt = (now - roamLastNow) / 1000
