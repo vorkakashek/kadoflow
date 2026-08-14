@@ -64,10 +64,23 @@ if (import.meta.client) {
 const sceneLive = ref(true)
 /** WebGL rAF — deferred on mobile until iris veil is done (revealT≈1). */
 const swarmLoopReady = ref(false)
-const swarmActive = computed(
+const { open: pageCanvasOpen, busy: pageCanvasBusy } = usePageCanvas()
+/** Keep the last GL frame visible in the docked miniature (don't opacity:0). */
+const swarmVisible = computed(
   () =>
-    sceneLive.value && preload.revealed.value && swarmLoopReady.value,
+    sceneLive.value &&
+    preload.revealed.value &&
+    swarmLoopReady.value,
 )
+/**
+ * Pause rAF only when the menu is idle-open. Keep drawing through open/close
+ * flight — stopping mid-zoom clears/composites the GL layer (home-only blink).
+ */
+const swarmActive = computed(() => {
+  if (!swarmVisible.value) return false
+  if (pageCanvasBusy.value) return true
+  return !pageCanvasOpen.value
+})
 /** Whole hero stack opacity — never unmount; eased by morph. */
 const contentOpacity = ref(1)
 /** Text parallax Y (px). Negative = up. Driven by section scroll, not fade. */
@@ -99,6 +112,7 @@ function sceneFadeMorph() {
 /** Parallax from first scroll px of the hero section — independent of morph fade. */
 function updateCopyParallax() {
   if (typeof window === 'undefined') return
+  if (pageCanvasOpen.value) return
   const el = props.sectionEl
   if (!el) {
     copyY.value = 0
@@ -158,6 +172,8 @@ function restoreScene() {
 watch(
   () => mask.morph,
   (m) => {
+    // Page Canvas freezes the live page — don't dismiss/restore mid-flight.
+    if (pageCanvasOpen.value) return
     const op = opacityForMorph(m)
     contentOpacity.value = op
     const show = op > 0.08
@@ -280,7 +296,16 @@ async function setupExitMotion(sectionEl: HTMLElement) {
       })
     }
 
-    requestAnimationFrame(() => ScrollTrigger.refresh())
+    // Off the mount critical path — morph host also refreshes; don't stack sync.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          ScrollTrigger.refresh()
+        } catch {
+          /* ignore */
+        }
+      })
+    })
   }, sectionEl)
 }
 
@@ -297,6 +322,11 @@ watch(
   { immediate: true },
 )
 
+let introTl: { kill: () => void } | null = null
+let introGen = 0
+
+const swarmMount = ref(false)
+
 onMounted(() => {
   // Don't freeze at rest — living edges + hover need an unfrozen silhouette.
   setFrozen(false)
@@ -305,29 +335,36 @@ onMounted(() => {
   window.addEventListener('scroll', onParallaxScroll, { passive: true })
   window.addEventListener('resize', syncSwarmInteractive, { passive: true })
 
-  // First-screen entrance after brand preloader iris.
-  if (preload.revealed.value) {
-    introPending.value = false
-    swarmLoopReady.value = true
-  } else {
-    introPending.value = true
-    swarmLoopReady.value = false
-  }
+  // Always CSS-hide copy until GSAP has zeroed it — SPA return to `/` must not
+  // flash fully-visible hero text before the entrance timeline.
+  introPending.value = true
+  swarmLoopReady.value = false
+  // Defer WebGL until after first paint + deferred ST refresh (avoids stacked hitch).
+  window.setTimeout(() => {
+    swarmMount.value = true
+  }, 220)
 
   watch(
     () => preload.revealed.value,
     async (on) => {
       if (!on) {
         swarmLoopReady.value = false
+        introPending.value = true
         return
       }
-      // Sync hide before any await — media stays invisible until the intro fade.
+      const gen = ++introGen
+      introTl?.kill()
+      introTl = null
+
+      // Sync hide before any await — media/copy stay invisible until the intro fade.
       if (mediaEl.value) {
         mediaEl.value.style.opacity = '0'
         mediaEl.value.style.visibility = 'hidden'
       }
 
       const { default: gsap } = await import('gsap')
+      if (gen !== introGen) return
+
       const titleLines = titleEl.value
         ? Array.from(titleEl.value.querySelectorAll('.hero-title .block'))
         : []
@@ -341,11 +378,14 @@ onMounted(() => {
       if (sloganEl.value) gsap.set(sloganEl.value, { autoAlpha: 0, y: 16 })
       if (titleEl.value) gsap.set(titleEl.value, { autoAlpha: 1 })
 
+      // Drop CSS hide only after GSAP owns opacity — no one-frame flash.
       introPending.value = false
       await nextTick()
+      if (gen !== introGen) return
 
       const mobile = mobileLite.value
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
+      introTl = tl
 
       const liftSwarmCover = (at = 0) => {
         if (!swarmCoverEl.value) return
@@ -361,22 +401,25 @@ onMounted(() => {
         if (mediaEl.value) {
           tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.85 }, 0.28)
         }
-        const stop = watch(
+        // `let` — immediate watch can fire before assignment (SPA return, revealT≈1).
+        let stopRevealWatch: (() => void) | undefined
+        stopRevealWatch = watch(
           () => preload.revealT.value,
           (t) => {
             if (t < 0.97) return
-            stop()
+            stopRevealWatch?.()
+            stopRevealWatch = undefined
+            if (gen !== introGen) return
             swarmLoopReady.value = true
             // Prime a couple frames under the stone lid, then lift it.
             requestAnimationFrame(() => {
               requestAnimationFrame(() => {
-                if (swarmCoverEl.value) {
-                  gsap.to(swarmCoverEl.value, {
-                    autoAlpha: 0,
-                    duration: 0.55,
-                    ease: 'power2.out',
-                  })
-                }
+                if (gen !== introGen || !swarmCoverEl.value) return
+                gsap.to(swarmCoverEl.value, {
+                  autoAlpha: 0,
+                  duration: 0.55,
+                  ease: 'power2.out',
+                })
               })
             })
           },
@@ -431,6 +474,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  introGen += 1
+  introTl?.kill()
+  introTl = null
   setFrozen(false)
   mediaFadeTween?.kill()
   ctx?.revert()
@@ -472,8 +518,9 @@ onUnmounted(() => {
       >
         <ClientOnly>
           <HeroSwarmCanvas
+            v-if="swarmMount"
             class="size-full"
-            :class="{ 'hero-swarm--cold': !swarmActive }"
+            :class="{ 'hero-swarm--cold': !swarmVisible }"
             :active="swarmActive"
           />
         </ClientOnly>
@@ -530,8 +577,8 @@ onUnmounted(() => {
 
 <style scoped>
 .hero-intro-hide {
-  opacity: 0;
-  visibility: hidden;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 .hero-swarm-cover {
@@ -585,7 +632,9 @@ onUnmounted(() => {
 /* Mobile: pull type down so 17 Pro–class widths don’t pack the stack. */
 @media (max-width: 767px) {
   .hero-slogan {
-    font-size: calc(var(--type-slogan) * 0.62);
+    /* Was 0.62 — +25%, centered under the logo. */
+    font-size: calc(var(--type-slogan) * 0.775);
+    text-align: center;
   }
 
   .hero-title {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { heroToKadoPlan } from '~/utils/flowSurfaceMorph'
+import { preloadGsapBundle } from '~/utils/preloadHomeMotion'
 
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
@@ -11,12 +12,24 @@ const termEl = computed(() => kado.value?.termTarget ?? null)
 const wordEl = computed(() => kado.value?.kadoflowWord ?? null)
 const bodyEl = computed(() => kado.value?.bodyFocusEl ?? null)
 
-/** Soft snap off — locks touchmove on direction changes / settle and fights iOS scroll. */
+/**
+ * Yield one frame so router paint commits, then mount the surface.
+ * GSAP is pre-warmed on idle elsewhere — avoids import jank here.
+ */
+const mountSurface = ref(false)
+
+onMounted(() => {
+  void preloadGsapBundle()
+  requestAnimationFrame(() => {
+    mountSurface.value = true
+  })
+})
 </script>
 
 <template>
   <div class="bg-sand text-ink">
     <FlowSurfaceHost
+      v-if="mountSurface"
       :from-el="fromEl"
       :to-el="toEl"
       :stone-el="stoneEl"
@@ -25,7 +38,6 @@ const bodyEl = computed(() => kado.value?.bodyFocusEl ?? null)
       :body-el="bodyEl"
       :plan="heroToKadoPlan"
     />
-    <SiteHeader />
     <main class="pointer-events-none relative z-10">
       <HomeHero ref="hero" />
       <HomeKado ref="kado" />

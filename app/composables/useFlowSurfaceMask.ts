@@ -35,6 +35,14 @@ export type FlowSurfaceBox = {
 
 let pathFlush: ((box?: FlowSurfaceBox) => void) | null = null
 let clipPathEl: SVGPathElement | null = null
+/**
+ * Page Canvas paints the shell with `translateY(-scrollY)`. That transform makes
+ * `position:fixed` FlowSurfaceHost use the paint as containing block, so viewport
+ * tops must be shifted into paint/document space or the surface vanishes from the
+ * scrolled miniature (hero still looks fine at scrollY=0).
+ */
+let paintScrollCompY = 0
+let liveBoxNudge: ((deltaY: number) => void) | null = null
 
 export function registerFlowSurfacePathFlush(fn: ((box?: FlowSurfaceBox) => void) | null) {
   pathFlush = fn
@@ -56,6 +64,59 @@ export function publishFlowSurfacePath(d: string) {
     if (d) clipPathEl.setAttribute('d', d)
     else clipPathEl.removeAttribute('d')
   }
+}
+
+export function registerFlowSurfaceLiveBoxNudge(
+  fn: ((deltaY: number) => void) | null,
+) {
+  liveBoxNudge = fn
+}
+
+/**
+ * Keep the surface aligned with page content while Page Canvas offsets paint by
+ * `-scrollY`. Pass `0` when clearing the paint transform (menu close).
+ */
+export function syncFlowSurfacePaintScrollComp(scrollY: number) {
+  const y = Math.max(0, scrollY)
+  const delta = y - paintScrollCompY
+  if (delta === 0) return
+
+  if (!import.meta.client) {
+    paintScrollCompY = y
+    flowSurfaceMask.top += delta
+    liveBoxNudge?.(delta)
+    return
+  }
+
+  const frame = document.querySelector(
+    '[data-flow-surface-frame]',
+  ) as HTMLElement | null
+  const host = document.querySelector('[data-flow-surface-host]')
+  // Only the viewport-fixed host needs compensation. Mobile pin already lives in
+  // document flow and rides the paint translate correctly.
+  if (frame && host?.contains(frame)) {
+    const top = parseFloat(frame.style.top || '') || flowSurfaceMask.top
+    frame.style.top = `${top + delta}px`
+    flowSurfaceMask.top += delta
+    liveBoxNudge?.(delta)
+  }
+  // Always record intent so sync(0) on close clears state even if we were pinned.
+  paintScrollCompY = y
+}
+
+/** Clear session leftovers before a fresh home mount (SPA return). */
+export function resetFlowSurfaceMaskSession() {
+  paintScrollCompY = 0
+  flowSurfaceMask.morph = 0
+  flowSurfaceMask.freezeSilhouette = false
+  flowSurfaceMask.pointerInteractive = true
+  flowSurfaceMask.path = ''
+  flowSurfaceMask.clipPath = ''
+  flowSurfaceMask.openTopPath = ''
+  flowSurfaceMask.width = 1
+  flowSurfaceMask.height = 1
+  flowSurfaceMask.top = 0
+  flowSurfaceMask.left = 0
 }
 
 export function useFlowSurfaceMask() {

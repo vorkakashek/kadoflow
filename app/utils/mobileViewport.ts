@@ -4,12 +4,22 @@
  * reacting to that reflows fixed/absolute layers and feels like a jump.
  */
 
+/** True when the primary pointer is coarse (finger) — not merely “has a touchscreen”. */
 export function isCoarsePointer(): boolean {
   if (typeof window === 'undefined') return false
+  // Hybrid laptops often report maxTouchPoints > 0 while the user works with a mouse.
+  // Prefer the fine pointer when both exist so desktop motion (cursor dent, etc.) stays on.
+  if (window.matchMedia('(pointer: fine)').matches) return false
   return (
     window.matchMedia('(pointer: coarse)').matches ||
     navigator.maxTouchPoints > 0
   )
+}
+
+/** Mouse / trackpad available — even on touchscreen Windows boxes. */
+export function hasFinePointer(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia('(pointer: fine)').matches
 }
 
 export function isNarrowViewport(maxWidth = 767): boolean {

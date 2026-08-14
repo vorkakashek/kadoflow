@@ -29,7 +29,8 @@ const RING_GAP = 8
 const RING_OUTER = RING_R + STROKE / 2
 const ORBIT_R = RING_OUTER + RING_GAP + ARC_STROKE / 2
 const APEX = -Math.PI / 2
-const HOLD_S = 3
+/** Brief beat after extra orbits — was 3s and made cold visits feel stuck at 99%. */
+const HOLD_S = 0.08
 /** First-lap durations — % is mapped across this window (~3s total). */
 const LAP1_DIVE_S = 1.91
 const LAP1_RISE_S = 1.09
@@ -111,7 +112,7 @@ function hideFlyerNow() {
   if (flyer) flyer.setAttribute('opacity', '0')
 }
 
-async function waitForCanExit(maxMs = 8000) {
+async function waitForCanExit(maxMs = 2200) {
   if (preload.canExit.value) return
   await new Promise<void>((resolve) => {
     let done = false
@@ -445,8 +446,11 @@ async function runWarmExit(gsap: typeof import('gsap').default) {
 }
 
 function tryExitFromHold() {
-  if (!holding || settling || settled) return
+  if (settling || settled) return
   if (!preload.canExit.value) return
+  // After lap 1, exit immediately — don't wait for the HOLD beat.
+  if (!holding && pacingLap1) return
+  holding = true
   void settleAndExit()
 }
 
@@ -499,19 +503,31 @@ function buildCycle(gsap: typeof import('gsap').default) {
     }
   })
 
-  // Still loading — keep orbiting; % already at 99.
+  // Still loading — short extra orbits; exit as soon as canExit (see watch).
   tl.to(state, {
     a: `+=${Math.PI}`,
-    duration: 1.05,
+    duration: 0.72,
     ease: 'power3.in',
-    onUpdate: () => syncVisual(state.a),
+    onUpdate: () => {
+      syncVisual(state.a)
+      if (preload.canExit.value && !settling && !settled) {
+        holding = true
+        tryExitFromHold()
+      }
+    },
   })
 
   tl.to(state, {
     a: `+=${Math.PI}`,
-    duration: 1.55,
+    duration: 0.95,
     ease: 'power2.out',
-    onUpdate: () => syncVisual(state.a),
+    onUpdate: () => {
+      syncVisual(state.a)
+      if (preload.canExit.value && !settling && !settled) {
+        holding = true
+        tryExitFromHold()
+      }
+    },
   })
 
   tl.call(() => {
@@ -533,7 +549,9 @@ function buildCycle(gsap: typeof import('gsap').default) {
 watch(
   () => preload.canExit.value,
   (ok) => {
-    if (ok && holding) tryExitFromHold()
+    if (!ok || settling || settled) return
+    // After the first lap, don't wait for the next hold beat.
+    if (holding || !pacingLap1) tryExitFromHold()
   },
 )
 
@@ -541,6 +559,22 @@ onMounted(async () => {
   preload.begin()
   reduced.value =
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // Hard unlock — if GSAP/exit stalls (hung tab after canvas nav), never leave
+  // a blank sand veil forever.
+  const forceUnlock = window.setTimeout(() => {
+    if (settled) return
+    settling = true
+    settled = true
+    cycleTl?.kill()
+    cycleTl = null
+    preload.markSceneReady()
+    preload.markFontsReady()
+    preload.setRevealT(1)
+    if (!preload.revealed.value) preload.markRevealed()
+    exiting.value = false
+    show.value = false
+  }, 9000)
 
   const warm = preload.repeatVisit.value
   flyerR = ORBIT_R
@@ -573,11 +607,19 @@ onMounted(async () => {
 
   // Warm / repeat visit: skip the orbit lap — quick % then expand.
   if (warm) {
-    void runWarmExit(gsap)
+    void runWarmExit(gsap).finally(() => window.clearTimeout(forceUnlock))
     return
   }
 
   cycleTl = buildCycle(gsap)
+  // Cold path clears via markRevealed inside settleAndExit.
+  watch(
+    () => preload.revealed.value,
+    (on) => {
+      if (on) window.clearTimeout(forceUnlock)
+    },
+    { immediate: true },
+  )
 })
 
 onUnmounted(() => {

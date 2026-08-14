@@ -26,10 +26,10 @@ let safetyTimer: ReturnType<typeof setTimeout> | null = null
 let began = false
 let loadStartedAt = 0
 
-/** Typical first-visit HDRI + scene budget (ms) — drives the time curve. */
-const EXPECTED_LOAD_MS = 5200
+/** Typical first-visit scene budget (ms) — drives the time curve (not a hard wait). */
+const EXPECTED_LOAD_MS = 2800
 /** Cached revisit — progress curve shouldn't invent a long wait. */
-const EXPECTED_LOAD_MS_REPEAT = 900
+const EXPECTED_LOAD_MS_REPEAT = 700
 /** Soft ceiling until exit — avoids the 93→99 slam. */
 const PRE_EXIT_CAP = 0.9
 
@@ -195,10 +195,14 @@ export function useBrandPreload() {
       window.setTimeout(() => markFontsReady(), 2500)
     }
     if (safetyTimer) clearTimeout(safetyTimer)
+    // Soft unlock: stub routes never mount HeroSwarm — don't sit until hard safety.
+    window.setTimeout(() => {
+      if (!sceneReady.value && sceneProgress.value < 0.2) markSceneReady()
+    }, repeatVisit.value ? 400 : 1200)
     safetyTimer = setTimeout(() => {
       if (!sceneReady.value) markSceneReady()
       markFontsReady()
-    }, repeatVisit.value ? 6000 : 14000)
+    }, repeatVisit.value ? 2000 : 4500)
     recomputeRaw()
   }
 

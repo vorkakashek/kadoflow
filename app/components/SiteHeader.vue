@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { isMobileChromeHeightOnlyResize } from '~/utils/mobileViewport'
+import { headerLinks } from '~/utils/siteNav'
 
-const links = [
-  { label: 'кейсы', href: '#cases' },
-  { label: 'услуги', href: '#services' },
-  { label: 'контакт', href: '#contact' },
-]
+const { open: canvasOpen, surfaceOn: canvasSurface, toggleCanvas } = usePageCanvas()
+const links = headerLinks
 
 const scrolled = ref(false)
 const shellEl = ref<HTMLElement | null>(null)
@@ -17,6 +15,15 @@ const menuBtnEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
 const fabBottomExtra = ref(0)
 const introPending = ref(true)
+
+/** Page canvas pins body (scrollY→0) — ignore that fake scroll for collapse morph. */
+function canvasLocksScroll() {
+  return (
+    canvasSurface.value
+    || canvasOpen.value
+    || document.documentElement.classList.contains('page-canvas-lock')
+  )
+}
 
 /** Wait before collapse so a tiny nudge doesn’t snap the bar */
 const COLLAPSE_DELAY_MS = 220
@@ -242,6 +249,8 @@ async function morph(animate: boolean) {
 }
 
 function onScroll() {
+  if (canvasLocksScroll()) return
+
   const past = window.scrollY > 8
 
   if (!past) {
@@ -260,6 +269,7 @@ function onScroll() {
 
   collapseTimer = window.setTimeout(() => {
     collapseTimer = 0
+    if (canvasLocksScroll()) return
     if (window.scrollY > 8) {
       scrolled.value = true
       void morph(true)
@@ -358,7 +368,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="pointer-events-none fixed inset-x-0 top-0 z-30">
+  <header
+    class="pointer-events-none fixed inset-x-0 top-0 z-[100] site-header"
+    :class="{ 'site-header--canvas': canvasSurface }"
+    :aria-hidden="canvasSurface ? 'true' : undefined"
+  >
     <!--
       GSAP tweens width + side + vertical inset together (md+ only).
       Mobile: logo centered; menu is a bottom-right FAB (thumb zone).
@@ -383,6 +397,7 @@ onUnmounted(() => {
           to="/"
           class="header-logo-link col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
           aria-label="Kadoflow — на главную"
+          :tabindex="canvasSurface ? -1 : 0"
         >
           <img
             src="/brand/logo-ru-mini.svg"
@@ -397,14 +412,14 @@ onUnmounted(() => {
 
         <nav
           ref="navEl"
-          class="header-chip site-nav col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
+          class="header-nav header-chip site-nav col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
           :class="{ 'header-chip--scrolled': scrolled }"
           aria-label="Основная"
         >
-          <a
+          <NuxtLink
             v-for="(link, index) in links"
-            :key="link.href"
-            :href="link.href"
+            :key="link.to"
+            :to="link.to"
             class="nav-link text-ink"
             @pointerenter="onNavEnter"
             @pointerleave="onNavLeave"
@@ -445,7 +460,7 @@ onUnmounted(() => {
               </svg>
             </span>
             <span v-if="index < links.length - 1" class="nav-link__comma">,</span>
-          </a>
+          </NuxtLink>
         </nav>
 
         <button
@@ -453,7 +468,9 @@ onUnmounted(() => {
           type="button"
           class="menu-btn header-chip site-nav col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
           :class="{ 'header-chip--scrolled': scrolled }"
-          aria-label="Открыть меню"
+          :aria-expanded="canvasOpen"
+          :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+          @click="toggleCanvas"
         >
           <span class="menu-btn-label">меню</span>
           <span class="menu-dots" aria-hidden="true">
@@ -469,12 +486,20 @@ onUnmounted(() => {
   <button
     ref="fabEl"
     type="button"
-    class="menu-fab menu-btn header-chip site-nav pointer-events-auto fixed z-40 flex items-center gap-2 text-ink md:hidden"
-    :class="{ 'header-chip--scrolled': scrolled, 'header-intro-hide': introPending }"
+    class="menu-fab menu-btn header-chip site-nav pointer-events-auto fixed z-[100] flex items-center gap-2 text-ink md:hidden"
+    :class="{
+      'header-chip--scrolled': scrolled,
+      'header-intro-hide': introPending,
+      'site-header--canvas': canvasSurface,
+    }"
+    :aria-hidden="canvasSurface ? 'true' : undefined"
+    :tabindex="canvasSurface ? -1 : 0"
     :style="{
       bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom))`,
     }"
-    aria-label="Открыть меню"
+    :aria-expanded="canvasOpen"
+    :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+    @click="toggleCanvas"
   >
     <span class="menu-fab-label">меню</span>
     <span class="menu-dots" aria-hidden="true">
@@ -488,6 +513,27 @@ onUnmounted(() => {
 .header-intro-hide {
   opacity: 0;
   visibility: hidden;
+}
+
+.site-header {
+  transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
+}
+
+/* Page Canvas brings its own chrome — hide site header while the surface is up. */
+.site-header--canvas {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.menu-fab {
+  transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
+}
+
+.menu-fab.site-header--canvas {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .header-bar {
@@ -602,7 +648,8 @@ onUnmounted(() => {
 
 .menu-btn:hover .menu-dots,
 .menu-btn:focus-visible .menu-dots,
-.menu-btn:active .menu-dots {
+.menu-btn:active .menu-dots,
+.menu-btn[aria-expanded='true'] .menu-dots {
   transform: rotate(90deg);
 }
 

@@ -67,6 +67,7 @@ const pathView = reactive({ w: 1, h: 1 })
 
 /** Touch / narrow UI — no living edge response (pointer dent + roam). */
 function isTouchUi() {
+  // isCoarsePointer() already yields to (pointer: fine) on hybrid touch laptops.
   return isAppleTouchDevice() || isNarrowViewport() || isCoarsePointer()
 }
 
@@ -82,10 +83,6 @@ let softPointer: { x: number; y: number; str: number; side: number } = {
   str: 0,
   side: 0,
 }
-/** Cleared when pointermove stops (dual-monitor: no blur, events just cease). */
-let pointerIdleTimer = 0
-/** No move for this long → treat cursor as gone (other monitor / alt-tab). */
-const POINTER_IDLE_MS = 280
 
 const RADIUS = 12
 /**
@@ -177,10 +174,11 @@ function bendAmpFor(w: number, h: number): BendAmp {
   const roamState = 1 - morph * (1 - KADO_ROAM_SCALE)
   // Mobile: static silhouette — living dents were fighting scroll on Android.
   const touch = isTouchUi()
+  // Slightly quieter on the kado panel — same feel, less path churn.
+  const pointerScale = morph > 0.5 ? 0.72 : 1
   return {
     scale,
-    // Pointer dent is hero-rest only; keep size-scaled, not kado-softened.
-    pointerDent: touch ? 0 : POINTER_DENT * scale,
+    pointerDent: touch ? 0 : POINTER_DENT * scale * pointerScale,
     roamDent: touch ? 0 : ROAM_DENT * scale * roamState,
     // Keep wave relatively wide even on small surfaces
     roamSigmaFrac: ROAM_SIGMA_FRAC * Math.max(0.75, scale),
@@ -692,6 +690,8 @@ function tick(now: number) {
   raf = 0
 
   if (isTouchUi()) return
+  // Frozen silhouette (e.g. Page Canvas outzoom) — keep last path, no roam/pointer churn.
+  if (flowSurfaceMask.freezeSilhouette) return
 
   if (!roamLastNow) roamLastNow = now
   let dt = (now - roamLastNow) / 1000
@@ -701,18 +701,19 @@ function tick(now: number) {
     roamPhase = (roamPhase + dt * ROAM_SPEED) % 1
   }
 
-  // Soft cursor bend only at hero rest; roam keeps running everywhere.
+  /** Soft cursor bend on settled poses; roam keeps running everywhere. */
   if (flowSurfaceMask.pointerInteractive && !flowSurfaceMask.freezeSilhouette) {
     const targetStr = pointer ? 1 : 0
-    softPointer.str += (targetStr - softPointer.str) * 0.12
+    // Slightly snappier chase — fewer frames of expensive half-settled path rebuilds.
+    softPointer.str += (targetStr - softPointer.str) * 0.16
     if (pointer) {
-      softPointer.x += (pointer.x - softPointer.x) * 0.18
-      softPointer.y += (pointer.y - softPointer.y) * 0.18
+      softPointer.x += (pointer.x - softPointer.x) * 0.22
+      softPointer.y += (pointer.y - softPointer.y) * 0.22
       const sd = boxSignedOutside(pointer.x, pointer.y, size.w, size.h)
       const targetSide = Math.max(-1, Math.min(1, sd / POINTER_SIDE_BAND))
-      softPointer.side += (targetSide - softPointer.side) * 0.2
+      softPointer.side += (targetSide - softPointer.side) * 0.24
     } else {
-      softPointer.side += (0 - softPointer.side) * 0.12
+      softPointer.side += (0 - softPointer.side) * 0.14
       if (softPointer.str < 0.002) {
         softPointer.str = 0
         softPointer.side = 0
@@ -729,9 +730,10 @@ function tick(now: number) {
 }
 
 function ensureLoop() {
-  // Desktop: continuous roam on every settled pose (hero + kado + beyond).
+  // Desktop: continuous roam on every settled pose (hero → kado + beyond).
   if (isTouchUi()) return
   if (motionQuery?.matches) return
+  if (flowSurfaceMask.freezeSilhouette) return
   if (!raf) raf = requestAnimationFrame(tick)
 }
 
@@ -768,11 +770,9 @@ function onPointer(e: PointerEvent) {
   const pad = bendAmpFor(rect.width, rect.height).pointerRadius
   if (x < -pad || y < -pad || x > rect.width + pad || y > rect.height + pad) {
     pointer = null
-    bumpPointerIdle()
     return
   }
   pointer = { x, y }
-  bumpPointerIdle()
   ensureLoop()
 }
 
@@ -780,19 +780,7 @@ function clearPointerHover() {
   pointer = null
   softPointer.str = 0
   softPointer.side = 0
-  if (pointerIdleTimer) {
-    window.clearTimeout(pointerIdleTimer)
-    pointerIdleTimer = 0
-  }
   ensureLoop()
-}
-
-function bumpPointerIdle() {
-  if (pointerIdleTimer) window.clearTimeout(pointerIdleTimer)
-  pointerIdleTimer = window.setTimeout(() => {
-    pointerIdleTimer = 0
-    clearPointerHover()
-  }, POINTER_IDLE_MS)
 }
 
 function onPointerLeave() {
@@ -904,10 +892,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', syncGrainScale)
   cancelAnimationFrame(raf)
   raf = 0
-  if (pointerIdleTimer) {
-    window.clearTimeout(pointerIdleTimer)
-    pointerIdleTimer = 0
-  }
   if (grainTimer) {
     window.clearInterval(grainTimer)
     grainTimer = 0

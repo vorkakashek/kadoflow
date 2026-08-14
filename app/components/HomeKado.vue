@@ -26,6 +26,15 @@ const topFocusEl = ref<HTMLElement | null>(null)
 const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
 
+const { surfaceOn: canvasSurface } = usePageCanvas()
+
+function canvasSessionActive() {
+  return (
+    canvasSurface.value
+    || document.documentElement.classList.contains('page-canvas-lock')
+  )
+}
+
 defineExpose({
   section,
   surfaceTarget,
@@ -130,6 +139,8 @@ function buildLineFill(host: HTMLElement): HTMLElement[] {
 }
 
 async function setupLineFill() {
+  if (canvasSessionActive()) return
+
   fillCtx?.revert()
   fillCtx = null
 
@@ -176,12 +187,24 @@ async function setupLineFill() {
     })
   }, section.value ?? undefined)
 
-  ScrollTrigger.refresh()
+  // Defer refresh so Flow Surface can finish SPA boot without re-entrancy.
+  window.setTimeout(() => {
+    try {
+      if (ScrollTrigger.isRefreshing) return
+      ScrollTrigger.refresh()
+    } catch {
+      /* ignore */
+    }
+  }, 700)
 }
 
 let lastHostWidth = 0
+let fillMountedAt = 0
 
 function scheduleRebuild() {
+  if (canvasSessionActive()) return
+  // Skip RO rebuilds during the first quiet second after SPA mount.
+  if (fillMountedAt && performance.now() - fillMountedAt < 1200) return
   if (rebuildTimer) window.clearTimeout(rebuildTimer)
   rebuildTimer = window.setTimeout(() => {
     rebuildTimer = 0
@@ -190,6 +213,7 @@ function scheduleRebuild() {
 }
 
 onMounted(async () => {
+  fillMountedAt = performance.now()
   await nextTick()
   await setupLineFill()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0

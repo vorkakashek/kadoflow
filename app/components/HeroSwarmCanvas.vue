@@ -244,6 +244,8 @@ watch(
       forceResize?.()
       startLoop()
     } else {
+      // Freeze on the last painted frame (preserveDrawingBuffer) — Page Canvas miniature.
+      if (runFrame && renderer) runFrame(performance.now())
       stopLoop()
     }
   },
@@ -374,52 +376,29 @@ async function bootScene() {
     gl.domElement.style.touchAction = 'none'
   }
 
-  // HDRI — mobile uses the smaller 1k warm studio.
-  {
-    const pmrem = new THREE.PMREMGenerator(gl)
-    pmrem.compileEquirectangularShader()
+  // HDRI — start immediately; don't block scene-ready / preloader exit on it.
+  const pmrem = new THREE.PMREMGenerator(gl)
+  pmrem.compileEquirectangularShader()
 
-    const manager = new THREE.LoadingManager()
-    manager.onProgress = (_url, loaded, total) => {
-      if (firstSceneReady) return
-      const ratio = total > 0 ? loaded / total : 0
-      preload.setSceneProgress(0.08 + ratio * 0.72)
-    }
-
-    const texLoader = new THREE.TextureLoader(manager)
-    const hdrUrl = wide ? HDRI_PRESETS[ACTIVE_HDRI] : HDRI_PRESETS.studioWarm
-    const assetLoads: Promise<THREE.DataTexture | THREE.Texture>[] = [
-      new HDRLoader(manager).loadAsync(hdrUrl),
-    ]
-    if (wide) {
-      assetLoads.push(
-        texLoader.loadAsync('/textures/micro/plaster_nor.jpg'),
-        texLoader.loadAsync('/textures/micro/plaster_rough.jpg'),
-      )
-    }
-    const assets = await Promise.all(assetLoads)
-    if (gen !== bootGen) {
-      if (renderer !== gl) {
-        gl.dispose()
-        gl.domElement.remove()
-      }
-      pmrem.dispose()
-      return
-    }
-    if (!firstSceneReady) preload.setSceneProgress(0.86)
-    const hdrTex = assets[0] as THREE.DataTexture
-
-    envMap = pmrem.fromEquirectangular(hdrTex).texture
-    hdrTex.dispose()
-    pmrem.dispose()
-    scene.environment = envMap
-    scene.environmentIntensity = lite ? 1.1 : 1.05
-
-    if (wide && assets[1] && assets[2]) {
-      microNormal = prepDataMap(assets[1], 2.6)
-      microRough = prepDataMap(assets[2], 2.6)
-    }
+  const manager = new THREE.LoadingManager()
+  manager.onProgress = (_url, loaded, total) => {
+    if (firstSceneReady) return
+    const ratio = total > 0 ? loaded / total : 0
+    preload.setSceneProgress(0.08 + ratio * 0.55)
   }
+
+  const texLoader = new THREE.TextureLoader(manager)
+  const hdrUrl = wide ? HDRI_PRESETS[ACTIVE_HDRI] : HDRI_PRESETS.studioWarm
+  const assetLoads: Promise<THREE.DataTexture | THREE.Texture>[] = [
+    new HDRLoader(manager).loadAsync(hdrUrl),
+  ]
+  if (wide) {
+    assetLoads.push(
+      texLoader.loadAsync('/textures/micro/plaster_nor.jpg'),
+      texLoader.loadAsync('/textures/micro/plaster_rough.jpg'),
+    )
+  }
+  const assetsPromise = Promise.all(assetLoads)
 
   renderer = gl
   host.appendChild(gl.domElement)
@@ -453,13 +432,6 @@ async function bootScene() {
       sheenColor: new THREE.Color('#d7e4f0'),
       envMapIntensity: lite ? 0.85 : 0.7,
       specularIntensity: 0.5,
-      ...(microRough ? { roughnessMap: microRough } : null),
-      ...(microNormal
-        ? {
-            normalMap: microNormal,
-            normalScale: new THREE.Vector2(0.28, 0.28),
-          }
-        : null),
     })
 
   const frosted = (color: THREE.Color) =>
@@ -535,6 +507,45 @@ async function bootScene() {
     })
   }
   for (const material of materialPlan) material.dispose()
+
+  const applyEnvAssets = async () => {
+    let assets: (THREE.DataTexture | THREE.Texture)[]
+    try {
+      assets = await assetsPromise
+    } catch {
+      pmrem.dispose()
+      return
+    }
+    if (gen !== bootGen || renderer !== gl) {
+      pmrem.dispose()
+      for (const a of assets) a.dispose()
+      return
+    }
+    if (!firstSceneReady) preload.setSceneProgress(0.9)
+    const hdrTex = assets[0] as THREE.DataTexture
+
+    envMap = pmrem.fromEquirectangular(hdrTex).texture
+    hdrTex.dispose()
+    pmrem.dispose()
+    scene.environment = envMap
+    scene.environmentIntensity = lite ? 1.1 : 1.05
+
+    if (wide && assets[1] && assets[2]) {
+      microNormal = prepDataMap(assets[1], 2.6)
+      microRough = prepDataMap(assets[2], 2.6)
+      for (const ball of balls) {
+        const mat = ball.mesh.material as THREE.MeshPhysicalMaterial
+        if (mat.transmission && mat.transmission > 0) continue
+        if (microRough) mat.roughnessMap = microRough
+        if (microNormal) {
+          mat.normalMap = microNormal
+          mat.normalScale = new THREE.Vector2(0.28, 0.28)
+        }
+        mat.needsUpdate = true
+      }
+    }
+  }
+  void applyEnvAssets()
 
   const anchor = new THREE.Vector3(1.55, 0.05, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */

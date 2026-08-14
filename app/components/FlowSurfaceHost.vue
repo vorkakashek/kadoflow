@@ -27,6 +27,8 @@ import {
   flowSurfaceMask,
   flushFlowSurfacePath,
   registerFlowSurfaceClipPathEl,
+  registerFlowSurfaceLiveBoxNudge,
+  resetFlowSurfaceMaskSession,
 } from '~/composables/useFlowSurfaceMask'
 import {
   isAppleTouchDevice,
@@ -131,6 +133,8 @@ function useMobileCorridor() {
 }
 
 function nearTarget() {
+  if (!Number.isFinite(live.h) || !Number.isFinite(live.v)) return true
+  if (!Number.isFinite(target.h) || !Number.isFinite(target.v)) return true
   return (
     Math.abs(live.h - target.h) < 0.0008
     && Math.abs(live.v - target.v) < 0.0008
@@ -169,7 +173,9 @@ function captureDesktopPoses() {
   if (!props.fromEl || !props.toEl) return false
 
   const fromDoc = readDocBox(props.fromEl)
-  const toDoc = readDocBox(props.toEl)
+  // Target pose can be 0×0 before the stone image gives the parent height.
+  let toDoc = readDocBox(props.toEl)
+  if (!toDoc && props.stoneEl) toDoc = readDocBox(props.stoneEl)
   if (!fromDoc || !toDoc) return false
 
   const fromSection = sectionOf(props.fromEl)
@@ -243,7 +249,7 @@ function bootAlignHeroVisibility() {
   }
   if (y > top + window.innerHeight * 0.12) {
     flowSurfaceMask.morph = 1
-    flowSurfaceMask.pointerInteractive = false
+    flowSurfaceMask.pointerInteractive = true
   }
 }
 
@@ -276,7 +282,9 @@ function writeMaskBox(box: SurfaceBox, morph: number) {
   flowSurfaceMask.width = Math.max(1, box.width)
   flowSurfaceMask.height = Math.max(1, box.height)
   flowSurfaceMask.morph = Math.min(1, Math.max(0, morph))
-  flowSurfaceMask.pointerInteractive = flowSurfaceMask.morph < IDLE_EPS
+  // Cursor dent on settled poses only (hero or kado) — mid-morph stays frozen for FPS.
+  flowSurfaceMask.pointerInteractive =
+    morph < IDLE_EPS || morph > 1 - IDLE_EPS
 }
 
 function paintBox(box: SurfaceBox, morph: number) {
@@ -393,6 +401,9 @@ function unpinFrame() {
 }
 
 function pinFrame(hop: Exclude<MobileHop, 'center'>) {
+  if (!stageChangesAllowed()) {
+    return
+  }
   const host = pinSlot(hop)
   const el = frame.value
   if (!host || !el) return
@@ -411,7 +422,10 @@ function pinFrame(hop: Exclude<MobileHop, 'center'>) {
   el.style.transform = ''
   pinTo.value = host
   pinRo?.disconnect()
-  pinRo = new ResizeObserver(() => syncPinnedMask())
+  pinRo = new ResizeObserver(() => {
+    if (!stageChangesAllowed()) return
+    syncPinnedMask()
+  })
   pinRo.observe(host)
   void nextTick(() => syncPinnedMask())
 }
@@ -453,6 +467,16 @@ function killHopTween() {
  * intentional upward scroll clears the lock.
  */
 function requestStage(next: MobileStage, animate: boolean) {
+  if (!stageChangesAllowed() && next !== 'scrub') {
+    // During quiet boot only allow snapping back to scrub paint — never pin.
+    if (next === 'scrub' && mobileStage !== 'scrub') {
+      mobileStage = 'scrub'
+      killHopTween()
+      if (heroPose) paintBox(heroPose, 0)
+    }
+    return
+  }
+
   const now = typeof performance !== 'undefined' ? performance.now() : 0
   const curRank = STAGE_RANK[mobileStage]
   const nextRank = STAGE_RANK[next]
@@ -581,6 +605,9 @@ let lastScrollY = 0
 let suppressStageCallbacks = false
 let layoutResyncTimers: number[] = []
 let removeLayoutResync: (() => void) | null = null
+/** fonts.ready is already resolved after first load — re-then() must not loop. */
+let fontsResyncBound = false
+let captureFailCount = 0
 
 function clearLayoutResync() {
   for (const id of layoutResyncTimers) window.clearTimeout(id)
@@ -589,49 +616,23 @@ function clearLayoutResync() {
   removeLayoutResync = null
 }
 
-function resyncAfterLayout() {
-  if (!gsapMod || !stMod || !frame.value) return
-  if (!props.fromEl || !props.toEl) return
-  // Corridor never built (first paint missed refs) — full rebuild, not a soft sync.
-  if (mobileTriggers.length === 0 && !trigger) {
-    buildMorph()
+function scheduleCaptureRetry() {
+  captureFailCount += 1
+  if (captureFailCount > 10) {
     return
   }
-  const ok = capturePoses()
-  if (!ok) {
-    ensureHeroRestPlaceholder()
-    bootAlignHeroVisibility()
-    return
-  }
-  if (mobileActive) {
-    suppressStageCallbacks = true
-    syncMobileStage(false)
-    stMod.ScrollTrigger.refresh()
-    syncMobileStage(false)
-    if (scrubProgressAt(window.scrollY) < 0.02 && heroPose) {
-      mobileStage = 'scrub'
-      paintBox(heroPose, 0)
-    }
-    suppressStageCallbacks = false
-  } else if (trigger) {
-    setTargetsFromProgress(trigger.progress)
-    live.h = target.h
-    live.v = target.v
-    paintDesktop()
-    ensureTick()
-    if (trigger.progress < 0.02) {
-      live.h = 0
-      live.v = 0
-      target.h = 0
-      target.v = 0
-      paintDesktop()
-    }
-  }
+  const delay = Math.min(60 * captureFailCount, 480)
+  layoutResyncTimers.push(
+    window.setTimeout(() => {
+      resyncAfterLayout()
+    }, delay),
+  )
 }
 
 function scheduleLayoutResync() {
   clearLayoutResync()
-  const delays = [50, 150, 400, 900, 1800]
+  // Fewer beats — each used to stack with a second full morph on SPA home entry.
+  const delays = [120, 500, 1400]
   for (const ms of delays) {
     layoutResyncTimers.push(
       window.setTimeout(() => {
@@ -649,13 +650,80 @@ function scheduleLayoutResync() {
     }
   }
 
-  void document.fonts?.ready?.then(() => {
-    resyncAfterLayout()
-  })
+  // Only bind once: document.fonts.ready stays resolved forever after first load.
+  // Re-arming .then() on every capture-fail → infinite morph.start/fail/end microtasks.
+  if (!fontsResyncBound && document.fonts?.ready) {
+    fontsResyncBound = true
+    void document.fonts.ready.then(() => {
+      resyncAfterLayout()
+    })
+  }
+}
+
+function resyncAfterLayout() {
+  if (!gsapMod || !stMod || !frame.value) return
+  if (!props.fromEl || !props.toEl) return
+  if (morphBooting) return
+  // Corridor never built (first paint missed refs) — full rebuild, not a soft sync.
+  if (mobileTriggers.length === 0 && !trigger) {
+    buildMorph()
+    return
+  }
+  const ok = capturePoses()
+  if (!ok) {
+    ensureHeroRestPlaceholder()
+    bootAlignHeroVisibility()
+    scheduleCaptureRetry()
+    return
+  }
+  captureFailCount = 0
+  if (mobileActive) {
+    suppressStageCallbacks = true
+    // Paint only — pin/Teleport here re-enters ST refresh and freezes the tab.
+    if (mobileStage === 'scrub' || !stageChangesAllowed()) {
+      if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintBox(heroPose, 0)
+      else paintScrub()
+    } else if (mobileStage === 'center' && centerPose) {
+      paintBox(centerPose, 1)
+    }
+    // Soft resync during quiet window: paint only. Full ST refresh waits until settle.
+    if (stageChangesAllowed()) {
+      scheduleDeferredRefresh(stMod.ScrollTrigger)
+    }
+    if (scrubProgressAt(window.scrollY) < 0.02 && heroPose) {
+      mobileStage = 'scrub'
+      paintBox(heroPose, 0)
+    }
+    suppressStageCallbacks = false
+    // Stage hops only after quiet window — never from layout thrash mid-boot.
+    if (stageChangesAllowed()) {
+      requestAnimationFrame(() => {
+        if (stageChangesAllowed()) syncMobileStage(false)
+      })
+    }
+  } else if (trigger) {
+    setTargetsFromProgress(trigger.progress)
+    live.h = target.h
+    live.v = target.v
+    paintDesktop()
+    ensureTick()
+    if (trigger.progress < 0.02) {
+      live.h = 0
+      live.v = 0
+      target.h = 0
+      target.v = 0
+      paintDesktop()
+    }
+    // Soft desktop resync: no ScrollTrigger.refresh — poses are enough.
+  }
 }
 
 /** Scroll-driven stage reconcile — catches missed leaveBacks when scrolling up. */
 function reconcileFromScroll() {
+  if (!stageChangesAllowed()) {
+    if (mobileStage === 'scrub' && !hopTween) paintScrub()
+    return
+  }
   const y = window.scrollY
   if (y < lastScrollY - 1) {
     // Intentional upward scroll — don't let forward-lock trap the hero.
@@ -678,14 +746,15 @@ function reconcileFromScroll() {
 }
 
 function setTargetsFromProgress(progress: number) {
+  const p = Number.isFinite(progress) ? progress : 0
   if (!parseEase) {
-    target.h = progress
-    target.v = progress
+    target.h = p
+    target.v = p
     return
   }
-  const next = targetsFromScrollProgress(props.plan, progress, parseEase)
-  target.h = next.h
-  target.v = next.v
+  const next = targetsFromScrollProgress(props.plan, p, parseEase)
+  target.h = Number.isFinite(next.h) ? next.h : 0
+  target.v = Number.isFinite(next.v) ? next.v : 0
 }
 
 function tick(now: number) {
@@ -701,6 +770,15 @@ function tick(now: number) {
   if (snapMorph) {
     live.h = target.h
     live.v = target.v
+    paintDesktop()
+    return
+  }
+
+  if (!Number.isFinite(target.h) || !Number.isFinite(target.v)) {
+    target.h = 0
+    target.v = 0
+    live.h = 0
+    live.v = 0
     paintDesktop()
     return
   }
@@ -746,18 +824,78 @@ function killMorph() {
   }
 }
 
+/** Last corridor identity — skip full rebuild when only stone/term/body refs settle. */
+let lastFromEl: HTMLElement | null = null
+let lastToEl: HTMLElement | null = null
+let lastPlan: SurfaceMorphPlan | null = null
+
+/** Prevent re-entrant buildMorph ↔ ScrollTrigger.refresh softlocks (SPA return to `/`). */
+let morphGen = 0
+let morphWatchTimer = 0
+let morphBooting = false
+/** After SPA mount, markers/layout thrash — pin/Teleport here freezes the tab. */
+let morphQuietUntil = 0
+let refreshDepth = 0
+
+function stageChangesAllowed() {
+  if (morphBooting || suppressStageCallbacks) return false
+  if (typeof performance !== 'undefined' && performance.now() < morphQuietUntil) {
+    return false
+  }
+  return true
+}
+
+function beginMorphQuiet(ms = 1600) {
+  if (typeof performance === 'undefined') return
+  morphQuietUntil = Math.max(morphQuietUntil, performance.now() + ms)
+}
+
+function safeRefresh(ScrollTrigger: typeof import('gsap/ScrollTrigger').ScrollTrigger) {
+  if (ScrollTrigger.isRefreshing || refreshDepth > 0) {
+    return
+  }
+  refreshDepth += 1
+  try {
+    ScrollTrigger.refresh()
+  } catch {
+    /* refresh can race with teardown */
+  } finally {
+    refreshDepth -= 1
+  }
+}
+
+/** Keep ScrollTrigger.refresh off the first home-entry frame (felt as a hitch). */
+function scheduleDeferredRefresh(
+  ScrollTrigger: typeof import('gsap/ScrollTrigger').ScrollTrigger,
+  after?: () => void,
+) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      safeRefresh(ScrollTrigger)
+      after?.()
+    })
+  })
+}
+
 function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: typeof import('gsap/ScrollTrigger').ScrollTrigger) {
   const stoneMark = props.stoneEl ?? props.toEl
   const body = props.bodyEl
   const triggerFrom = sectionOf(props.fromEl!)
   if (!stoneMark || !body || !heroPose || !stonePose) return
 
+  // Block stage/pin changes while ST is sorting itself out — Teleport pin during
+  // refresh is what hard-froze the tab on logo→home navigations.
+  suppressStageCallbacks = true
+
   // Stage reconcile (missed leaveBacks when scrolling up).
   mobileTriggers.push(
     ScrollTrigger.create({
       start: 0,
       end: 'max',
-      onUpdate: () => reconcileFromScroll(),
+      onUpdate: () => {
+        if (!stageChangesAllowed()) return
+        reconcileFromScroll()
+      },
     }),
   )
 
@@ -776,14 +914,17 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
       },
       onRefresh: () => {
         captureMobilePoses()
-        if (hopTween) return
+        if (hopTween || !stageChangesAllowed()) {
+          if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintBox(heroPose, 0)
+          return
+        }
         if (typeof performance !== 'undefined' && performance.now() < stageLockUntil) return
-        // Refresh during boot with collapsed markers must not paint morph=1.
+        // Refresh: only repaint — never requestStage/pin (that re-enters refresh).
         if (!markersReliable() && scrubProgressAt(window.scrollY) < 0.02) {
           if (heroPose) paintBox(heroPose, 0)
           return
         }
-        syncMobileStage(false)
+        if (mobileStage === 'scrub') paintScrub()
       },
     }),
   )
@@ -795,11 +936,11 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
       start: 'top 10%',
       invalidateOnRefresh: true,
       onEnter: () => {
-        if (suppressStageCallbacks) return
+        if (!stageChangesAllowed()) return
         requestStage('term', true)
       },
       onLeaveBack: () => {
-        if (suppressStageCallbacks) return
+        if (!stageChangesAllowed()) return
         requestStage('scrub', false)
       },
     }),
@@ -811,11 +952,11 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
       start: 'center top',
       invalidateOnRefresh: true,
       onEnter: () => {
-        if (suppressStageCallbacks) return
+        if (!stageChangesAllowed()) return
         requestStage('word', true)
       },
       onLeaveBack: () => {
-        if (suppressStageCallbacks) return
+        if (!stageChangesAllowed()) return
         requestStage('term', true)
       },
     }),
@@ -827,122 +968,156 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
       start: 'center top',
       invalidateOnRefresh: true,
       onEnter: () => {
-        if (suppressStageCallbacks) return
+        if (!stageChangesAllowed()) return
         requestStage('center', true)
       },
       onLeaveBack: () => {
-        if (suppressStageCallbacks) return
+        if (!stageChangesAllowed()) return
         requestStage('word', true)
       },
     }),
   )
 
   lastScrollY = window.scrollY
-  // Boot: quiet ST callbacks while we snap from scroll (refresh used to fire false onEnter).
-  suppressStageCallbacks = true
-  syncMobileStage(false)
-  ScrollTrigger.refresh()
-  syncMobileStage(false)
-  // First screen hard-rest if scrub progress is still essentially zero.
-  if (scrubProgressAt(window.scrollY) < 0.02 && heroPose) {
-    mobileStage = 'scrub'
+  // Snap scrub paint only — never pin/Teleport while ST is refreshing.
+  if (heroPose) paintBox(heroPose, 0)
+  mobileStage = 'scrub'
+  // Defer refresh so logo→home first frame isn't blocked by ST measure.
+  scheduleDeferredRefresh(ScrollTrigger)
+  if (heroPose && scrubProgressAt(window.scrollY) < 0.02) {
     paintBox(heroPose, 0)
   }
-  suppressStageCallbacks = false
+  // suppressStageCallbacks cleared by buildMorph finally
   scheduleLayoutResync()
 }
 
 function buildMorph() {
-  killMorph()
   if (!gsapMod || !stMod || !frame.value) return
-
-  // Host mounts before page sections — keep retrying until slots exist.
-  if (!props.fromEl || !props.toEl) {
-    bootAlignHeroVisibility()
-    scheduleLayoutResync()
+  if (morphBooting) {
     return
   }
 
-  // Always pin a visible hero rest first — corridor capture must not gate first paint.
-  ensureHeroRestPlaceholder()
+  const gen = ++morphGen
+  morphBooting = true
+  suppressStageCallbacks = true
+  try {
+    killMorph()
+    // killMorph clears suppress — keep boot quiet.
+    suppressStageCallbacks = true
+    if (gen !== morphGen) return
 
-  const gsap = gsapMod.default
-  const { ScrollTrigger } = stMod
-  gsap.registerPlugin(ScrollTrigger)
-  parseEase = (name: string) => gsap.parseEase(name)
-
-  if (!capturePoses()) {
-    bootAlignHeroVisibility()
-    scheduleLayoutResync()
-    return
-  }
-
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (reduced) {
-    if (mobileActive && centerPose) {
-      paintBox(centerPose, 1)
-    } else {
-      target.h = 1
-      target.v = 1
-      live.h = 1
-      live.v = 1
-      paintDesktop()
+    // Host mounts before page sections — keep retrying until slots exist.
+    if (!props.fromEl || !props.toEl) {
+      bootAlignHeroVisibility()
+      scheduleLayoutResync()
+      return
     }
-    return
-  }
 
-  target.h = 0
-  target.v = 0
-  live.h = 0
-  live.v = 0
-  liveBox = null
-  mobileStage = 'scrub'
-  stageLockUntil = 0
+    // Always pin a visible hero rest first — corridor capture must not gate first paint.
+    ensureHeroRestPlaceholder()
 
-  if (mobileActive) {
-    buildMobileMorph(gsap, ScrollTrigger)
-    return
-  }
+    const gsap = gsapMod.default
+    const { ScrollTrigger } = stMod
+    gsap.registerPlugin(ScrollTrigger)
+    parseEase = (name: string) => gsap.parseEase(name)
 
-  const triggerFrom = sectionOf(props.fromEl!)
-  const triggerTo = sectionOf(props.toEl!)
+    if (!capturePoses()) {
+      bootAlignHeroVisibility()
+      scheduleCaptureRetry()
+      return
+    }
+    captureFailCount = 0
+    if (gen !== morphGen) return
 
-  trigger = ScrollTrigger.create({
-    trigger: triggerFrom,
-    endTrigger: triggerTo,
-    start: 'top top',
-    end: 'center center',
-    invalidateOnRefresh: true,
-    onUpdate: (self) => {
-      setTargetsFromProgress(self.progress)
-      ensureTick()
-    },
-    onRefresh: (self) => {
-      capturePoses()
-      setTargetsFromProgress(self.progress)
-      ensureTick()
-    },
-  })
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) {
+      if (mobileActive && centerPose) {
+        paintBox(centerPose, 1)
+      } else {
+        target.h = 1
+        target.v = 1
+        live.h = 1
+        live.v = 1
+        paintDesktop()
+      }
+      return
+    }
 
-  setTargetsFromProgress(trigger.progress)
-  live.h = target.h
-  live.v = target.v
-  paintDesktop()
-  ensureTick()
-  ScrollTrigger.refresh()
-  setTargetsFromProgress(trigger.progress)
-  live.h = target.h
-  live.v = target.v
-  paintDesktop()
-  // First screen: never leave morph elevated after refresh quirks.
-  if (trigger.progress < 0.02) {
-    live.h = 0
-    live.v = 0
     target.h = 0
     target.v = 0
+    live.h = 0
+    live.v = 0
+    liveBox = null
+    mobileStage = 'scrub'
+    stageLockUntil = 0
+
+    if (mobileActive) {
+      buildMobileMorph(gsap, ScrollTrigger)
+      lastFromEl = props.fromEl ?? null
+      lastToEl = props.toEl ?? null
+      lastPlan = props.plan ?? null
+      return
+    }
+
+    const triggerFrom = sectionOf(props.fromEl!)
+    const triggerTo = sectionOf(props.toEl!)
+
+    trigger = ScrollTrigger.create({
+      trigger: triggerFrom,
+      endTrigger: triggerTo,
+      start: 'top top',
+      end: 'center center',
+      invalidateOnRefresh: true,
+      onUpdate: (self) => {
+        setTargetsFromProgress(self.progress)
+        ensureTick()
+      },
+      onRefresh: (self) => {
+        if (morphBooting) return
+        capturePoses()
+        setTargetsFromProgress(self.progress)
+        ensureTick()
+      },
+    })
+
+    setTargetsFromProgress(trigger.progress)
+    live.h = target.h
+    live.v = target.v
     paintDesktop()
+    ensureTick()
+    // First screen before deferred ST refresh.
+    if (trigger.progress < 0.02) {
+      live.h = 0
+      live.v = 0
+      target.h = 0
+      target.v = 0
+      paintDesktop()
+    }
+    scheduleDeferredRefresh(ScrollTrigger, () => {
+      if (gen !== morphGen || !trigger) return
+      setTargetsFromProgress(trigger.progress)
+      live.h = target.h
+      live.v = target.v
+      paintDesktop()
+      if (trigger.progress < 0.02) {
+        live.h = 0
+        live.v = 0
+        target.h = 0
+        target.v = 0
+        paintDesktop()
+      }
+    })
+    scheduleLayoutResync()
+    lastFromEl = props.fromEl ?? null
+    lastToEl = props.toEl ?? null
+    lastPlan = props.plan ?? null
+  } finally {
+    if (gen === morphGen) {
+      beginMorphQuiet(1800)
+      morphBooting = false
+      suppressStageCallbacks = false
+    }
   }
-  scheduleLayoutResync()
 }
 
 function onResize() {
@@ -950,10 +1125,12 @@ function onResize() {
   capturePoses()
   if (mobileActive) {
     if (pinTo.value) {
-      syncPinnedMask()
+      if (stageChangesAllowed()) syncPinnedMask()
       return
     }
-    syncMobileStage(false)
+    if (stageChangesAllowed()) syncMobileStage(false)
+    else if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintBox(heroPose, 0)
+    else paintScrub()
     return
   }
   paintDesktop()
@@ -961,16 +1138,33 @@ function onResize() {
 }
 
 onMounted(async () => {
+  resetFlowSurfaceMaskSession()
   gsapMod = await import('gsap')
   stMod = await import('gsap/ScrollTrigger')
   await nextTick()
+  // Let the route/page DOM settle before ST — avoids refresh↔pin softlock on SPA entry.
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
   registerFlowSurfaceClipPathEl(clipPathEl.value)
-  buildMorph()
+  registerFlowSurfaceLiveBoxNudge((deltaY) => {
+    if (liveBox) liveBox = { ...liveBox, top: liveBox.top + deltaY }
+  })
+  // Don't buildMorph here alone — props watch also drives corridor; gate duplicates.
+  if (props.fromEl && props.toEl) buildMorph()
   window.addEventListener('resize', onResize, { passive: true })
 })
 
 onUnmounted(() => {
+  morphGen += 1
+  morphBooting = false
+  lastFromEl = null
+  lastToEl = null
+  lastPlan = null
+  fontsResyncBound = false
+  captureFailCount = 0
+  if (morphWatchTimer) window.clearTimeout(morphWatchTimer)
+  clearLayoutResync()
   registerFlowSurfaceClipPathEl(null)
+  registerFlowSurfaceLiveBoxNudge(null)
   killMorph()
   window.removeEventListener('resize', onResize)
 })
@@ -989,13 +1183,30 @@ watch(
       props.bodyEl,
       props.plan,
     ] as const,
-  async () => {
-    await nextTick()
-    fromPose = null
-    toPose = null
-    liveBox = null
-    mobileActive = false
-    buildMorph()
+  () => {
+    if (morphWatchTimer) window.clearTimeout(morphWatchTimer)
+    morphWatchTimer = window.setTimeout(() => {
+      morphWatchTimer = 0
+      const from = props.fromEl ?? null
+      const to = props.toEl ?? null
+      const plan = props.plan ?? null
+      const hasCorridor = !!trigger || mobileTriggers.length > 0
+      const sameCorridor =
+        hasCorridor
+        && from === lastFromEl
+        && to === lastToEl
+        && plan === lastPlan
+      if (sameCorridor) {
+        // Stone/term/body often arrive a tick later — soft resync, not kill+rebuild.
+        resyncAfterLayout()
+        return
+      }
+      fromPose = null
+      toPose = null
+      liveBox = null
+      mobileActive = false
+      buildMorph()
+    }, 64)
   },
 )
 
@@ -1010,7 +1221,11 @@ watch(
 </script>
 
 <template>
-  <div ref="shellEl" class="pointer-events-none fixed inset-0 z-[1]">
+  <div
+    ref="shellEl"
+    data-flow-surface-host
+    class="pointer-events-none fixed inset-0 z-[1]"
+  >
     <svg
       width="0"
       height="0"
