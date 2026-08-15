@@ -1,12 +1,25 @@
 <script setup lang="ts">
-import { isMobileChromeHeightOnlyResize } from '~/utils/mobileViewport'
+import { isMobileChromeHeightOnlyResize, isThumbNav } from '~/utils/mobileViewport'
 import { headerLinks } from '~/utils/siteNav'
 import { setChipBgOrigin } from '~/utils/chipHoverBg'
+import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
+import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
 
-const { open: canvasOpen, surfaceOn: canvasSurface, toggleCanvas } = usePageCanvas()
+const {
+  open: canvasOpen,
+  surfaceOn: canvasSurface,
+  toggleCanvas,
+  fabLabelOn,
+  registerFabFit,
+} = usePageCanvas()
+const route = useRoute()
 const links = headerLinks
-
 const scrolled = ref(false)
+const canvasForced = computed(() => canvasSurface.value || canvasOpen.value)
+/** Menu pins the bar to the default wide layout — never the compact scroll state. */
+const headerCollapsed = computed(
+  () => scrolled.value && !canvasForced.value,
+)
 const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
 const fabEl = ref<HTMLElement | null>(null)
@@ -15,7 +28,14 @@ const navEl = ref<HTMLElement | null>(null)
 const menuBtnEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
 const fabBottomExtra = ref(0)
+const thumbNav = ref(false)
 const introPending = ref(true)
+if (import.meta.client) thumbNav.value = isThumbNav()
+
+let lastFabScrollY = 0
+const FAB_LABEL_DIR_PX = 8
+/** After menu close, ignore the scroll restoration jump so the word stays visible. */
+let fabLabelHoldUntil = 0
 
 function onChipPointer(e: PointerEvent) {
   const el = e.currentTarget
@@ -32,8 +52,9 @@ function canvasLocksScroll() {
 }
 
 /** Wait before collapse so a tiny nudge doesn’t snap the bar */
-const COLLAPSE_DELAY_MS = 220
-const ANIM_DURATION = 0.44
+const COLLAPSE_DELAY_MS = 140
+const ANIM_DURATION = 0.58
+const ANIM_EASE = 'power3.inOut'
 /** Below this, skip scroll collapse (no 1-col side gutters, keep full vertical inset). */
 const COLLAPSE_MIN_WIDTH = 768
 /** Nav underline: draw full wavy line, then straighten. Leave wipe stays. (−20% vs first timings.) */
@@ -46,6 +67,8 @@ const NAV_WAVE_AMP = 3.4
 const NAV_WAVE_VB_W = 64
 let collapseTimer = 0
 let gsapMod: typeof import('gsap').default | null = null
+let fabFitTl: { kill: () => void } | null = null
+let fabFitResolve: (() => void) | null = null
 const navWaveTls = new WeakMap<Element, { kill: () => void }>()
 /** Last wave amp per link — leave must resume from here, not snap to 0. */
 const navWaveAmp = new WeakMap<Element, number>()
@@ -164,13 +187,40 @@ function canCollapseHeader() {
 }
 
 /** Resolve a CSS size token to used px (clamp/min/var all work). */
+let tokenProbe: HTMLDivElement | null = null
+let tokenCache: {
+  content: number
+  gutter: number
+  margin: number
+  inset: number
+  headerContent: number
+} | null = null
+
 function measureTokenWidth(cssWidth: string): number {
-  const probe = document.createElement('div')
-  probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;width:${cssWidth}`
-  document.body.appendChild(probe)
-  const w = probe.getBoundingClientRect().width
-  probe.remove()
-  return w
+  if (typeof document === 'undefined') return 0
+  if (!tokenProbe) {
+    tokenProbe = document.createElement('div')
+    tokenProbe.style.cssText =
+      'position:absolute;left:-9999px;top:0;visibility:hidden;pointer-events:none;height:0'
+    document.body.appendChild(tokenProbe)
+  }
+  tokenProbe.style.width = cssWidth
+  return tokenProbe.getBoundingClientRect().width
+}
+
+function refreshTokens() {
+  tokenCache = {
+    content: measureTokenWidth('var(--layout-content)'),
+    gutter: measureTokenWidth('var(--layout-gutter)'),
+    margin: measureTokenWidth('var(--layout-margin)'),
+    inset: measureTokenWidth('var(--layout-header-inset)'),
+    headerContent: measureTokenWidth('var(--layout-header-content)'),
+  }
+}
+
+function tokensNow() {
+  if (!tokenCache) refreshTokens()
+  return tokenCache!
 }
 
 /**
@@ -181,13 +231,14 @@ function measureTokenWidth(cssWidth: string): number {
 function layoutMetrics() {
   const shell = shellEl.value
   const expanded = shell?.clientWidth ?? 0
-  const contentBand = measureTokenWidth('var(--layout-content)')
+  const t = tokensNow()
+  const contentBand = t.content
   const collapsed = Math.min(expanded, contentBand > 0 ? contentBand : expanded)
-  const gutter = measureTokenWidth('var(--layout-gutter)')
-  const margin = measureTokenWidth('var(--layout-margin)')
-  const inset = measureTokenWidth('var(--layout-header-inset)') || margin
-  const headerContent = measureTokenWidth('var(--layout-header-content)') || 32
-  const collapse = scrolled.value && canCollapseHeader()
+  const gutter = t.gutter
+  const margin = t.margin
+  const inset = t.inset || margin
+  const headerContent = t.headerContent || 32
+  const collapse = headerCollapsed.value && canCollapseHeader()
   /** Offset to column 2 on a 12-col track of width `collapsed` */
   const sidePad = collapse ? (collapsed + gutter) / 12 : 0
   /** Mobile: tighten vertical logo insets ~15%. */
@@ -225,6 +276,24 @@ function applyBox(
   bar.style.paddingRight = `${sidePad}px`
 }
 
+function boxNear(
+  bar: HTMLElement,
+  width: number,
+  height: number,
+  paddingTop: number,
+  paddingBottom: number,
+  sidePad: number,
+) {
+  const n = (a: number, b: number) => Math.abs(a - b) < 1
+  return (
+    n(parseFloat(bar.style.width) || 0, width)
+    && n(parseFloat(bar.style.height) || 0, height)
+    && n(parseFloat(bar.style.paddingTop) || 0, paddingTop)
+    && n(parseFloat(bar.style.paddingBottom) || 0, paddingBottom)
+    && n(parseFloat(bar.style.paddingLeft) || 0, sidePad)
+  )
+}
+
 async function morph(animate: boolean) {
   const bar = barEl.value
   if (!bar) return
@@ -233,14 +302,25 @@ async function morph(animate: boolean) {
   if (m.expanded < 1) return
 
   const width = m.collapseSides ? m.collapsed : m.expanded
+  const reduce =
+    typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const snap = !animate || reduce || boxNear(
+    bar,
+    width,
+    m.height,
+    m.paddingTop,
+    m.paddingBottom,
+    m.sidePad,
+  )
 
-  if (!animate) {
+  if (snap) {
     if (gsapMod) gsapMod.killTweensOf(bar)
     applyBox(bar, width, m.height, m.paddingTop, m.paddingBottom, m.sidePad)
     return
   }
 
-  const g = await gsap()
+  const g = gsapMod ?? (await gsap())
   g.to(bar, {
     width,
     height: m.height,
@@ -249,12 +329,112 @@ async function morph(animate: boolean) {
     paddingLeft: m.sidePad,
     paddingRight: m.sidePad,
     duration: ANIM_DURATION,
-    ease: 'power2.inOut',
-    overwrite: 'auto',
+    ease: ANIM_EASE,
+    overwrite: true,
+    force3D: false,
+  })
+}
+
+function resetHeaderWide(animate: boolean) {
+  if (collapseTimer) {
+    window.clearTimeout(collapseTimer)
+    collapseTimer = 0
+  }
+  scrolled.value = false
+  fabLabelOn.value = true
+  window.scrollTo(0, 0)
+  lastFabScrollY = 0
+  void fitFabLabel(true, true)
+  void morph(animate)
+}
+
+function syncFabLabel() {
+  if (!thumbNav.value) return
+  if (canvasLocksScroll()) return
+  const y = Math.max(0, window.scrollY || 0)
+  if (performance.now() < fabLabelHoldUntil) {
+    applyFabLabel(true)
+    lastFabScrollY = y
+    return
+  }
+  if (y <= 8) {
+    applyFabLabel(true)
+    lastFabScrollY = y
+    return
+  }
+  const dy = y - lastFabScrollY
+  if (Math.abs(dy) < FAB_LABEL_DIR_PX) return
+  lastFabScrollY = y
+  applyFabLabel(dy < 0)
+}
+
+function applyFabLabel(on: boolean, instant = false) {
+  if (fabLabelOn.value === on && !instant) return
+  fabLabelOn.value = on
+  void fitFabLabel(on, instant)
+}
+
+async function fitFabLabel(on: boolean, instant = false) {
+  const fab = fabEl.value
+  if (!fab || !thumbNav.value) return
+  const word = fab.querySelector('.menu-fab-word') as HTMLElement | null
+  const label = fab.querySelector('.menu-fab-label') as HTMLElement | null
+  if (!word || !label) return
+  const g = await gsap()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const labelW = Math.ceil(label.scrollWidth)
+  fabFitTl?.kill()
+  fabFitTl = null
+  const prev = fabFitResolve
+  fabFitResolve = null
+  prev?.()
+  if (instant || reduced) {
+    g.set(word, { width: on ? labelW : 0 })
+    g.set(fab, {
+      paddingLeft: on ? 24 : 14,
+      paddingRight: on ? 24 : 14,
+      gap: on ? 8 : 0,
+    })
+    return
+  }
+  await new Promise<void>((resolve) => {
+    fabFitResolve = resolve
+    const tl = g.timeline({
+      onComplete: () => {
+        fabFitTl = null
+        const r = fabFitResolve
+        fabFitResolve = null
+        r?.()
+      },
+    })
+    fabFitTl = tl
+    tl.to(
+      word,
+      {
+        width: on ? labelW : 0,
+        duration: CHIP_FIT_S,
+        ease: CHIP_FIT_EASE,
+        overwrite: true,
+      },
+      0,
+    )
+    tl.to(
+      fab,
+      {
+        paddingLeft: on ? 24 : 14,
+        paddingRight: on ? 24 : 14,
+        gap: on ? 8 : 0,
+        duration: CHIP_FIT_S,
+        ease: CHIP_FIT_EASE,
+        overwrite: true,
+      },
+      0,
+    )
   })
 }
 
 function onScroll() {
+  syncFabLabel()
   if (canvasLocksScroll()) return
 
   const past = window.scrollY > 8
@@ -285,6 +465,7 @@ function onScroll() {
 
 function onResize() {
   if (isMobileChromeHeightOnlyResize()) return
+  refreshTokens()
   void morph(false)
 }
 
@@ -295,24 +476,59 @@ function onResize() {
  */
 function syncFabViewport() {
   const vv = window.visualViewport
-  if (!vv) {
+  if (!vv || vv.height < 80) {
     fabBottomExtra.value = 0
     return
   }
-  fabBottomExtra.value = Math.max(
-    0,
-    window.innerHeight - vv.offsetTop - vv.height,
+  fabBottomExtra.value = Math.min(
+    96,
+    Math.max(0, window.innerHeight - vv.offsetTop - vv.height),
   )
 }
 
+function syncThumbNav() {
+  thumbNav.value = isThumbNav()
+}
+
 onMounted(() => {
+  registerFabFit(fitFabLabel)
+  refreshTokens()
+  void gsap()
   void morph(false)
   onScroll()
+  syncThumbNav()
   syncFabViewport()
+  void nextTick(() => {
+    void fitFabLabel(fabLabelOn.value, true)
+  })
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', onResize, { passive: true })
+  window.addEventListener('resize', syncThumbNav, { passive: true })
   window.visualViewport?.addEventListener('resize', syncFabViewport)
   window.visualViewport?.addEventListener('scroll', syncFabViewport)
+
+  watch(
+    canvasForced,
+    (on, was) => {
+      if (was && !on) {
+        applyFabLabel(true, true)
+        fabLabelHoldUntil = performance.now() + 160
+      }
+      void morph(true)
+    },
+    { flush: 'sync' },
+  )
+
+  watch(
+    () => route.path,
+    () => {
+      if (canvasForced.value) {
+        scrolled.value = false
+        return
+      }
+      resetHeaderWide(false)
+    },
+  )
 
   const preload = useBrandPreload()
   introPending.value = !preload.revealed.value
@@ -340,14 +556,14 @@ onMounted(() => {
       if (logo) g.set(logo, { autoAlpha: 0, y: -12 })
       if (navLinks.length) g.set(navLinks, { autoAlpha: 0, y: -10 })
       if (menuBtn) g.set(menuBtn, { autoAlpha: 0, y: -10 })
-      if (fab) g.set(fab, { autoAlpha: 0, y: 16 })
+      if (fab) g.set(fab, { clearProps: 'opacity,visibility,transform' })
       if (shellEl.value) g.set(shellEl.value, { autoAlpha: 1 })
 
       introPending.value = false
       await nextTick()
 
       const tl = g.timeline({ defaults: { ease: 'power3.out' } })
-      // Stagger after iris — logo → links → menu / FAB.
+      // Stagger after iris — logo → links → desktop menu.
       if (logo) tl.to(logo, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.35)
       if (navLinks.length) {
         tl.to(
@@ -357,7 +573,6 @@ onMounted(() => {
         )
       }
       if (menuBtn) tl.to(menuBtn, { autoAlpha: 1, y: 0, duration: 0.6 }, 0.95)
-      if (fab) tl.to(fab, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.7)
     },
     { immediate: true },
   )
@@ -367,9 +582,15 @@ onUnmounted(() => {
   if (collapseTimer) window.clearTimeout(collapseTimer)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('resize', syncThumbNav)
   window.visualViewport?.removeEventListener('resize', syncFabViewport)
   window.visualViewport?.removeEventListener('scroll', syncFabViewport)
   if (barEl.value && gsapMod) gsapMod.killTweensOf(barEl.value)
+  fabFitTl?.kill()
+  registerFabFit(null)
+  tokenProbe?.remove()
+  tokenProbe = null
+  tokenCache = null
 })
 </script>
 
@@ -391,7 +612,7 @@ onUnmounted(() => {
       <div
         ref="barEl"
         class="header-bar pointer-events-auto mx-auto grid max-w-full items-center"
-        :class="{ 'header-bar--scrolled': scrolled }"
+        :class="{ 'header-bar--scrolled': headerCollapsed }"
         :style="{
           gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
           columnGap: 'var(--layout-gutter)',
@@ -403,6 +624,7 @@ onUnmounted(() => {
           class="header-logo-link col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
           aria-label="Kadoflow — на главную"
           :tabindex="canvasSurface ? -1 : 0"
+          @pointerenter="preloadHomeSceneAssets"
         >
           <img
             src="/brand/logo-ru-mini.svg"
@@ -418,7 +640,7 @@ onUnmounted(() => {
         <nav
           ref="navEl"
           class="header-nav header-chip site-nav col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
-          :class="{ 'header-chip--scrolled': scrolled }"
+          :class="{ 'header-chip--scrolled': headerCollapsed }"
           aria-label="Основная"
         >
           <NuxtLink
@@ -471,8 +693,8 @@ onUnmounted(() => {
         <button
           ref="menuBtnEl"
           type="button"
-          class="menu-btn header-chip site-nav chip-scale-host col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
-          :class="{ 'header-chip--scrolled': scrolled }"
+          class="header-desk-menu menu-btn header-chip site-nav chip-scale-host col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
+          :class="{ 'header-chip--scrolled': headerCollapsed }"
           :aria-expanded="canvasOpen"
           :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
           @pointerenter="onChipPointer"
@@ -491,32 +713,35 @@ onUnmounted(() => {
   </header>
 
   <!-- Mobile thumb-zone menu — pinned to visual viewport bottom (matches right inset). -->
-  <button
-    ref="fabEl"
-    type="button"
-    class="menu-fab menu-btn header-chip site-nav chip-scale-host pointer-events-auto fixed z-[100] flex items-center gap-2 text-ink md:hidden"
-    :class="{
-      'header-chip--scrolled': scrolled,
-      'header-intro-hide': introPending,
-    }"
-    :inert="canvasSurface"
-    :tabindex="canvasSurface ? -1 : 0"
-    :style="{
-      bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom))`,
-    }"
-    :aria-expanded="canvasOpen"
-    :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
-    @pointerenter="onChipPointer"
-    @pointerleave="onChipPointer"
-    @click="toggleCanvas"
-  >
-    <span class="chip-scale-bg" aria-hidden="true" />
-    <span class="menu-fab-label">меню</span>
-    <span class="menu-dots" aria-hidden="true">
-      <span class="menu-dot" />
-      <span class="menu-dot" />
-    </span>
-  </button>
+  <Teleport to="body">
+    <button
+      ref="fabEl"
+      type="button"
+      class="menu-fab site-nav chip-scale-host pointer-events-auto flex items-center text-ink"
+      :class="{ 'menu-fab--compact': !fabLabelOn }"
+      :inert="canvasSurface"
+      :tabindex="canvasSurface ? -1 : 0"
+      :style="{
+        bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
+      }"
+      :aria-expanded="canvasOpen"
+      :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+      @pointerenter="onChipPointer"
+      @pointerleave="onChipPointer"
+      @click="toggleCanvas"
+    >
+      <span class="chip-scale-bg" aria-hidden="true" />
+      <span class="menu-fab-word" aria-hidden="true">
+        <span class="menu-fab-word__clip">
+          <span class="menu-fab-label">меню</span>
+        </span>
+      </span>
+      <span class="menu-dots" aria-hidden="true">
+        <span class="menu-dot" />
+        <span class="menu-dot" />
+      </span>
+    </button>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -565,7 +790,7 @@ html.page-canvas-lock .menu-fab {
   margin: -8px -12px;
   border-radius: 8px;
   background-color: transparent;
-  transition: background-color var(--motion-base) var(--motion-ease);
+  transition: background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
 /* Nav group shares one pill surface (not per-link chips). */
@@ -592,9 +817,9 @@ html.page-canvas-lock .menu-fab {
       backdrop-filter: blur(0);
       -webkit-backdrop-filter: blur(0);
       transition:
-        background-color var(--motion-base) var(--motion-ease),
-        backdrop-filter var(--motion-base) var(--motion-ease),
-        -webkit-backdrop-filter var(--motion-base) var(--motion-ease);
+        background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1),
+        backdrop-filter 0.58s cubic-bezier(0.645, 0.045, 0.355, 1),
+        -webkit-backdrop-filter 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
     }
 
     .header-chip--scrolled {
@@ -621,7 +846,7 @@ html.page-canvas-lock .menu-fab {
   align-items: center;
   gap: 4px;
   transform-origin: center center;
-  transition: transform var(--motion-base) var(--motion-ease);
+  transition: transform 0.32s var(--motion-ease, ease);
   will-change: transform;
 }
 
@@ -641,23 +866,60 @@ html.page-canvas-lock .menu-fab {
 }
 
 .menu-fab {
-  /* Thumb zone: 2× layout margin (margin itself is tight on mobile). */
-  right: calc(2 * var(--layout-margin) + var(--safe-right));
-  /* `bottom` set inline from visualViewport so chrome hide/show keeps the same edge gap as `right`. */
+  position: fixed;
+  top: auto;
+  left: auto;
+  right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
+  bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
+  z-index: 100;
+  box-sizing: border-box;
+  display: flex;
   margin: 0;
-  /* Always visible underlay + pill radius (near-circular ends). */
+  gap: 8px;
+  border: 0;
+  cursor: pointer;
+  appearance: none;
+  font: inherit;
+  color: var(--palette-ink);
   border-radius: 9999px;
   padding: 10px 24px;
-  background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
+  opacity: 1;
+  visibility: visible;
+  background-color: color-mix(in srgb, var(--palette-sand) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
-.menu-fab.header-chip--scrolled {
-  background-color: color-mix(in srgb, var(--palette-sand) 80%, transparent);
-  /* Keep blur — global mobile .header-chip--scrolled turns it off. */
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+.menu-fab:hover .menu-dots,
+.menu-fab:focus-visible .menu-dots,
+.menu-fab:active .menu-dots,
+.menu-fab[aria-expanded='true'] .menu-dots {
+  transform: rotate(90deg);
+}
+
+/* Desktop + mouse: header chip owns «меню». Phones keep the FAB even in landscape. */
+@media (min-width: 768px) and (pointer: fine) {
+  .menu-fab {
+    display: none;
+  }
+}
+
+@media (max-width: 767.98px), (pointer: coarse) {
+  .header-desk-menu {
+    display: none !important;
+  }
+}
+
+.menu-fab-word {
+  display: block;
+  overflow: hidden;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.menu-fab-word__clip {
+  display: block;
+  width: max-content;
 }
 
 .menu-fab:active .chip-scale-bg {
@@ -668,6 +930,9 @@ html.page-canvas-lock .menu-fab {
 .menu-fab-label {
   position: relative;
   z-index: 1;
+  display: block;
+  white-space: nowrap;
+  min-width: max-content;
   /* Optical vertical center — raw metrics sit a hair low. */
   transform: translateY(-2px);
 }
@@ -721,6 +986,8 @@ html.page-canvas-lock .menu-fab {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .menu-fab,
+  .menu-fab-word,
   .menu-dots {
     transition: none;
   }

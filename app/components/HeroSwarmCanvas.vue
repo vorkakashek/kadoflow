@@ -248,7 +248,6 @@ watch(
       forceResize?.()
       startLoop()
     } else {
-      // Freeze on the last painted frame (preserveDrawingBuffer) — Page Canvas miniature.
       if (runFrame && renderer) runFrame(performance.now())
       stopLoop()
     }
@@ -354,9 +353,10 @@ async function bootScene() {
     antialias: true,
     alpha: true,
     powerPreference: 'high-performance',
-    // Keep last frame when rAF is throttled (other monitor / unfocused window).
-    // Without this the buffer clears between presents → random GL flashes.
-    preserveDrawingBuffer: true,
+    // Desktop: keep last frame if rAF throttles (other monitor). Mobile: the
+    // extra copy-back is a known Android Chrome 90Hz→60Hz lock, and Page Canvas
+    // no longer snapshots this buffer.
+    preserveDrawingBuffer: !lite,
   })
   gl.setClearColor(0x000000, 0)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
@@ -812,26 +812,16 @@ async function bootScene() {
     }
   }
 
-  // Pause draws while the window is unfocused (other monitor / typing in Cursor).
-  // preserveDrawingBuffer keeps the last frame — no throttled-rAF clear flashes.
-  const onFocusPause = () => {
-    stopLoop()
-  }
-  const onFocusResume = () => {
-    if (props.active && document.visibilityState === 'visible') startLoop()
-  }
+  // Loop while the tab is visible — including other window / other monitor.
+  // Pause only when the tab itself is hidden (throttled rAF would flash).
   const onPageVisibility = () => {
     if (document.visibilityState === 'hidden') stopLoop()
-    else onFocusResume()
+    else if (props.active) startLoop()
   }
-  window.addEventListener('blur', onFocusPause)
-  window.addEventListener('focus', onFocusResume)
   document.addEventListener('visibilitychange', onPageVisibility)
   const prevRemovePointer = removePointerListeners
   removePointerListeners = () => {
     prevRemovePointer?.()
-    window.removeEventListener('blur', onFocusPause)
-    window.removeEventListener('focus', onFocusResume)
     document.removeEventListener('visibilitychange', onPageVisibility)
   }
 

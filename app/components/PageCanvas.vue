@@ -1,15 +1,44 @@
 <script setup lang="ts">
 import { canvasFrames, matchFramePath, type SiteNavFrame } from '~/utils/siteNav'
-import { flowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { setChipBgOrigin } from '~/utils/chipHoverBg'
+import { isNarrowViewport, isThumbNav } from '~/utils/mobileViewport'
 import {
-  abortTileClickFx,
-  canUseTileClickFx,
-  disposeTileClickFx,
-  playTileClickFx,
-} from '~/utils/tileClickDistort'
+  abortTileHover,
+  canUseTileHoverFx,
+  disposeTileHover,
+  enterTileHover,
+  leaveTileHover,
+  resizeTileHover,
+  settleTileHover,
+} from '~/utils/tileHoverDistort'
+import {
+  applyIrisClip,
+  clearIrisClip,
+  clipFromGeom,
+  irisCoverFrom,
+  irisGeomFromBox,
+  IRIS_CLOSE_EASE,
+  IRIS_CLOSE_S,
+  IRIS_OPEN_EASE,
+  IRIS_OPEN_S,
+  type IrisGeom,
+} from '~/utils/irisClip'
+import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
 
-const { open, busy, surfaceOn, skipHeroIntro, heroSwarmReady, closeCanvas } = usePageCanvas()
+const {
+  open,
+  busy,
+  surfaceOn,
+  navHopActive,
+  skipHeroIntro,
+  waitForHeroSwarm,
+  requestHeroGlPrewarm,
+  closeCanvas,
+  revealFabLabel,
+  restoreFabLabel,
+  irisLive,
+} = usePageCanvas()
+const { suppressed: siteCursorOff } = useSiteCursor()
 const route = useRoute()
 const router = useRouter()
 
@@ -18,18 +47,29 @@ const stageEl = ref<HTMLElement | null>(null)
 const deskEl = ref<HTMLElement | null>(null)
 const closeBtnEl = ref<HTMLButtonElement | null>(null)
 const closeTrackEl = ref<HTMLElement | null>(null)
+const closeDotsEl = ref<HTMLElement | null>(null)
+const closeWordEl = ref<HTMLElement | null>(null)
+const closeSizerMenuEl = ref<HTMLElement | null>(null)
+const closeSizerBackEl = ref<HTMLElement | null>(null)
+const goEl = ref<HTMLElement | null>(null)
+const goCircleEl = ref<HTMLElement | null>(null)
+const goWordEl = ref<HTMLElement | null>(null)
 
 let lastFocus: HTMLElement | null = null
 let savedScrollY = 0
 let navFromCanvas = false
-let navHopActive = false
 
-const currentId = computed(() => matchFramePath(route.path))
+const shownCurrentId = ref(matchFramePath(route.path))
 const reducedMotion = ref(false)
 const isNarrow = ref(false)
-const goOn = ref(false)
-const goX = ref(0)
-const goY = ref(0)
+const isThumb = ref(false)
+if (import.meta.client) {
+  isNarrow.value = isNarrowViewport()
+  isThumb.value = isThumbNav()
+}
+let sheetHoverGen = 0
+let glHoverFailed = false
+let tileHoverHold = false
 
 const NAV_DRAW_S = 0.44
 const NAV_FLAT_S = 0.224
@@ -38,20 +78,11 @@ const NAV_LEAVE_WIPE_S = 0.24
 const NAV_LEAVE_WIPE_DELAY = 0.048
 const NAV_WAVE_AMP = 3.4
 const NAV_WAVE_VB_W = 64
-const IRIS_OPEN_S = 0.62
-const IRIS_CLOSE_S = 0.55
-const IRIS_OPEN_EASE = 'power3.in'
-const WORD_SWAP_S = 0.36
 const PLAQUE_IMG_S = 0.52
 const PLAQUE_TXT_S = 0.44
 const PLAQUE_STAGGER = 0.055
 
 let gsapMod: typeof import('gsap').default | null = null
-let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
-let pausedTriggers: InstanceType<
-  typeof import('gsap/ScrollTrigger').ScrollTrigger
->[] = []
-let pausedOnPath: string | null = null
 let motionGen = 0
 let mailWaveTl: { kill: () => void } | null = null
 let mailWaveAmp = 0
@@ -59,6 +90,10 @@ let irisTween: { kill: () => void } | null = null
 let irisResolve: (() => void) | null = null
 let enterTl: { kill: () => void } | null = null
 let wordTween: { kill: () => void } | null = null
+let dotsTween: { kill: () => void } | null = null
+let goTl: { kill: () => void } | null = null
+let goFollow = false
+let goState: 'off' | 'in' | 'on' | 'out' = 'off'
 
 function killIris() {
   irisTween?.kill()
@@ -68,16 +103,26 @@ function killIris() {
   resolve?.()
 }
 
+function stopTileHover() {
+  if (tileHoverHold) return
+  sheetHoverGen += 1
+  abortTileHover()
+}
+
 function killActiveMotion() {
-  hideGoCursor()
+  hideGoCursor(true)
   killIris()
   enterTl?.kill()
   enterTl = null
   wordTween?.kill()
   wordTween = null
-  abortTileClickFx()
+  dotsTween?.kill()
+  dotsTween = null
+  stopTileHover()
   const scroller = navScrollRoot()
   if (scroller && gsapMod) gsapMod.killTweensOf(scroller)
+  if (gsapMod && closeDotsEl.value) gsapMod.killTweensOf(closeDotsEl.value)
+  if (gsapMod && closeWordEl.value) gsapMod.killTweensOf(closeWordEl.value)
 }
 
 function onShotError(e: Event) {
@@ -91,60 +136,9 @@ async function gsap() {
   return gsapMod
 }
 
-async function ensureScrollTrigger() {
-  if (stMod) return stMod
-  const g = await gsap()
-  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
-  g.registerPlugin(ScrollTrigger)
-  stMod = ScrollTrigger
-  return ScrollTrigger
-}
-
-function setIrisLive(on: boolean) {
-  document.documentElement.classList.toggle('page-canvas-iris', on)
-}
-
-type IrisClip = { t: number; r: number; b: number; l: number; rad: number }
-type IrisGeom = {
-  cx: number
-  cy: number
-  w: number
-  h: number
-  vw: number
-  vh: number
-}
-
-function applyIrisClip(root: HTMLElement, c: IrisClip) {
-  const rad = Math.max(0, c.rad)
-  const v = `inset(${c.t}px ${c.r}px ${c.b}px ${c.l}px round ${rad}px)`
-  root.style.clipPath = v
-  root.style.setProperty('-webkit-clip-path', v)
-}
-
-function clipFromGeom(g: IrisGeom): IrisClip {
-  const w = Math.max(0, g.w)
-  const h = Math.max(0, g.h)
-  const x = g.cx - w / 2
-  const y = g.cy - h / 2
-  return {
-    t: y,
-    r: g.vw - (x + w),
-    b: g.vh - (y + h),
-    l: x,
-    rad: Math.min(w, h) / 2,
-  }
-}
-
-function clearIrisClip(root: HTMLElement | null) {
-  if (!root) return
-  root.style.clipPath = ''
-  root.style.removeProperty('-webkit-clip-path')
-  root.style.willChange = ''
-}
-
 function menuButtonEl() {
   if (typeof window === 'undefined') return null
-  if (isNarrow.value) {
+  if (isThumb.value) {
     return document.querySelector('.menu-fab') as HTMLElement | null
   }
   return document.querySelector('.site-header .menu-btn') as HTMLElement | null
@@ -153,36 +147,21 @@ function menuButtonEl() {
 function irisButtonGeom(): IrisGeom {
   const root = rootEl.value
   const canvas = root?.getBoundingClientRect()
-  const vw = canvas?.width ?? window.innerWidth
-  const vh = canvas?.height ?? window.innerHeight
+  const container = canvas
+    ? {
+        left: canvas.left,
+        top: canvas.top,
+        width: canvas.width,
+        height: canvas.height,
+      }
+    : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
   const el = menuButtonEl()
-  if (!el || !canvas) {
-    const w = 96
-    const h = 40
-    const cx = vw - 56
-    const cy = isNarrow.value ? vh - 56 : 36
-    return { cx, cy, w, h, vw, vh }
-  }
-  const box = el.getBoundingClientRect()
-  return {
-    cx: box.left - canvas.left + box.width / 2,
-    cy: box.top - canvas.top + box.height / 2,
-    w: box.width,
-    h: box.height,
-    vw,
-    vh,
-  }
-}
-
-function irisCoverFrom(start: IrisGeom): IrisGeom {
-  const cover =
-    2 *
-      Math.hypot(
-        Math.max(start.cx, start.vw - start.cx),
-        Math.max(start.cy, start.vh - start.cy),
-      ) +
-    12
-  return { ...start, w: cover, h: cover }
+  return irisGeomFromBox(el?.getBoundingClientRect() ?? null, container, {
+    w: 96,
+    h: 40,
+    cx: container.width - 56,
+    cy: isThumb.value ? container.height - 56 : 36,
+  })
 }
 
 async function tweenIris(opts: {
@@ -190,6 +169,7 @@ async function tweenIris(opts: {
   to: IrisGeom
   duration: number
   ease: string
+  followMenu?: boolean
 }) {
   const root = rootEl.value
   if (!root) return
@@ -207,14 +187,16 @@ async function tweenIris(opts: {
       ease: opts.ease,
       overwrite: true,
       onUpdate: () => {
+        const live = opts.followMenu ? irisButtonGeom() : opts.from
         applyIrisClip(
           root,
           clipFromGeom({
-            ...opts.from,
+            ...live,
             w: proxy.w,
             h: proxy.h,
           }),
         )
+        if (opts.followMenu) syncNavChrome()
       },
       onComplete: () => {
         irisTween = null
@@ -230,6 +212,7 @@ function showCanvasSurface() {
   document.documentElement.classList.add('page-canvas-surface')
   const root = rootEl.value
   if (root) {
+    root.style.display = ''
     root.style.opacity = ''
     root.style.visibility = ''
     root.style.pointerEvents = ''
@@ -238,38 +221,57 @@ function showCanvasSurface() {
 }
 
 function hideCanvasSurface() {
+  stopNavChromeTrack()
+  restoreFabLabel()
+  const root = rootEl.value
+  if (root) {
+    // Hide before unclip — otherwise one frame of full overlay after the disc.
+    root.style.display = 'none'
+    clearIrisClip(root)
+    resetEnterProps()
+    clearBackSlot()
+    root.classList.remove('page-canvas--surface', 'page-canvas--open')
+    root.style.opacity = ''
+    root.style.visibility = ''
+    root.style.pointerEvents = ''
+  }
   surfaceOn.value = false
   setIrisLive(false)
   document.documentElement.classList.remove(
     'page-canvas-surface',
     'page-canvas-iris',
   )
-  hideGoCursor()
-  const root = rootEl.value
-  if (!root) return
-  clearIrisClip(root)
-  resetEnterProps()
-  clearBackSlot()
-  root.classList.remove('page-canvas--surface', 'page-canvas--open')
-  root.style.opacity = ''
-  root.style.visibility = ''
-  root.style.pointerEvents = ''
+  hideGoCursor(true)
+  tileHoverHold = false
+  abortTileHover()
 }
 
 function frameIsCurrent(frame: SiteNavFrame) {
-  return frame.id === currentId.value
+  return frame.id === shownCurrentId.value
 }
 
-function setLivePageFrozen(frozen: boolean) {
-  if (frozen) {
-    flowSurfaceMask.freezeSilhouette = true
-    return
+function frameShot(frame: SiteNavFrame, tone: 'color' | 'bw') {
+  if (isThumb.value) {
+    return tone === 'bw' ? frame.previewMBw : frame.previewM
   }
-  const m = flowSurfaceMask.morph
-  flowSurfaceMask.freezeSilhouette = m > 0.02 && m < 0.98
+  return tone === 'bw' ? frame.previewBw : frame.preview
+}
+
+function setIrisLive(on: boolean) {
+  document.documentElement.classList.toggle('page-canvas-iris', on)
+  irisLive.value = on
 }
 
 function clearBackSlot() {
+  const root = rootEl.value
+  if (root) {
+    root.style.removeProperty('--pc-inset-top')
+    root.style.removeProperty('--pc-inset-right')
+    root.style.removeProperty('--pc-inset-bottom')
+    root.style.removeProperty('--pc-inset-left')
+    root.style.removeProperty('--pc-close-h')
+    root.style.removeProperty('--pc-lead-h')
+  }
   const back = closeBtnEl.value
   if (!back) return
   back.style.top = ''
@@ -278,15 +280,54 @@ function clearBackSlot() {
   back.style.left = ''
 }
 
-function syncBackToMenu() {
+function setNavInset(
+  root: HTMLElement,
+  name:
+    | '--pc-inset-top'
+    | '--pc-inset-right'
+    | '--pc-inset-bottom'
+    | '--pc-inset-left'
+    | '--pc-close-h'
+    | '--pc-lead-h',
+  px: number,
+) {
+  root.style.setProperty(name, `${Math.max(0, Math.round(px))}px`)
+}
+
+function syncNavChrome() {
+  const root = rootEl.value
+  if (!root || typeof window === 'undefined') return
+
+  const vw = window.innerWidth
+  const vh = window.innerHeight
   const menu = menuButtonEl()
-  const back = closeBtnEl.value
-  if (!back || !menu) return
-  const box = menu.getBoundingClientRect()
-  back.style.top = `${box.top}px`
-  back.style.right = `${Math.max(0, window.innerWidth - box.right)}px`
-  back.style.bottom = 'auto'
-  back.style.left = 'auto'
+  const logo = document.querySelector('.header-logo-link') as HTMLElement | null
+
+  if (menu) {
+    const box = menu.getBoundingClientRect()
+    const right = vw - box.right
+    setNavInset(root, '--pc-inset-right', right)
+    setNavInset(root, '--pc-close-h', box.height)
+    if (isThumb.value) {
+      setNavInset(root, '--pc-inset-bottom', vh - box.bottom)
+      setNavInset(root, '--pc-inset-left', right)
+    } else {
+      setNavInset(root, '--pc-inset-top', box.top)
+    }
+  }
+
+  if (logo) {
+    const box = logo.getBoundingClientRect()
+    if (isThumb.value) setNavInset(root, '--pc-inset-top', box.top)
+    else setNavInset(root, '--pc-inset-left', box.left)
+  } else if (menu && !isThumb.value) {
+    setNavInset(root, '--pc-inset-left', menu.getBoundingClientRect().left)
+  }
+
+  if (isThumb.value) {
+    const lead = root.querySelector('.page-canvas__chrome-lead') as HTMLElement | null
+    if (lead) setNavInset(root, '--pc-lead-h', lead.getBoundingClientRect().height)
+  }
 }
 
 function syncFrameAspect() {
@@ -295,27 +336,46 @@ function syncFrameAspect() {
   const vw = Math.max(1, window.innerWidth)
   const vh = Math.max(1, window.innerHeight)
   root.style.setProperty('--pc-aspect', String(vw / vh))
-  if (surfaceOn.value) syncBackToMenu()
+  if (surfaceOn.value) syncNavChrome()
+  if (!canUseTileHoverFx()) stopTileHover()
+  resizeTileHover()
 }
 
-function lockScroll(lock: boolean) {
+let navChromeRaf = 0
+function startNavChromeTrack() {
+  stopNavChromeTrack()
+  const step = () => {
+    syncNavChrome()
+    navChromeRaf = requestAnimationFrame(step)
+  }
+  navChromeRaf = requestAnimationFrame(step)
+}
+function stopNavChromeTrack() {
+  if (!navChromeRaf) return
+  cancelAnimationFrame(navChromeRaf)
+  navChromeRaf = 0
+}
+
+function lockScroll(lock: boolean, restoreY = savedScrollY) {
   const html = document.documentElement
   const body = document.body
   if (lock) {
     html.classList.add('page-canvas-lock')
-    body.style.position = 'fixed'
-    body.style.top = `-${savedScrollY}px`
-    body.style.left = '0'
-    body.style.right = '0'
-    body.style.width = '100%'
-  } else {
+    return
+  }
+  html.classList.remove('page-canvas-lock')
+  // Legacy: older sessions may still have body fixed from a prior build.
+  if (body.style.position === 'fixed') {
     body.style.position = ''
     body.style.top = ''
     body.style.left = ''
     body.style.right = ''
     body.style.width = ''
-    html.classList.remove('page-canvas-lock')
-    window.scrollTo(0, savedScrollY)
+    window.scrollTo(0, restoreY)
+    return
+  }
+  if (Math.abs(window.scrollY - restoreY) > 2) {
+    window.scrollTo(0, restoreY)
   }
 }
 
@@ -404,55 +464,105 @@ async function ensureFrameCentered(
   })
 }
 
-async function pauseScrollDriven(paused: boolean) {
-  const ScrollTrigger = await ensureScrollTrigger()
-  if (paused) {
-    pausedOnPath = route.fullPath
-    pausedTriggers = ScrollTrigger.getAll().slice()
-    for (const t of pausedTriggers) {
-      try {
-        t.disable(false)
-      } catch {
-        /* already dead */
-      }
-    }
-    return
-  }
-  if (pausedOnPath && pausedOnPath !== route.fullPath) {
-    discardPausedScrollDriven()
-    return
-  }
-  const alive = new Set(ScrollTrigger.getAll())
-  for (const t of pausedTriggers) {
-    if (!alive.has(t)) continue
-    try {
-      t.enable()
-    } catch {
-      /* killed while menu open */
-    }
-  }
-  pausedTriggers = []
-  pausedOnPath = null
-  try {
-    ScrollTrigger.refresh()
-  } catch {
-    /* ignore */
-  }
-}
-
-function discardPausedScrollDriven() {
-  pausedTriggers = []
-  pausedOnPath = null
-}
-
 function canUseGoCursor() {
   if (isNarrow.value) return false
   if (typeof window === 'undefined') return false
   return window.matchMedia('(pointer: fine)').matches
 }
 
-function hideGoCursor() {
-  goOn.value = false
+function setGoPos(x: number, y: number) {
+  const el = goEl.value
+  if (!el) return
+  el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`
+}
+
+function onGoWindowMove(e: PointerEvent) {
+  if (!goFollow) return
+  setGoPos(e.clientX, e.clientY)
+}
+
+function startGoFollow() {
+  if (goFollow) return
+  goFollow = true
+  siteCursorOff.value = true
+  window.addEventListener('pointermove', onGoWindowMove, { passive: true })
+}
+
+function stopGoFollow() {
+  goFollow = false
+  siteCursorOff.value = false
+  window.removeEventListener('pointermove', onGoWindowMove)
+}
+
+function snapGoOff() {
+  goTl?.kill()
+  goTl = null
+  goState = 'off'
+  stopGoFollow()
+  if (!gsapMod) return
+  if (goCircleEl.value) gsapMod.set(goCircleEl.value, { scale: 0 })
+  if (goWordEl.value) gsapMod.set(goWordEl.value, { opacity: 0 })
+}
+
+function showGoCursor(x: number, y: number) {
+  if (!canUseGoCursor()) return
+  setGoPos(x, y)
+  startGoFollow()
+  if (goState === 'in' || goState === 'on') return
+  goState = 'in'
+  void playGoIn()
+}
+
+async function playGoIn() {
+  const g = await gsap()
+  const circle = goCircleEl.value
+  const word = goWordEl.value
+  if (goState !== 'in' || !circle || !word) return
+  goTl?.kill()
+  if (reducedMotion.value) {
+    g.set(circle, { scale: 1 })
+    g.set(word, { opacity: 1 })
+    goState = 'on'
+    goTl = null
+    return
+  }
+  const tl = g.timeline({
+    onComplete: () => {
+      if (goState === 'in') goState = 'on'
+      goTl = null
+    },
+  })
+  goTl = tl
+  tl.to(circle, { scale: 1, duration: 0.3, ease: 'power2.out', force3D: true }, 0)
+  tl.to(word, { opacity: 1, duration: 0.2, ease: 'power2.out' }, 0.22)
+}
+
+function hideGoCursor(instant = false) {
+  if (goState === 'off' && !goFollow) return
+  if (instant || reducedMotion.value || !gsapMod || !goCircleEl.value || !goWordEl.value) {
+    snapGoOff()
+    return
+  }
+  if (goState === 'out') return
+  goState = 'out'
+  goTl?.kill()
+  const circle = goCircleEl.value
+  const word = goWordEl.value
+  const tl = gsapMod.timeline({
+    onComplete: () => {
+      if (goState !== 'out') return
+      goState = 'off'
+      stopGoFollow()
+      goTl = null
+    },
+  })
+  goTl = tl
+  tl.to(word, { opacity: 0, duration: 0.14, ease: 'power1.out' }, 0)
+  tl.to(
+    circle,
+    { scale: 0, duration: 0.24, ease: 'power2.in', force3D: true },
+    0.14,
+  )
 }
 
 function onChipPointer(e: PointerEvent) {
@@ -481,25 +591,73 @@ function resetEnterProps() {
   if (closeTrackEl.value) {
     gsapMod.set(closeTrackEl.value, { yPercent: 0 })
   }
+  if (closeDotsEl.value) {
+    gsapMod.set(closeDotsEl.value, { rotation: 0 })
+  }
+  const menuW = closeSizerMenuEl.value?.offsetWidth ?? 0
+  if (closeWordEl.value && menuW) {
+    gsapMod.set(closeWordEl.value, { width: menuW })
+  }
+}
+
+function measureCloseWord(to: 'menu' | 'back') {
+  const el = to === 'menu' ? closeSizerMenuEl.value : closeSizerBackEl.value
+  return Math.ceil(el?.getBoundingClientRect().width ?? 0)
 }
 
 function swapCloseWord(to: 'menu' | 'back', instant = false) {
   const track = closeTrackEl.value
-  if (!track || !gsapMod) return
+  const box = closeWordEl.value
+  if (!gsapMod) return
   wordTween?.kill()
   wordTween = null
+  const snap = instant || reducedMotion.value
   const yPercent = to === 'menu' ? 0 : -50
-  if (instant || reducedMotion.value) {
-    gsapMod.set(track, { yPercent })
+  const w = measureCloseWord(to)
+  if (snap) {
+    if (track) gsapMod.set(track, { yPercent })
+    if (box && w) gsapMod.set(box, { width: w })
     return
   }
-  wordTween = gsapMod.to(track, {
-    yPercent,
-    duration: WORD_SWAP_S,
-    ease: 'power2.inOut',
-    overwrite: true,
+  const tl = gsapMod.timeline({
     onComplete: () => {
       wordTween = null
+    },
+  })
+  wordTween = tl
+  if (track) {
+    tl.to(
+      track,
+      { yPercent, duration: CHIP_FIT_S, ease: CHIP_FIT_EASE, overwrite: true },
+      0,
+    )
+  }
+  if (box && w) {
+    tl.to(
+      box,
+      { width: w, duration: CHIP_FIT_S, ease: CHIP_FIT_EASE, overwrite: true },
+      0,
+    )
+  }
+}
+
+function spinCloseDots(up: boolean, instant = false) {
+  const el = closeDotsEl.value
+  if (!el || !gsapMod) return
+  dotsTween?.kill()
+  dotsTween = null
+  const rotation = up ? 90 : 0
+  if (instant || reducedMotion.value) {
+    gsapMod.set(el, { rotation })
+    return
+  }
+  dotsTween = gsapMod.to(el, {
+    rotation,
+    duration: CHIP_FIT_S,
+    ease: CHIP_FIT_EASE,
+    overwrite: true,
+    onComplete: () => {
+      dotsTween = null
     },
   })
 }
@@ -546,39 +704,49 @@ async function playPlaqueEnter() {
   }
 }
 
-async function playSheetClickFx(frameId: string) {
-  if (reducedMotion.value || !canUseTileClickFx()) return
-  const sheet = frameButton(frameId)?.querySelector(
-    '.pc-frame__sheet',
-  ) as HTMLElement | null
-  if (!sheet) return
-  const img =
-    (sheet.querySelector('.pc-frame__shot--color') as HTMLImageElement | null) ||
-    (sheet.querySelector('.pc-frame__shot') as HTMLImageElement | null)
-  if (!img || !img.naturalWidth) return
-  const g = await gsap()
-  await playTileClickFx(g, sheet, img)
-}
-
 function onSheetEnter(e: PointerEvent) {
-  if (e.pointerType !== 'mouse') return
-  if (canUseGoCursor()) {
-    goOn.value = true
-    goX.value = e.clientX
-    goY.value = e.clientY
+  if (e.pointerType === 'touch') return
+  if (!open.value) return
+  if (canUseGoCursor()) showGoCursor(e.clientX, e.clientY)
+  if (reducedMotion.value || glHoverFailed || tileHoverHold || !canUseTileHoverFx()) return
+  const sheet = e.currentTarget as HTMLElement
+  const bw = sheet.querySelector('.pc-frame__shot--bw') as HTMLImageElement | null
+  const color = sheet.querySelector('.pc-frame__shot--color') as HTMLImageElement | null
+  if (!bw?.naturalWidth || !color?.naturalWidth) return
+  const fromColor = !!sheet.closest('.pc-frame--current')
+  const token = ++sheetHoverGen
+  const run = (g: NonNullable<typeof gsapMod>) => {
+    if (token !== sheetHoverGen || !open.value) return
+    if (!sheet.matches(':hover')) return
+    const ok = enterTileHover(g, sheet, fromColor ? color : bw, color)
+    if (!ok) glHoverFailed = true
   }
+  if (gsapMod) {
+    run(gsapMod)
+    return
+  }
+  void gsap().then((g) => run(g))
 }
 
 function onSheetMove(e: PointerEvent) {
-  if (!goOn.value) return
-  goX.value = e.clientX
-  goY.value = e.clientY
+  if (!goFollow) return
+  setGoPos(e.clientX, e.clientY)
 }
 
 function onSheetLeave(e: PointerEvent) {
+  if (tileHoverHold) return
+  const sheet = e.currentTarget as HTMLElement
   const next = e.relatedTarget
-  if (next instanceof Element && next.closest('.pc-frame__sheet')) return
-  hideGoCursor()
+  if (next instanceof Element && sheet.contains(next)) return
+  // Appending the GL canvas retriggers leave with relatedTarget=null.
+  if (sheet.matches(':hover')) return
+  const toOtherSheet =
+    next instanceof Element && !!next.closest('.pc-frame__sheet')
+  if (!toOtherSheet) {
+    sheetHoverGen += 1
+    hideGoCursor()
+  }
+  leaveTileHover(sheet)
 }
 
 function mailWavePath(amp: number) {
@@ -678,22 +846,21 @@ async function onMailLeave() {
 
 async function waitForRoutePaint() {
   await nextTick()
-  await new Promise<void>((r) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => r()))
+  await waitFrames(2)
+}
+
+/** Let a hidden WebGL canvas present at least one real frame before the iris hole shows it. */
+function waitFrames(n: number) {
+  return new Promise<void>((resolve) => {
+    const step = (left: number) => {
+      if (left <= 0) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(() => step(left - 1))
+    }
+    requestAnimationFrame(() => step(n - 1))
   })
-}
-
-async function waitForHeroWarm() {
-  if (heroSwarmReady.value) return
-  const deadline = performance.now() + 520
-  while (!heroSwarmReady.value && performance.now() < deadline) {
-    await new Promise<void>((r) => requestAnimationFrame(() => r()))
-  }
-}
-
-async function freezeLiveMotion() {
-  setLivePageFrozen(true)
-  await pauseScrollDriven(true)
 }
 
 function pinPageScroll() {
@@ -702,10 +869,18 @@ function pinPageScroll() {
   lockScroll(true)
 }
 
-async function unlockSession(opts: { resumeScrollDriven?: boolean } = {}) {
-  const resume = opts.resumeScrollDriven !== false
+async function prepareThumbIrisChip() {
+  if (!isThumb.value) return
+  await revealFabLabel()
+}
+
+async function unlockSession(
+  opts: { restoreScroll?: boolean } = {},
+) {
+  const restoreY = opts.restoreScroll === false ? 0 : savedScrollY
+  if (opts.restoreScroll === false) savedScrollY = 0
   if (document.documentElement.classList.contains('page-canvas-lock')) {
-    lockScroll(false)
+    lockScroll(false, restoreY)
   } else {
     const body = document.body
     if (body.style.position === 'fixed') {
@@ -714,12 +889,10 @@ async function unlockSession(opts: { resumeScrollDriven?: boolean } = {}) {
       body.style.left = ''
       body.style.right = ''
       body.style.width = ''
-      window.scrollTo(0, savedScrollY)
+      window.scrollTo(0, restoreY)
     }
   }
-  if (resume) await pauseScrollDriven(false)
-  else discardPausedScrollDriven()
-  setLivePageFrozen(false)
+  restoreFabLabel()
 }
 
 function isOpenRun(gen: number) {
@@ -737,34 +910,54 @@ async function playOpen() {
   busy.value = true
 
   try {
-    pinPageScroll()
+    await prepareThumbIrisChip()
+    if (!isOpenRun(gen)) return
+    await gsap()
     if (!isOpenRun(gen)) return
     showCanvasSurface()
+    pinPageScroll()
+    if (!isOpenRun(gen)) return
     setIrisLive(true)
     await nextTick()
     if (!isOpenRun(gen)) return
-    syncBackToMenu()
+    void root?.offsetWidth
+    swapCloseWord('menu', true)
+    startNavChromeTrack()
+    syncNavChrome()
     const start = irisButtonGeom()
     const cover = irisCoverFrom(start)
     if (root) {
       applyIrisClip(root, clipFromGeom(reducedMotion.value ? cover : start))
     }
-    void freezeLiveMotion()
-    void ensureFrameCentered(currentId.value, 'instant', gen)
+    void ensureFrameCentered(shownCurrentId.value, 'instant', gen)
 
     if (root) {
       const g = await gsap()
       if (!isOpenRun(gen)) return
       g.set(root, { clearProps: 'opacity,visibility,pointerEvents' })
       if (closeTrackEl.value) g.set(closeTrackEl.value, { yPercent: 0 })
+      if (closeDotsEl.value) g.set(closeDotsEl.value, { rotation: 0 })
     }
 
+    const dotsReady = !isThumb.value && !!menuButtonEl()?.matches(':hover')
+
     if (reducedMotion.value) {
+      syncNavChrome()
       if (root) clearIrisClip(root)
       setIrisLive(false)
       swapCloseWord('back', true)
+      spinCloseDots(true, true)
       await playPlaqueEnter()
       return
+    }
+
+    if (dotsReady) spinCloseDots(true, true)
+    else {
+      await new Promise<void>((r) => {
+        requestAnimationFrame(() => r())
+      })
+      if (!isOpenRun(gen)) return
+      spinCloseDots(true)
     }
 
     await playPlaqueEnter()
@@ -775,8 +968,10 @@ async function playOpen() {
       to: cover,
       duration: IRIS_OPEN_S,
       ease: IRIS_OPEN_EASE,
+      followMenu: true,
     })
     if (!isOpenRun(gen)) return
+    syncNavChrome()
     if (root) clearIrisClip(root)
     setIrisLive(false)
     swapCloseWord('back')
@@ -787,7 +982,9 @@ async function playOpen() {
     setIrisLive(false)
     resetEnterProps()
     swapCloseWord('back', true)
+    spinCloseDots(true, true)
   } finally {
+    stopNavChromeTrack()
     if (isOpenRun(gen)) busy.value = false
   }
 }
@@ -801,9 +998,8 @@ async function playClose() {
   try {
     if (reducedMotion.value) {
       swapCloseWord('menu', true)
-      await unlockSession({
-        resumeScrollDriven: !pausedOnPath || pausedOnPath === route.fullPath,
-      })
+      spinCloseDots(false, true)
+      await unlockSession()
       hideCanvasSurface()
       return
     }
@@ -811,11 +1007,13 @@ async function playClose() {
     await gsap()
     if (!isCloseRun(gen)) return
     swapCloseWord('menu')
+    spinCloseDots(false)
 
     const root = rootEl.value
     setIrisLive(true)
     await nextTick()
     if (!isCloseRun(gen)) return
+    syncNavChrome()
     const start = irisButtonGeom()
     const cover = irisCoverFrom(start)
     if (root) applyIrisClip(root, clipFromGeom(cover))
@@ -824,17 +1022,15 @@ async function playClose() {
       from: cover,
       to: start,
       duration: IRIS_CLOSE_S,
-      ease: 'power2.in',
+      ease: IRIS_CLOSE_EASE,
     })
     if (!isCloseRun(gen)) return
     hideCanvasSurface()
-    await unlockSession({
-      resumeScrollDriven: !pausedOnPath || pausedOnPath === route.fullPath,
-    })
+    await unlockSession()
   } catch (err) {
     console.warn('[PageCanvas] playClose failed', err)
     hideCanvasSurface()
-    await unlockSession({ resumeScrollDriven: false })
+    await unlockSession()
   } finally {
     if (isCloseRun(gen)) busy.value = false
   }
@@ -843,28 +1039,28 @@ async function playClose() {
 async function goToFrame(frame: SiteNavFrame) {
   if (!open.value) return
 
-  hideGoCursor()
-  const closingCurrent = frameIsCurrent(frame)
+  tileHoverHold = true
+  sheetHoverGen += 1
+  const sheet = rootEl.value?.querySelector(
+    `[data-frame-id="${frame.id}"] .pc-frame__sheet`,
+  )
+  settleTileHover(sheet instanceof HTMLElement ? sheet : null)
+  hideGoCursor(true)
+  if (frameIsCurrent(frame)) {
+    closeCanvas()
+    return
+  }
+
   const gen = ++motionGen
   busy.value = true
 
   try {
-    await playSheetClickFx(frame.id)
-    if (gen !== motionGen || !open.value) return
-
-    if (closingCurrent) {
-      busy.value = false
-      closeCanvas()
-      return
-    }
-
     navFromCanvas = true
-    navHopActive = true
+    navHopActive.value = true
 
     if (reducedMotion.value) {
       if (frame.id === 'home') skipHeroIntro.value = true
-      discardPausedScrollDriven()
-      await unlockSession({ resumeScrollDriven: false })
+      await unlockSession({ restoreScroll: false })
       hideCanvasSurface()
       open.value = false
       await router.push(frame.to)
@@ -875,17 +1071,23 @@ async function goToFrame(frame: SiteNavFrame) {
     if (frame.id === 'home') skipHeroIntro.value = true
     open.value = false
     swapCloseWord('menu')
+    spinCloseDots(false)
 
     await router.push(frame.to)
     await waitForRoutePaint()
     if (gen !== motionGen) return
-    if (frame.id === 'home') await waitForHeroWarm()
+    if (frame.id === 'home') {
+      await waitForHeroSwarm()
+      if (gen !== motionGen) return
+      await requestHeroGlPrewarm()
+    }
     if (gen !== motionGen) return
 
     const root = rootEl.value
     setIrisLive(true)
     await nextTick()
     if (gen !== motionGen) return
+    syncNavChrome()
     const start = irisButtonGeom()
     const cover = irisCoverFrom(start)
     if (root) applyIrisClip(root, clipFromGeom(cover))
@@ -894,21 +1096,20 @@ async function goToFrame(frame: SiteNavFrame) {
       from: cover,
       to: start,
       duration: IRIS_CLOSE_S,
-      ease: 'power2.in',
+      ease: IRIS_CLOSE_EASE,
     })
     if (gen !== motionGen) return
     hideCanvasSurface()
-    discardPausedScrollDriven()
-    await unlockSession({ resumeScrollDriven: false })
+    await unlockSession({ restoreScroll: false })
     lastFocus?.focus({ preventScroll: true })
     lastFocus = null
   } catch (err) {
     console.warn('[PageCanvas] hop failed', err)
     hideCanvasSurface()
-    await unlockSession({ resumeScrollDriven: false })
+    await unlockSession({ restoreScroll: false })
   } finally {
     navFromCanvas = false
-    navHopActive = false
+    navHopActive.value = false
     if (gen === motionGen) busy.value = false
   }
 }
@@ -923,6 +1124,7 @@ function onKeydown(e: KeyboardEvent) {
 
 watch(open, async (isOpen, wasOpen) => {
   if (isOpen) {
+    shownCurrentId.value = matchFramePath(route.path)
     busy.value = true
     const ae = document.activeElement
     lastFocus = ae instanceof HTMLElement ? ae : null
@@ -930,7 +1132,7 @@ watch(open, async (isOpen, wasOpen) => {
     await playOpen()
     if (open.value) closeBtnEl.value?.focus({ preventScroll: true })
   } else if (wasOpen) {
-    if (navFromCanvas || navHopActive) return
+    if (navFromCanvas || navHopActive.value) return
     await playClose()
     if (!open.value) {
       hideCanvasSurface()
@@ -943,50 +1145,52 @@ watch(open, async (isOpen, wasOpen) => {
 watch(
   () => route.fullPath,
   () => {
-    if (pausedOnPath && pausedOnPath !== route.fullPath) {
-      discardPausedScrollDriven()
-    }
-    if (open.value && !navFromCanvas && !navHopActive) closeCanvas()
+    if (open.value && !navFromCanvas && !navHopActive.value) closeCanvas()
   },
 )
 
 onMounted(() => {
   reducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const narrowMq = window.matchMedia('(max-width: 767.98px)')
-  const syncNarrow = () => {
-    isNarrow.value = narrowMq.matches
+  const syncChromeMode = () => {
+    isNarrow.value = isNarrowViewport()
+    isThumb.value = isThumbNav()
   }
-  syncNarrow()
-  narrowMq.addEventListener('change', syncNarrow)
+  syncChromeMode()
+  window.addEventListener('resize', syncChromeMode, { passive: true })
   syncFrameAspect()
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('resize', syncFrameAspect, { passive: true })
   for (const frame of canvasFrames) {
-    const color = new Image()
-    color.src = frame.preview
-    const bw = new Image()
-    bw.src = frame.previewBw
+    for (const src of [
+      frame.preview,
+      frame.previewBw,
+      frame.previewM,
+      frame.previewMBw,
+    ]) {
+      const img = new Image()
+      img.src = src
+    }
   }
   void gsap()
-  void ensureScrollTrigger()
 
   onUnmounted(() => {
-    narrowMq.removeEventListener('change', syncNarrow)
+    window.removeEventListener('resize', syncChromeMode)
   })
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown, true)
   window.removeEventListener('resize', syncFrameAspect)
-  void pauseScrollDriven(false)
   hideCanvasSurface()
   mailWaveTl?.kill()
+  goTl?.kill()
+  stopGoFollow()
   killIris()
-  disposeTileClickFx()
+  disposeTileHover()
+  stopNavChromeTrack()
   if (document.documentElement.classList.contains('page-canvas-lock')) {
     lockScroll(false)
   }
-  setLivePageFrozen(false)
 })
 </script>
 
@@ -998,6 +1202,7 @@ onUnmounted(() => {
       :class="{
         'page-canvas--open': open,
         'page-canvas--surface': surfaceOn,
+        'page-canvas--thumb': isThumb,
       }"
       :inert="!open"
       role="dialog"
@@ -1008,74 +1213,79 @@ onUnmounted(() => {
 
       <div class="page-canvas__chrome">
         <div class="page-canvas__chrome-top">
-          <p class="page-canvas__eyebrow">Kadoflow · workspace</p>
-        </div>
-        <button
-          ref="closeBtnEl"
-          type="button"
-          class="page-canvas__close chip-scale-host"
-          :tabindex="open ? 0 : -1"
-          aria-label="Закрыть меню"
-          @pointerenter="onChipPointer"
-          @pointerleave="onChipPointer"
-          @click="closeCanvas"
-        >
-          <span class="chip-scale-bg" aria-hidden="true" />
-          <span class="page-canvas__close-word">
-            <span class="page-canvas__close-sizer" aria-hidden="true">закрыть</span>
-            <span class="page-canvas__close-window">
-              <span ref="closeTrackEl" class="page-canvas__close-track">
-                <span class="page-canvas__close-line">меню</span>
-                <span class="page-canvas__close-line">закрыть</span>
+          <div class="page-canvas__chrome-lead">
+            <p class="page-canvas__eyebrow">Kadoflow · workspace</p>
+            <a
+              class="page-canvas__mail"
+              href="mailto:hello@kadoflow.com"
+              :tabindex="open ? 0 : -1"
+              @pointerenter="onMailEnter"
+              @pointerleave="onMailLeave"
+              @focusin="onMailEnter"
+              @focusout="onMailLeave"
+            >
+              <span class="page-canvas__mail-text">
+                <span>hello@kadoflow.com</span>
+                <svg
+                  class="page-canvas__mail-wave"
+                  viewBox="0 0 64 8"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <clipPath id="pc-mail-wave-clip" clipPathUnits="userSpaceOnUse">
+                      <rect
+                        class="page-canvas__mail-reveal"
+                        x="0"
+                        y="0"
+                        width="0"
+                        height="8"
+                      />
+                    </clipPath>
+                  </defs>
+                  <path
+                    class="page-canvas__mail-wave-path"
+                    clip-path="url(#pc-mail-wave-clip)"
+                    d="M1 4 Q 12 0.8 23 4 Q 34 7.2 45 4 Q 54 1.8 63 4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.35"
+                    stroke-linecap="butt"
+                  />
+                </svg>
+              </span>
+            </a>
+          </div>
+          <button
+            ref="closeBtnEl"
+            type="button"
+            class="page-canvas__close chip-scale-host"
+            :tabindex="open ? 0 : -1"
+            aria-label="Закрыть меню"
+            @pointerenter="onChipPointer"
+            @pointerleave="onChipPointer"
+            @click="closeCanvas"
+          >
+            <span class="chip-scale-bg" aria-hidden="true" />
+            <span ref="closeWordEl" class="page-canvas__close-word">
+              <span class="page-canvas__close-sizers" aria-hidden="true">
+                <span ref="closeSizerMenuEl">меню</span>
+                <span ref="closeSizerBackEl">закрыть</span>
+              </span>
+              <span class="page-canvas__close-window">
+                <span ref="closeTrackEl" class="page-canvas__close-track">
+                  <span class="page-canvas__close-line">меню</span>
+                  <span class="page-canvas__close-line">закрыть</span>
+                </span>
               </span>
             </span>
-          </span>
-          <span class="page-canvas__dots" aria-hidden="true">
-            <span class="page-canvas__dot" />
-            <span class="page-canvas__dot" />
-          </span>
-        </button>
-        <div class="page-canvas__chrome-foot">
-          <a
-            class="page-canvas__mail"
-            href="mailto:hello@kadoflow.com"
-            :tabindex="open ? 0 : -1"
-            @pointerenter="onMailEnter"
-            @pointerleave="onMailLeave"
-            @focusin="onMailEnter"
-            @focusout="onMailLeave"
-          >
-            <span class="page-canvas__mail-text">
-              <span>hello@kadoflow.com</span>
-              <svg
-                class="page-canvas__mail-wave"
-                viewBox="0 0 64 8"
-                preserveAspectRatio="none"
-                aria-hidden="true"
-              >
-                <defs>
-                  <clipPath id="pc-mail-wave-clip" clipPathUnits="userSpaceOnUse">
-                    <rect
-                      class="page-canvas__mail-reveal"
-                      x="0"
-                      y="0"
-                      width="0"
-                      height="8"
-                    />
-                  </clipPath>
-                </defs>
-                <path
-                  class="page-canvas__mail-wave-path"
-                  clip-path="url(#pc-mail-wave-clip)"
-                  d="M1 4 Q 12 0.8 23 4 Q 34 7.2 45 4 Q 54 1.8 63 4"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.35"
-                  stroke-linecap="butt"
-                />
-              </svg>
+            <span ref="closeDotsEl" class="page-canvas__dots" aria-hidden="true">
+              <span class="page-canvas__dot" />
+              <span class="page-canvas__dot" />
             </span>
-          </a>
+          </button>
+        </div>
+        <div class="page-canvas__chrome-foot">
           <button
             type="button"
             class="page-canvas__lang"
@@ -1111,21 +1321,23 @@ onUnmounted(() => {
               @pointermove="onSheetMove"
               @pointerleave="onSheetLeave"
             >
-              <img
-                class="pc-frame__shot pc-frame__shot--bw"
-                :src="frame.previewBw"
-                :data-color="frame.preview"
-                alt=""
-                draggable="false"
-                @error="onShotError"
-              >
-              <img
-                class="pc-frame__shot pc-frame__shot--color"
-                :src="frame.preview"
-                alt=""
-                draggable="false"
-              >
-              <div class="pc-frame__motif" />
+              <div class="pc-frame__paint">
+                <img
+                  class="pc-frame__shot pc-frame__shot--bw"
+                  :src="frameShot(frame, 'bw')"
+                  :data-color="frameShot(frame, 'color')"
+                  alt=""
+                  draggable="false"
+                  @error="onShotError"
+                >
+                <img
+                  class="pc-frame__shot pc-frame__shot--color"
+                  :src="frameShot(frame, 'color')"
+                  alt=""
+                  draggable="false"
+                >
+                <div class="pc-frame__motif" />
+              </div>
             </div>
             <div class="pc-frame__meta">
               <span class="pc-frame__index">{{ frame.index }}</span>
@@ -1139,33 +1351,35 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <div
-      class="pc-go"
-      :class="{ 'pc-go--on': goOn }"
-      :style="{ transform: `translate3d(${goX}px, ${goY}px, 0) translate(-50%, -50%)` }"
-      aria-hidden="true"
-    >
-      <span class="pc-go__chip">перейти</span>
+    <div ref="goEl" class="pc-go" aria-hidden="true">
+      <span ref="goCircleEl" class="pc-go__circle">
+        <span ref="goWordEl" class="pc-go__word">сюда</span>
+      </span>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
 .page-canvas {
+  --pc-inset-top: var(--layout-header-inset);
+  --pc-inset-right: var(--layout-margin);
+  --pc-inset-bottom: calc(var(--layout-margin) + var(--safe-bottom));
+  --pc-inset-left: var(--layout-margin);
+  --pc-close-h: 2.5rem;
+  --pc-lead-h: 2.5rem;
   position: fixed;
   inset: 0;
   z-index: 110;
-  display: block;
+  display: none;
   overflow: hidden;
-  visibility: hidden;
-  opacity: 0;
   pointer-events: none;
   color: var(--palette-ink);
   background: transparent;
 }
 
 .page-canvas--surface {
-  visibility: visible !important;
+  display: block;
+  visibility: visible;
   opacity: 1;
 }
 
@@ -1186,6 +1400,12 @@ onUnmounted(() => {
 }
 
 @media (max-width: 767.98px) {
+  .page-canvas {
+    --pc-inset-top: calc(var(--layout-margin) + var(--safe-top));
+    --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right));
+    --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom));
+    --pc-inset-left: calc(2 * var(--layout-margin) + var(--safe-left));
+  }
   .page-canvas__veil {
     pointer-events: none;
   }
@@ -1212,19 +1432,30 @@ onUnmounted(() => {
 
 .page-canvas__chrome-top {
   top: 0;
-  padding: var(--layout-header-inset) var(--layout-margin) 0;
-  min-height: calc(2 * var(--layout-header-inset) + var(--layout-header-content));
+  align-items: flex-start;
+  padding: var(--pc-inset-top) var(--pc-inset-right) 0 var(--pc-inset-left);
+  min-height: 0;
   box-sizing: border-box;
+}
+
+.page-canvas__chrome-lead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  min-width: 0;
+  pointer-events: none;
 }
 
 .page-canvas__chrome-foot {
   bottom: 0;
-  padding: 0 var(--layout-margin) calc(var(--layout-margin) + var(--safe-bottom));
+  justify-content: flex-end;
+  padding: 0 var(--pc-inset-right) var(--pc-inset-bottom) var(--pc-inset-left);
 }
 
 .page-canvas__eyebrow {
   margin: 0;
-  font-size: var(--type-nav);
+  font-size: calc(var(--type-nav) * 0.8);
   letter-spacing: 0.04em;
   color: var(--palette-ash);
   pointer-events: none;
@@ -1246,6 +1477,14 @@ onUnmounted(() => {
 
 .page-canvas__mail {
   padding: 0;
+  pointer-events: auto;
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__mail {
+  position: fixed;
+  left: var(--pc-inset-left);
+  bottom: var(--pc-inset-bottom);
+  z-index: 3;
 }
 
 .page-canvas__mail-text {
@@ -1285,15 +1524,17 @@ onUnmounted(() => {
 }
 
 .page-canvas__close {
-  position: absolute;
-  top: var(--layout-header-inset);
-  right: var(--layout-margin);
+  position: fixed;
+  top: var(--pc-inset-top);
+  right: var(--pc-inset-right);
   z-index: 3;
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
+  flex-shrink: 0;
   gap: 8px;
+  margin: 0;
   padding: 8px 18px;
   appearance: none;
   border: 0;
@@ -1309,18 +1550,80 @@ onUnmounted(() => {
   pointer-events: auto;
 }
 
+.page-canvas--thumb {
+  --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
+  --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
+  --pc-inset-left: calc(2 * var(--layout-margin) + var(--safe-left, 0px));
+}
+
+.page-canvas--thumb .page-canvas__close {
+  top: auto;
+  right: var(--pc-inset-right);
+  bottom: var(--pc-inset-bottom);
+  padding: 10px 24px;
+  background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.page-canvas--thumb .page-canvas__chrome-foot {
+  justify-content: flex-start;
+  align-items: flex-end;
+  min-height: calc(var(--pc-inset-bottom) + var(--pc-close-h));
+  padding-bottom: var(--pc-inset-bottom);
+  box-sizing: border-box;
+}
+
+.page-canvas--thumb .page-canvas__lang {
+  box-sizing: border-box;
+  height: var(--pc-close-h);
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 0;
+  font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.page-canvas--thumb .page-canvas__mail {
+  font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.page-canvas--thumb .page-canvas__eyebrow {
+  padding-bottom: 0;
+}
+
+.page-canvas--thumb .page-canvas__stage {
+  padding-top: calc(var(--pc-inset-top) + var(--pc-lead-h) + 0.5rem);
+  padding-bottom: calc(var(--pc-inset-bottom) + var(--pc-close-h) + 0.75rem);
+}
+
 .page-canvas__close-word {
   position: relative;
   z-index: 1;
-  display: inline-block;
+  display: block;
+  flex: 0 0 auto;
   overflow: hidden;
+  height: 1.25em;
+  width: 2.75em;
   transform: translateY(-2px);
 }
 
-.page-canvas__close-sizer {
-  display: block;
-  height: 1.25em;
+.page-canvas__close-sizers {
+  position: absolute;
+  left: 0;
+  top: 0;
   visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.page-canvas__close-sizers span {
+  display: block;
 }
 
 .page-canvas__close-window {
@@ -1348,6 +1651,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .page-canvas__dot {
@@ -1369,8 +1674,10 @@ onUnmounted(() => {
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
-  padding-top: calc(var(--layout-margin) + var(--safe-top) + 2.75rem);
-  padding-bottom: calc(var(--layout-margin) + var(--safe-bottom) + 2.5rem);
+  padding-top: calc(var(--pc-inset-top) + var(--pc-close-h));
+  padding-right: var(--pc-inset-right);
+  padding-bottom: calc(var(--pc-inset-bottom) + 2.5rem);
+  padding-left: var(--pc-inset-left);
 }
 
 .page-canvas__stage::-webkit-scrollbar {
@@ -1380,7 +1687,7 @@ onUnmounted(() => {
 .page-canvas__desk {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 0 var(--layout-margin);
+  padding: 0;
   scrollbar-width: none;
 }
 
@@ -1389,38 +1696,27 @@ onUnmounted(() => {
 }
 
 @media (max-width: 767.98px) {
+  .page-canvas {
+    --pc-inset-top: calc(var(--layout-margin) + var(--safe-top));
+    --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right));
+    --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom));
+    --pc-inset-left: calc(2 * var(--layout-margin) + var(--safe-left));
+  }
+
   .page-canvas__chrome-top {
-    padding: calc(var(--layout-margin) + var(--safe-top)) var(--layout-margin) 0;
+    padding: var(--pc-inset-top) var(--pc-inset-right) 0 var(--pc-inset-left);
     min-height: 0;
-  }
-
-  .page-canvas__chrome-foot {
-    justify-content: flex-start;
-    gap: 1.25rem;
-    padding-bottom: calc(
-      2 * var(--layout-margin) + var(--safe-bottom) + 3.25rem
-    );
-  }
-
-  .page-canvas__close {
-    top: auto;
-    right: calc(2 * var(--layout-margin) + var(--safe-right));
-    bottom: calc(2 * var(--layout-margin) + var(--safe-bottom));
-    padding: 10px 24px;
-    background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
   }
 
   .page-canvas__stage {
     overflow: hidden;
-    padding-top: calc(var(--layout-margin) + var(--safe-top) + 2.5rem);
-    padding-bottom: calc(var(--layout-margin) + var(--safe-bottom) + 2.75rem);
+    padding-top: calc(var(--pc-inset-top) + var(--pc-lead-h) + 0.5rem);
+    padding-bottom: calc(var(--pc-inset-bottom) + var(--pc-close-h) + 0.75rem);
   }
 
   .page-canvas__desk {
     display: flex;
-    gap: 1rem;
+    gap: 1.5rem;
     height: 100%;
     min-height: 0;
     overflow-x: auto;
@@ -1445,12 +1741,10 @@ onUnmounted(() => {
   .page-canvas__desk {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: clamp(1.25rem, 2.4vh, 2.25rem);
+    gap: clamp(2rem, 4.2vh, 3.75rem);
     align-content: start;
     width: 100%;
-    max-width: calc(
-      var(--layout-content) - var(--layout-column) - var(--layout-gutter)
-    );
+    max-width: var(--layout-span-9);
     margin-inline: auto;
     padding-inline: 0;
     padding-top: clamp(0.35rem, 1.5vh, 1.25rem);
@@ -1467,7 +1761,7 @@ onUnmounted(() => {
 @media (min-width: 1400px) {
   .page-canvas__desk {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    max-width: var(--layout-span-10);
+    max-width: var(--layout-span-8);
   }
 }
 
@@ -1476,8 +1770,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  padding: 0;
+  padding: 1rem;
   border: 0;
+  border-radius: 10px;
   background: transparent;
   text-align: left;
   color: inherit;
@@ -1490,8 +1785,15 @@ onUnmounted(() => {
   position: relative;
   aspect-ratio: var(--pc-aspect, 16 / 9);
   border-radius: 4px;
-  overflow: hidden;
   background: var(--palette-stone);
+}
+
+.pc-frame__paint {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  border-radius: inherit;
 }
 
 @media (pointer: fine) {
@@ -1517,10 +1819,21 @@ onUnmounted(() => {
   transition: opacity 0.38s var(--motion-ease, ease);
 }
 
+.pc-frame--current .pc-frame__shot--color {
+  opacity: 1;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .pc-frame__sheet:hover .pc-frame__shot--color,
   .pc-frame:focus-visible .pc-frame__shot--color {
     opacity: 1;
+  }
+
+  .pc-frame__sheet--gl .pc-frame__shot,
+  .pc-frame__sheet--gl:hover .pc-frame__shot--color,
+  .pc-frame--current .pc-frame__sheet--gl .pc-frame__shot--color {
+    opacity: 0;
+    transition: none;
   }
 }
 
@@ -1530,14 +1843,20 @@ onUnmounted(() => {
   }
 }
 
+.pc-frame--current {
+  background: color-mix(
+    in srgb,
+    var(--palette-ink) 12%,
+    color-mix(in srgb, var(--palette-sand) 78%, var(--palette-ash))
+  );
+}
+
 .pc-frame--current .pc-frame__sheet {
-  outline: 1.5px solid color-mix(in srgb, var(--palette-ink) 55%, transparent);
-  outline-offset: 3px;
+  box-shadow: 0 0 0 2px var(--palette-ink);
 }
 
 .pc-frame:focus-visible .pc-frame__sheet {
-  outline: 2px solid var(--palette-ink);
-  outline-offset: 3px;
+  box-shadow: 0 0 0 2px var(--palette-ink);
 }
 
 .pc-frame__motif {
@@ -1609,38 +1928,40 @@ onUnmounted(() => {
   left: 0;
   z-index: 111;
   pointer-events: none;
+  width: 4.75rem;
+  height: 4.75rem;
   margin: 0;
-  transform-origin: 0 0;
-  mix-blend-mode: difference;
+  will-change: transform;
 }
 
-.pc-go__chip {
-  display: block;
-  padding: 0.42rem 0.95rem;
-  border: 1px solid #fff;
-  border-radius: 4px;
-  background: transparent;
-  color: #fff;
-  font-size: var(--type-nav);
+.pc-go__circle {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 50%;
+  background: var(--palette-ink);
+  color: var(--palette-milk);
+  transform: scale(0);
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.pc-go__word {
+  font-family: var(--font-sans);
+  font-size: calc(var(--type-nav) * 0.8);
   letter-spacing: 0.02em;
-  line-height: 1.2;
+  line-height: 1;
   white-space: nowrap;
   opacity: 0;
-  transform: scale(0.86);
-  transition:
-    opacity 0.2s var(--motion-ease, ease),
-    transform 0.22s var(--motion-ease, ease);
-}
-
-.pc-go--on .pc-go__chip {
-  opacity: 1;
-  transform: scale(1);
+  will-change: opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pc-go__chip {
-    transform: none;
-    transition: opacity 0.01s linear;
+  .pc-go__circle,
+  .pc-go__word {
+    will-change: auto;
   }
 }
 </style>

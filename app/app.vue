@@ -27,6 +27,8 @@ onMounted(() => {
     </div>
     <ClientOnly>
       <PageCanvas />
+      <PageIris />
+      <SiteCursor />
       <CustomScrollbar />
       <FpsMeter />
     </ClientOnly>
@@ -34,17 +36,22 @@ onMounted(() => {
 </template>
 
 <style>
-html.preload-lock,
-html.preload-lock body,
-html.page-canvas-lock {
+/* Scroll lock while menu is open — page keeps running underneath the overlay. */
+html.page-canvas-lock,
+html.page-iris-lock {
   overflow: hidden;
   overscroll-behavior: none;
 }
 
-/* Body is position:fixed via JS while menu is open — avoid double scroll. */
-html.page-canvas-lock body {
+html.page-canvas-lock body,
+html.page-iris-lock body {
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+/* Lid over the swarm snaps off while the page iris still covers. */
+html.page-iris-lock .hero-swarm-cover {
+  transition: none !important;
 }
 
 /* First paint for warm revisit — full black macron, not empty gray track. */
@@ -64,9 +71,9 @@ html[data-preload-warm] .brand-preload__arc:not(.brand-preload__arc--track) {
   min-height: 100dvh;
 }
 
-/* Menu covers the site — keep the live page visible while the iris clip grows. */
-html.page-canvas-surface:not(.page-canvas-iris) .page-shell {
-  visibility: hidden;
+/* Overlay is opaque — keep the live page compositing underneath so close
+   iris has a real frame (visibility:hidden drops the WebGL buffer on Android). */
+html.page-canvas-surface .page-shell {
   pointer-events: none;
 }
 

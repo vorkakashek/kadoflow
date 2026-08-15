@@ -12,8 +12,9 @@ import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/m
  * Rest silhouette is geometrically straight faces + corner radii (no barrel bow).
  * A wide signed wave packet travels the perimeter (crest + trough).
  * Near corners the packet/hover fattens the fillet instead of only muting the edge.
- * Auto-wave keeps running through morph + kado (softer at destination);
- * pointer bend is hero-rest only.
+ * Auto-wave and pointer dent are gated by FLOW_SURFACE_LIVE segments
+ * (hero only by default; transit + kado stay a rest silhouette).
+ * Amplitude eases in/out so the living edge does not pop on segment changes.
  *
  * Silhouette = shared SVG <clipPath> (url(#flow-surface-clip)).
  * Hero visuals mount in the default slot (inside this clip).
@@ -127,10 +128,6 @@ const CORNER_FADE_PX = 180
  */
 const BEND_REF_MIN = 520
 const BEND_SCALE_FLOOR = 0.25
-/**
- * Kado (morph→1): quieter roam wave. Hero (morph→0) stays at full strength.
- */
-const KADO_ROAM_SCALE = 0.4
 /** Living bend eases off toward corners over this fraction of the edge. */
 const DENT_CORNER_FADE_MIN_U = 0.36
 /** How many samples at each end blend hard toward the rest anchors */
@@ -163,26 +160,33 @@ let roamPhase = 0
 let roamLastNow = 0
 /** Cap frame dt so background tab / hitch can't teleport the wave. */
 const ROAM_DT_MAX = 1 / 28
+/** Seconds to grow / settle the living edge when a site stretch arms or disarms it. */
+const LIVE_FADE_IN_S = 0.62
+const LIVE_FADE_OUT_S = 0.52
+/** 0..1 visual mix — eases toward FLOW_SURFACE_LIVE instead of snapping dents. */
+let liveMix = 0
 /** Smoothed live corner radii — raw targets jitter sample topology. */
 const smoothCornerR = { tl: 0, tr: 0, br: 0, bl: 0, primed: false }
 /** Quantized path size — host lag floats were flipping edge sample counts. */
 const pathSize = { w: 0, h: 0 }
 
+function liveEdgeHardOff() {
+  return isTouchUi() || !!motionQuery?.matches || flowSurfaceMask.freezeSilhouette
+}
+
+function liveEdgeArmed() {
+  return flowSurfaceMask.roamActive || flowSurfaceMask.pointerInteractive
+}
+
 function bendAmpFor(w: number, h: number): BendAmp {
   const scale = Math.min(1, Math.max(BEND_SCALE_FLOOR, Math.min(w, h) / BEND_REF_MIN))
-  const morph = Math.min(1, Math.max(0, flowSurfaceMask.morph))
-  const roamState = 1 - morph * (1 - KADO_ROAM_SCALE)
-  // Mobile: static silhouette — living dents were fighting scroll on Android.
   const touch = isTouchUi()
-  // Slightly quieter on the kado panel — same feel, less path churn.
-  const pointerScale = morph > 0.5 ? 0.72 : 1
+  const mix = touch ? 0 : smootherstep(liveMix)
   return {
     scale,
-    pointerDent: touch ? 0 : POINTER_DENT * scale * pointerScale,
-    roamDent: touch ? 0 : ROAM_DENT * scale * roamState,
-    // Keep wave relatively wide even on small surfaces
+    pointerDent: mix > 0 ? POINTER_DENT * scale * mix : 0,
+    roamDent: mix > 0 ? ROAM_DENT * scale * mix : 0,
     roamSigmaFrac: ROAM_SIGMA_FRAC * Math.max(0.75, scale),
-    // Longer fade on small panels so the corner approach stays soft
     cornerFadePx: Math.max(CORNER_FADE_PX * 0.9, CORNER_FADE_PX * scale),
     pointerRadius: POINTER_RADIUS * Math.max(0.35, scale),
   }
@@ -674,9 +678,8 @@ function publish(box?: { top: number; left: number; width: number; height: numbe
   pathView.w = pathW + EDGE_OVERSCAN * 2
   pathView.h = pathH + EDGE_OVERSCAN * 2
 
-  const allowRoam = !isTouchUi()
-  // Always use continuous roamPhase — never wall-clock (that teleports after hitches).
-  const fill = buildPath(pathW, pathH, 0, roamPhase, allowRoam)
+  const allowLive = !isTouchUi()
+  const fill = buildPath(pathW, pathH, 0, roamPhase, allowLive)
   pathD.value = fill
   flowSurfaceMask.openTopPath = ''
   flowSurfaceMask.width = w
@@ -686,13 +689,26 @@ function publish(box?: { top: number; left: number; width: number; height: numbe
   setMaskPath(fill)
 }
 
+function edgeLiveNeeded() {
+  if (liveEdgeHardOff()) return false
+  return liveEdgeArmed() || liveMix > 0.001
+}
+
+function flattenLiveEdge() {
+  pointer = null
+  softPointer.str = 0
+  softPointer.side = 0
+  smoothCornerR.primed = false
+  roamLastNow = 0
+  liveMix = 0
+  publish()
+}
+
 function tick(now: number) {
   raf = 0
 
-  if (isTouchUi()) return
-  // Frozen silhouette (e.g. Page Canvas outzoom) — keep last path, no roam/pointer churn.
-  if (flowSurfaceMask.freezeSilhouette) {
-    roamLastNow = 0
+  if (liveEdgeHardOff()) {
+    flattenLiveEdge()
     return
   }
 
@@ -700,14 +716,24 @@ function tick(now: number) {
   let dt = (now - roamLastNow) / 1000
   roamLastNow = now
   if (dt > ROAM_DT_MAX) dt = ROAM_DT_MAX
+
+  const target = liveEdgeArmed() ? 1 : 0
   if (dt > 0) {
+    if (target > liveMix) liveMix = Math.min(1, liveMix + dt / LIVE_FADE_IN_S)
+    else if (target < liveMix) liveMix = Math.max(0, liveMix - dt / LIVE_FADE_OUT_S)
+  }
+
+  if (liveMix <= 0.001 && target === 0) {
+    flattenLiveEdge()
+    return
+  }
+
+  if (dt > 0 && liveMix > 0) {
     roamPhase = (roamPhase + dt * ROAM_SPEED) % 1
   }
 
-  /** Soft cursor bend on settled poses; roam keeps running everywhere. */
-  if (flowSurfaceMask.pointerInteractive && !flowSurfaceMask.freezeSilhouette) {
+  if (flowSurfaceMask.pointerInteractive) {
     const targetStr = pointer ? 1 : 0
-    // Slightly snappier chase — fewer frames of expensive half-settled path rebuilds.
     softPointer.str += (targetStr - softPointer.str) * 0.16
     if (pointer) {
       softPointer.x += (pointer.x - softPointer.x) * 0.22
@@ -724,8 +750,12 @@ function tick(now: number) {
     }
   } else {
     pointer = null
-    softPointer.str = 0
-    softPointer.side = 0
+    softPointer.str += (0 - softPointer.str) * 0.16
+    softPointer.side += (0 - softPointer.side) * 0.14
+    if (softPointer.str < 0.002) {
+      softPointer.str = 0
+      softPointer.side = 0
+    }
   }
 
   publish()
@@ -733,10 +763,14 @@ function tick(now: number) {
 }
 
 function ensureLoop() {
-  // Desktop: continuous roam on every settled pose (hero → kado + beyond).
-  if (isTouchUi()) return
-  if (motionQuery?.matches) return
-  if (flowSurfaceMask.freezeSilhouette) return
+  if (!edgeLiveNeeded()) {
+    if (raf) {
+      cancelAnimationFrame(raf)
+      raf = 0
+    }
+    flattenLiveEdge()
+    return
+  }
   if (!raf) raf = requestAnimationFrame(tick)
 }
 
@@ -845,6 +879,7 @@ onMounted(async () => {
   await nextTick()
   animStart = performance.now()
   roamLastNow = animStart
+  liveMix = liveEdgeHardOff() || !liveEdgeArmed() ? 0 : 1
   measure()
   publish()
   registerFlowSurfacePathFlush((box) => publish(box))
@@ -852,9 +887,13 @@ onMounted(async () => {
   applyClipToDom(flowSurfaceMask.clipPath)
   ensureLoop()
 
-  // Keep roam loop alive across poses (hero → kado), not only pointerInteractive.
   watch(
-    () => [flowSurfaceMask.pointerInteractive, flowSurfaceMask.morph, flowSurfaceMask.freezeSilhouette] as const,
+    () =>
+      [
+        flowSurfaceMask.pointerInteractive,
+        flowSurfaceMask.roamActive,
+        flowSurfaceMask.freezeSilhouette,
+      ] as const,
     () => {
       ensureLoop()
     },

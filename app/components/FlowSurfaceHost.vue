@@ -23,6 +23,10 @@ import {
   type SurfaceMorphPlan,
 } from '~/utils/flowSurfaceMorph'
 import {
+  applyFlowSurfaceLive,
+  flowSurfaceLiveFromMorph,
+} from '~/utils/flowSurfaceLive'
+import {
   FLOW_SURFACE_CLIP_ID,
   flowSurfaceMask,
   flushFlowSurfacePath,
@@ -244,12 +248,12 @@ function bootAlignHeroVisibility() {
   // Still on the hero rest screen — never boot hidden (bad marker layout used to force morph=1).
   if (y <= top + window.innerHeight * 0.35) {
     flowSurfaceMask.morph = 0
-    flowSurfaceMask.pointerInteractive = true
+    applyFlowSurfaceLive('hero')
     return
   }
   if (y > top + window.innerHeight * 0.12) {
     flowSurfaceMask.morph = 1
-    flowSurfaceMask.pointerInteractive = true
+    applyFlowSurfaceLive('kado')
   }
 }
 
@@ -282,9 +286,7 @@ function writeMaskBox(box: SurfaceBox, morph: number) {
   flowSurfaceMask.width = Math.max(1, box.width)
   flowSurfaceMask.height = Math.max(1, box.height)
   flowSurfaceMask.morph = Math.min(1, Math.max(0, morph))
-  // Cursor dent on settled poses only (hero or kado) — mid-morph stays frozen for FPS.
-  flowSurfaceMask.pointerInteractive =
-    morph < IDLE_EPS || morph > 1 - IDLE_EPS
+  applyFlowSurfaceLive(flowSurfaceLiveFromMorph(morph, IDLE_EPS))
 }
 
 function paintBox(box: SurfaceBox, morph: number) {
@@ -1244,7 +1246,7 @@ watch(
       <div
         ref="frame"
         data-flow-surface-frame
-        class="absolute overflow-visible will-change-[top,left,width,height]"
+        class="absolute overflow-visible"
       >
         <FlowSurface
           mode="window"

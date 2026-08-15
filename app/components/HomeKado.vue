@@ -26,14 +26,7 @@ const topFocusEl = ref<HTMLElement | null>(null)
 const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
 
-const { surfaceOn: canvasSurface } = usePageCanvas()
-
-function canvasSessionActive() {
-  return (
-    canvasSurface.value
-    || document.documentElement.classList.contains('page-canvas-lock')
-  )
-}
+const { canvasMotionPaused } = usePageCanvas()
 
 defineExpose({
   section,
@@ -138,8 +131,24 @@ function buildLineFill(host: HTMLElement): HTMLElement[] {
   return inkEls
 }
 
-async function setupLineFill() {
-  if (canvasSessionActive()) return
+/** Ignore scrollbar / chrome jitter — only real column reflow should rebuild lines. */
+const MIN_REBUILD_WIDTH_DELTA = 48
+
+function hostFillIntact() {
+  const host = bodyEl.value
+  return !!host?.querySelector('.kado-body__ink')
+}
+
+async function setupLineFill(force = false) {
+  if (canvasMotionPaused()) return
+  if (!force && fillCtx && hostFillIntact()) {
+    try {
+      stMod?.update()
+    } catch {
+      /* ignore */
+    }
+    return
+  }
 
   fillCtx?.revert()
   fillCtx = null
@@ -165,7 +174,6 @@ async function setupLineFill() {
     gsapMod.registerPlugin(stMod)
   }
   const gsap = gsapMod
-  const ScrollTrigger = stMod
 
   fillCtx = gsap.context(() => {
     const tl = gsap.timeline({
@@ -187,40 +195,36 @@ async function setupLineFill() {
     })
   }, section.value ?? undefined)
 
-  // Defer refresh so Flow Surface can finish SPA boot without re-entrancy.
-  window.setTimeout(() => {
-    try {
-      if (ScrollTrigger.isRefreshing) return
-      ScrollTrigger.refresh()
-    } catch {
-      /* ignore */
-    }
-  }, 700)
+  try {
+    stMod?.update()
+  } catch {
+    /* ignore */
+  }
 }
 
 let lastHostWidth = 0
 let fillMountedAt = 0
 
 function scheduleRebuild() {
-  if (canvasSessionActive()) return
+  if (canvasMotionPaused()) return
   // Skip RO rebuilds during the first quiet second after SPA mount.
   if (fillMountedAt && performance.now() - fillMountedAt < 1200) return
   if (rebuildTimer) window.clearTimeout(rebuildTimer)
   rebuildTimer = window.setTimeout(() => {
     rebuildTimer = 0
-    void setupLineFill()
+    void setupLineFill(true)
   }, 120)
 }
 
 onMounted(async () => {
   fillMountedAt = performance.now()
   await nextTick()
-  await setupLineFill()
+  await setupLineFill(true)
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
   if (bodyFocusEl.value) {
     resizeObserver = new ResizeObserver(() => {
       const w = bodyFocusEl.value?.clientWidth ?? 0
-      if (Math.abs(w - lastHostWidth) < 2) return
+      if (Math.abs(w - lastHostWidth) < MIN_REBUILD_WIDTH_DELTA) return
       lastHostWidth = w
       scheduleRebuild()
     })

@@ -18,7 +18,11 @@ export const flowSurfaceMask = reactive({
   left: 0,
   /** 0 = hero frame, 1 = fully morphed away */
   morph: 0,
+  /** Named stretch — see FLOW_SURFACE_LIVE. */
+  liveId: 'hero' as 'hero' | 'transit' | 'kado',
   pointerInteractive: true,
+  /** Perimeter roam wave — hero only by default. */
+  roamActive: true,
   /**
    * When true, path rebuild skips roam/pointer (static silhouette).
    * Set while WebGL+copy are mounted — living clip under canvas kills FPS.
@@ -108,8 +112,10 @@ export function syncFlowSurfacePaintScrollComp(scrollY: number) {
 export function resetFlowSurfaceMaskSession() {
   paintScrollCompY = 0
   flowSurfaceMask.morph = 0
+  flowSurfaceMask.liveId = 'hero'
   flowSurfaceMask.freezeSilhouette = false
   flowSurfaceMask.pointerInteractive = true
+  flowSurfaceMask.roamActive = true
   flowSurfaceMask.path = ''
   flowSurfaceMask.clipPath = ''
   flowSurfaceMask.openTopPath = ''

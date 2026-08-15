@@ -13,10 +13,14 @@ export interface SiteNavFrame {
   index: string
   /** Preview motif class key for CSS miniature (fallback if shot missing). */
   motif: 'home' | 'projects' | 'services' | 'about' | 'contact'
-  /** Static color viewport shot. */
+  /** Static color viewport shot (desktop). */
   preview: string
   /** Baked grayscale sibling — no CSS filter on the tile. */
   previewBw: string
+  /** Phone viewport color shot — used on thumb tiles, not a crop of `preview`. */
+  previewM: string
+  /** Baked grayscale sibling for `previewM`. */
+  previewMBw: string
 }
 
 /** Header shortcuts (subset). */
@@ -38,6 +42,8 @@ export const canvasFrames: SiteNavFrame[] = [
     motif: 'home',
     preview: '/previews/home.jpg',
     previewBw: '/previews/home-bw.jpg',
+    previewM: '/previews/home-m.jpg',
+    previewMBw: '/previews/home-m-bw.jpg',
   },
   {
     id: 'projects',
@@ -49,6 +55,8 @@ export const canvasFrames: SiteNavFrame[] = [
     motif: 'projects',
     preview: '/previews/projects.jpg',
     previewBw: '/previews/projects-bw.jpg',
+    previewM: '/previews/projects-m.jpg',
+    previewMBw: '/previews/projects-m-bw.jpg',
   },
   {
     id: 'services',
@@ -60,6 +68,8 @@ export const canvasFrames: SiteNavFrame[] = [
     motif: 'services',
     preview: '/previews/services.jpg',
     previewBw: '/previews/services-bw.jpg',
+    previewM: '/previews/services-m.jpg',
+    previewMBw: '/previews/services-m-bw.jpg',
   },
   {
     id: 'about',
@@ -71,6 +81,8 @@ export const canvasFrames: SiteNavFrame[] = [
     motif: 'about',
     preview: '/previews/about.jpg',
     previewBw: '/previews/about-bw.jpg',
+    previewM: '/previews/about-m.jpg',
+    previewMBw: '/previews/about-m-bw.jpg',
   },
   {
     id: 'contact',
@@ -82,6 +94,8 @@ export const canvasFrames: SiteNavFrame[] = [
     motif: 'contact',
     preview: '/previews/contact.jpg',
     previewBw: '/previews/contact-bw.jpg',
+    previewM: '/previews/contact-m.jpg',
+    previewMBw: '/previews/contact-m-bw.jpg',
   },
 ]
 

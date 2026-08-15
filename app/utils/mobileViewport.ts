@@ -27,6 +27,16 @@ export function isNarrowViewport(maxWidth = 767): boolean {
   return window.innerWidth <= maxWidth
 }
 
+/**
+ * Right-thumb chrome: phone / tablet / coarse pointer, or a narrow window.
+ * iPhone landscape is often >768px — still keep «меню» in the bottom-right.
+ */
+export function isThumbNav(): boolean {
+  if (typeof window === 'undefined') return false
+  if (isAppleTouchDevice()) return true
+  return window.matchMedia('(max-width: 767.98px), (pointer: coarse)').matches
+}
+
 /** iPhone / iPad (incl. iPadOS desktop UA). */
 export function isAppleTouchDevice(): boolean {
   if (typeof navigator === 'undefined') return false

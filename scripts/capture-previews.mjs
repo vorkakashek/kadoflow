@@ -4,6 +4,8 @@
  * Usage (dev server already running):
  *   node scripts/capture-previews.mjs
  *   node scripts/capture-previews.mjs --bw-only   (bake *-bw.jpg from existing color shots)
+ *   node scripts/capture-previews.mjs --mobile    (phone shots only)
+ *   node scripts/capture-previews.mjs --desktop   (desktop shots only)
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -11,8 +13,11 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = path.join(root, 'public', 'previews')
-const args = process.argv.slice(2).filter((a) => a !== '--bw-only')
-const bwOnly = process.argv.includes('--bw-only')
+const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')))
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+const bwOnly = flags.has('--bw-only')
+const wantDesktop = !flags.has('--mobile')
+const wantMobile = !flags.has('--desktop')
 const base = (args[0] || 'http://localhost:3000').replace(/\/+$/, '')
 
 const pages = [
@@ -23,75 +28,113 @@ const pages = [
   { id: 'contact', path: '/contact' },
 ]
 
+const DESK = { width: 1440, height: 900, suffix: '', mobile: false }
+const PHONE = { width: 390, height: 844, suffix: '-m', mobile: true }
+
+const IPHONE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+
 const { chromium } = await import('playwright-core')
 
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
 })
-const context = await browser.newContext({
-  viewport: { width: 1440, height: 900 },
-  deviceScaleFactor: 1,
-})
-const page = await context.newPage()
-await page.addInitScript(() => {
-  localStorage.setItem('kf-preload-seen', '1')
-})
 
 await mkdir(outDir, { recursive: true })
 
-async function writeBwFromColor(page, id, colorBuf) {
+async function writeBwFromColor(page, id, colorBuf, viewport, suffix) {
   const b64 = Buffer.from(colorBuf).toString('base64')
+  const { width: w, height: h } = viewport
+  await page.setViewportSize({ width: w, height: h })
   await page.setContent(`<!doctype html>
 <html><head><style>
-  html,body{margin:0;width:1440px;height:900px;background:#111;overflow:hidden}
-  img{width:1440px;height:900px;object-fit:cover;filter:grayscale(1)}
+  html,body{margin:0;width:${w}px;height:${h}px;background:#111;overflow:hidden}
+  img{width:${w}px;height:${h}px;object-fit:cover;filter:grayscale(1)}
 </style></head>
 <body><img src="data:image/jpeg;base64,${b64}" alt=""></body></html>`)
   await page.waitForTimeout(80)
   const bwBuf = await page.screenshot({ type: 'jpeg', quality: 84, fullPage: false })
-  const bwFile = path.join(outDir, `${id}-bw.jpg`)
+  const bwFile = path.join(outDir, `${id}${suffix}-bw.jpg`)
   await writeFile(bwFile, bwBuf)
   console.log(`  wrote ${path.relative(root, bwFile)} (${bwBuf.length} bytes)`)
 }
 
+function colorName(id, suffix) {
+  return `${id}${suffix}.jpg`
+}
+
 if (bwOnly) {
-  for (const item of pages) {
-    const colorFile = path.join(outDir, `${item.id}.jpg`)
-    console.log(`bw from ${item.id}.jpg`)
-    const buf = await readFile(colorFile)
-    await writeBwFromColor(page, item.id, buf)
+  const page = await (await browser.newContext()).newPage()
+  const jobs = []
+  if (wantDesktop) jobs.push(DESK)
+  if (wantMobile) jobs.push(PHONE)
+  for (const spec of jobs) {
+    for (const item of pages) {
+      const colorFile = path.join(outDir, colorName(item.id, spec.suffix))
+      console.log(`bw from ${colorName(item.id, spec.suffix)}`)
+      const buf = await readFile(colorFile)
+      await writeBwFromColor(page, item.id, buf, spec, spec.suffix)
+    }
   }
   await browser.close()
   console.log('done')
   process.exit(0)
 }
 
-for (const item of pages) {
-  const url = `${base}${item.path}`
-  console.log(`capturing ${item.id} ← ${url}`)
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 })
-  await page.addStyleTag({
-    content: '.fps-meter { display: none !important; }',
+async function capturePass(spec) {
+  const context = await browser.newContext({
+    viewport: { width: spec.width, height: spec.height },
+    deviceScaleFactor: 1,
+    isMobile: spec.mobile,
+    hasTouch: spec.mobile,
+    userAgent: spec.mobile ? IPHONE_UA : undefined,
   })
-  await page.waitForFunction(
-    () => !document.documentElement.classList.contains('preload-lock'),
-    null,
-    { timeout: 20_000 },
-  ).catch(() => {})
-  if (item.id === 'home') {
-    await page.waitForSelector('.hero-swarm canvas, .hero-title', { timeout: 12_000 }).catch(() => {})
-    await page.waitForTimeout(1800)
-  } else {
-    await page.waitForTimeout(500)
-  }
-  const buf = await page.screenshot({ type: 'jpeg', quality: 84, fullPage: false })
-  const colorFile = path.join(outDir, `${item.id}.jpg`)
-  await writeFile(colorFile, buf)
-  console.log(`  wrote ${path.relative(root, colorFile)} (${buf.length} bytes)`)
+  const page = await context.newPage()
+  await page.addInitScript(() => {
+    localStorage.setItem('kf-preload-seen', '1')
+  })
 
-  await writeBwFromColor(page, item.id, buf)
+  for (const item of pages) {
+    const url = `${base}${item.path}`
+    console.log(`capturing ${item.id}${spec.suffix} ← ${url} (${spec.width}×${spec.height})`)
+    await page.goto(url, { waitUntil: 'load', timeout: 60_000 })
+    await page.addStyleTag({
+      content: `
+        .fps-meter { display: none !important; }
+        .brand-preload { display: none !important; visibility: hidden !important; }
+        html.preload-lock,
+        html.preload-lock body { overflow: auto !important; }
+      `,
+    })
+    await page
+      .waitForFunction(
+        () => !document.documentElement.classList.contains('preload-lock'),
+        null,
+        { timeout: 20_000 },
+      )
+      .catch(() => {})
+    if (item.id === 'home') {
+      await page
+        .waitForSelector('.hero-swarm canvas, .hero-title', { timeout: 12_000 })
+        .catch(() => {})
+      await page.waitForTimeout(1800)
+    } else {
+      await page.waitForSelector('.page-stub__title', { timeout: 12_000 }).catch(() => {})
+      await page.waitForTimeout(400)
+    }
+    const buf = await page.screenshot({ type: 'jpeg', quality: 84, fullPage: false })
+    const colorFile = path.join(outDir, colorName(item.id, spec.suffix))
+    await writeFile(colorFile, buf)
+    console.log(`  wrote ${path.relative(root, colorFile)} (${buf.length} bytes)`)
+    await writeBwFromColor(page, item.id, buf, spec, spec.suffix)
+  }
+
+  await context.close()
 }
+
+if (wantDesktop) await capturePass(DESK)
+if (wantMobile) await capturePass(PHONE)
 
 await browser.close()
 console.log('done')

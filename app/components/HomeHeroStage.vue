@@ -64,7 +64,7 @@ if (import.meta.client) {
 const sceneLive = ref(true)
 /** WebGL rAF — deferred on mobile until iris veil is done (revealT≈1). */
 const swarmLoopReady = ref(false)
-const { open: pageCanvasOpen, busy: pageCanvasBusy, skipHeroIntro, heroSwarmReady } = usePageCanvas()
+const { open: pageCanvasOpen, busy: pageCanvasBusy, skipHeroIntro, heroSwarmReady, surfaceOn, irisLive, pageIrisLive, navHopActive, heroGlPrewarm, resolveHeroGlPrewarm } = usePageCanvas()
 /** Keep the last GL frame visible while the menu covers the page. */
 const swarmVisible = computed(
   () =>
@@ -73,10 +73,80 @@ const swarmVisible = computed(
     swarmLoopReady.value,
 )
 /**
- * Keep the swarm looping under the menu overlay so a close / hop-to-home
- * never reveals frozen balls that then lurch into motion.
+ * Android 90Hz: no preserveDrawingBuffer — stone cover hides empty GL through
+ * iris holes and for a few frames after until WebGL presents under the lid.
  */
-const swarmActive = computed(() => swarmVisible.value)
+const glCoverHold = ref(false)
+
+/** Iris / menu session — cover on, swarm paused (close + hop only, not open). */
+const glCoverNeed = computed(() => {
+  if (!sceneLive.value) return false
+  if (pageIrisLive.value) return true
+  if (!surfaceOn.value) return false
+  // Menu fully open or opening iris — page may show through the hole; keep GL live.
+  if (pageCanvasOpen.value) return false
+  // Close iris / hop reveal while the canvas surface is still up.
+  return irisLive.value || !pageCanvasOpen.value
+})
+
+const glCoverLocked = computed(() => glCoverNeed.value || glCoverHold.value)
+
+/**
+ * Loop under the opaque menu; pause only while a cover is shown (iris / hold).
+ * During glCoverHold the lid stays up but we render underneath before lifting.
+ */
+const swarmActive = computed(
+  () => swarmVisible.value && (!glCoverLocked.value || glCoverHold.value),
+)
+
+function waitGlFrames(n: number) {
+  return new Promise<void>((resolve) => {
+    const step = (left: number) => {
+      if (left <= 0) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(() => step(left - 1))
+    }
+    requestAnimationFrame(() => step(n - 1))
+  })
+}
+
+function cancelGlCoverHold() {
+  glCoverHold.value = false
+}
+
+watch(glCoverNeed, (need, wasNeed) => {
+  if (need) {
+    cancelGlCoverHold()
+    return
+  }
+  if (!wasNeed || !sceneLive.value) return
+  cancelGlCoverHold()
+  glCoverHold.value = true
+  const hop = navHopActive.value
+  const frames = hop
+    ? (mobileLite.value ? 10 : 4)
+    : (mobileLite.value ? 4 : 2)
+  void waitGlFrames(frames).then(() => {
+    glCoverHold.value = false
+  })
+})
+
+async function runHeroGlPrewarm() {
+  if (!sceneLive.value) {
+    resolveHeroGlPrewarm()
+    return
+  }
+  glCoverHold.value = true
+  await waitGlFrames(mobileLite.value ? 8 : 4)
+  if (glCoverNeed.value) glCoverHold.value = false
+  resolveHeroGlPrewarm()
+}
+
+watch(heroGlPrewarm, () => {
+  void runHeroGlPrewarm()
+})
 /** Whole hero stack opacity — never unmount; eased by morph. */
 const contentOpacity = ref(1)
 /** Text parallax Y (px). Negative = up. Driven by section scroll, not fade. */
@@ -325,7 +395,9 @@ const swarmMount = ref(false)
 const swarmLit = ref(false)
 /** Intro may reveal the swarm; HDRI must be on first or balls look black. */
 const coverMayLift = ref(false)
-const swarmCoverUp = computed(() => swarmLit.value && coverMayLift.value)
+const swarmCoverUp = computed(
+  () => swarmLit.value && coverMayLift.value && !glCoverLocked.value,
+)
 
 function onSwarmLit() {
   swarmLit.value = true
@@ -495,6 +567,7 @@ onUnmounted(() => {
   introTl?.kill()
   introTl = null
   heroSwarmReady.value = false
+  cancelGlCoverHold()
   setFrozen(false)
   mediaFadeTween?.kill()
   ctx?.revert()
@@ -547,7 +620,10 @@ onUnmounted(() => {
         <div
           ref="swarmCoverEl"
           class="hero-swarm-cover"
-          :class="{ 'hero-swarm-cover--up': swarmCoverUp }"
+          :class="{
+            'hero-swarm-cover--up': swarmCoverUp,
+            'hero-swarm-cover--lock': glCoverLocked,
+          }"
           aria-hidden="true"
         />
       </div>
@@ -613,6 +689,12 @@ onUnmounted(() => {
 .hero-swarm-cover--up {
   opacity: 0;
   visibility: hidden;
+}
+
+.hero-swarm-cover--lock {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
 }
 
 .hero-copy {

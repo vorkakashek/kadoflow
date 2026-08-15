@@ -69,6 +69,7 @@
       breaks layout tokens like --layout-header-content: 32px.
     */
     font-size: 100%;
+    background-color: var(--palette-sand);
     overflow-x: clip;
     /* Native scrollbar off — CustomScrollbar overlay owns the affordance. */
     scrollbar-width: none;
@@ -162,5 +163,17 @@
   .chip-scale-host:hover .chip-scale-bg,
   .chip-scale-host:focus-visible .chip-scale-bg {
     opacity: 1;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html.has-site-cursor,
+  html.has-site-cursor * {
+    cursor: none !important;
+  }
+
+  html.has-site-cursor.has-site-cursor-text,
+  html.has-site-cursor.has-site-cursor-text * {
+    cursor: text !important;
   }
 }
