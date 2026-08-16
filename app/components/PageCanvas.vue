@@ -66,12 +66,31 @@ const LINK_STAGGER = 0.045
 
 /** Hovered / focused link — drives the right-hand preview. */
 const hoverId = ref<string | null>(null)
+let hoverClearTimer = 0
 
 const previewId = computed(() => hoverId.value ?? shownCurrentId.value)
 
 const previewFrame = computed(
   () => canvasFrames.find((f) => f.id === previewId.value) ?? null,
 )
+
+/** Shots that have appeared stay parked under the next enter (no fade-out). */
+const revealedPreviewIds = ref<Record<string, true>>({})
+
+function markPreviewRevealed(id: string | null) {
+  if (!id || revealedPreviewIds.value[id]) return
+  revealedPreviewIds.value = { ...revealedPreviewIds.value, [id]: true }
+}
+
+function clearPreviewRevealed() {
+  revealedPreviewIds.value = {}
+}
+
+function previewShotShown(id: string) {
+  return !!revealedPreviewIds.value[id]
+}
+
+watch(previewId, (id) => markPreviewRevealed(id))
 
 let gsapMod: typeof import('gsap').default | null = null
 let motionGen = 0
@@ -289,36 +308,67 @@ function linkIsHot(frame: SiteNavFrame) {
 }
 
 function setHoverFrame(frame: SiteNavFrame | null) {
+  if (hoverClearTimer) {
+    window.clearTimeout(hoverClearTimer)
+    hoverClearTimer = 0
+  }
   hoverId.value = frame?.id ?? null
-}
-
-function onLinkEnter(frame: SiteNavFrame) {
-  if (!open.value) return
-  setHoverFrame(frame)
 }
 
 function onLinkLeave(e: PointerEvent) {
   const next = e.relatedTarget
-  if (next instanceof Element && next.closest('.pc-link')) return
-  setHoverFrame(null)
+  if (next instanceof Element && next.closest('.pc-link-shell')) return
+  scheduleHoverClear()
 }
 
-function onLinkPointerLeave(e: PointerEvent) {
-  const next = e.relatedTarget
-  /* Still inside another link — keep preview. */
-  if (next instanceof Element && next.closest('.pc-link')) return
-  /* Empty air in the column (nav stretched) or toward preview — clear. */
-  setHoverFrame(null)
-}
-
-function onChipPointer(e: PointerEvent | FocusEvent) {
-  const el = e.currentTarget
-  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
-}
-
-function onLinkFocus(frame: SiteNavFrame) {
+function onShellEnter(frame: SiteNavFrame, e: PointerEvent) {
   if (!open.value) return
+  const shell = e.currentTarget
+  if (!(shell instanceof HTMLElement)) return
+  const host = shell.querySelector('.pc-link')
+  if (host instanceof HTMLElement) {
+    setChipBgOrigin(host, e)
+    host.classList.add('is-chip-hover')
+  }
   setHoverFrame(frame)
+}
+
+function onShellLeave(e: PointerEvent) {
+  const shell = e.currentTarget
+  if (shell instanceof HTMLElement) {
+    const host = shell.querySelector('.pc-link')
+    if (host instanceof HTMLElement) host.classList.remove('is-chip-hover')
+  }
+  const next = e.relatedTarget
+  if (next instanceof Element && next.closest('.pc-link-shell')) return
+  scheduleHoverClear()
+}
+
+function scheduleHoverClear() {
+  if (hoverClearTimer) window.clearTimeout(hoverClearTimer)
+  /* Bridge sub-pixel / null relatedTarget gaps between abutting shells. */
+  hoverClearTimer = window.setTimeout(() => {
+    hoverClearTimer = 0
+    hoverId.value = null
+  }, 48)
+}
+
+function onLinkFocus(frame: SiteNavFrame, e: FocusEvent) {
+  if (!open.value) return
+  const el = e.currentTarget
+  if (el instanceof HTMLElement) {
+    setChipBgOrigin(el, e)
+    el.classList.add('is-chip-hover')
+  }
+  setHoverFrame(frame)
+}
+
+function onLinkFocusOut(e: FocusEvent) {
+  const el = e.currentTarget
+  if (el instanceof HTMLElement) el.classList.remove('is-chip-hover')
+  const next = e.relatedTarget
+  if (next instanceof Element && next.closest('.pc-link-shell')) return
+  scheduleHoverClear()
 }
 
 function setIrisLive(on: boolean) {
@@ -437,7 +487,7 @@ function lockScroll(lock: boolean, restoreY = savedScrollY) {
 
 function frameButton(id: string) {
   return rootEl.value?.querySelector(
-    `.pc-link[data-frame-id="${id}"]`,
+    `.pc-link-shell[data-frame-id="${id}"]`,
   ) as HTMLElement | null
 }
 
@@ -508,7 +558,7 @@ async function ensureFrameCentered(
 }
 
 function plaqueLinks() {
-  return rootEl.value?.querySelectorAll('.pc-link') ?? []
+  return rootEl.value?.querySelectorAll('.pc-link-shell') ?? []
 }
 
 function resetEnterProps() {
@@ -1046,6 +1096,12 @@ watch(open, async (isOpen, wasOpen) => {
   if (isOpen) {
     shownCurrentId.value = matchFramePath(route.path)
     hoverId.value = null
+    clearPreviewRevealed()
+    markPreviewRevealed(shownCurrentId.value)
+    if (hoverClearTimer) {
+      window.clearTimeout(hoverClearTimer)
+      hoverClearTimer = 0
+    }
     const ae = document.activeElement
     lastFocus = ae instanceof HTMLElement ? ae : null
     await playOpen()
@@ -1053,6 +1109,11 @@ watch(open, async (isOpen, wasOpen) => {
   } else if (wasOpen) {
     if (navFromCanvas || navHopActive.value) return
     hoverId.value = null
+    clearPreviewRevealed()
+    if (hoverClearTimer) {
+      window.clearTimeout(hoverClearTimer)
+      hoverClearTimer = 0
+    }
     await playClose()
     if (!open.value) {
       hideCanvasSurface()
@@ -1194,30 +1255,38 @@ onUnmounted(() => {
             aria-label="Страницы"
             @pointerleave="onLinkLeave"
           >
-            <button
+            <div
               v-for="frame in canvasFrames"
               :key="frame.id"
-              type="button"
-              class="pc-link chip-scale-host"
+              class="pc-link-shell"
               :class="{
-                'is-chip-on pc-link--current': frameIsCurrent(frame),
-                'pc-link--hot': linkIsHot(frame),
+                'pc-link-shell--current': frameIsCurrent(frame),
+                'pc-link-shell--hot': linkIsHot(frame),
               }"
               :data-frame-id="frame.id"
-              :tabindex="open ? 0 : -1"
-              :aria-current="frameIsCurrent(frame) ? 'page' : undefined"
-              @click="goToFrame(frame)"
-              @pointerenter="onChipPointer($event); onLinkEnter(frame)"
-              @pointerleave="onChipPointer($event); onLinkPointerLeave($event)"
-              @focusin="onChipPointer($event); onLinkFocus(frame)"
-              @focusout="onLinkPointerLeave($event)"
+              @pointerenter="onShellEnter(frame, $event)"
+              @pointerleave="onShellLeave($event)"
             >
-              <span class="chip-scale-bg" aria-hidden="true">
-                <span class="chip-scale-bg__fill" />
-              </span>
-              <span class="pc-link__index">{{ frame.index }}</span>
-              <span class="pc-link__label">{{ frame.label }}</span>
-            </button>
+              <button
+                type="button"
+                class="pc-link chip-scale-host"
+                :class="{
+                  'is-chip-on pc-link--current': frameIsCurrent(frame),
+                  'pc-link--hot': linkIsHot(frame),
+                }"
+                :tabindex="open ? 0 : -1"
+                :aria-current="frameIsCurrent(frame) ? 'page' : undefined"
+                @click="goToFrame(frame)"
+                @focusin="onLinkFocus(frame, $event)"
+                @focusout="onLinkFocusOut($event)"
+              >
+                <span class="chip-scale-bg" aria-hidden="true">
+                  <span class="chip-scale-bg__fill" />
+                </span>
+                <span class="pc-link__index">{{ frame.index }}</span>
+                <span class="pc-link__label">{{ frame.label }}</span>
+              </button>
+            </div>
           </nav>
 
           <div
@@ -1231,7 +1300,10 @@ onUnmounted(() => {
                 v-for="frame in canvasFrames"
                 :key="frame.id"
                 class="pc-preview__shot"
-                :class="{ 'is-visible': previewId === frame.id }"
+                :class="{
+                  'is-visible': previewId === frame.id,
+                  'is-shown': previewShotShown(frame.id),
+                }"
                 :src="frameShot(frame)"
                 alt=""
                 draggable="false"
@@ -1547,16 +1619,25 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.55rem;
+  gap: 0;
   width: max-content;
   max-width: 100%;
   min-width: 0;
   justify-self: start;
 }
 
+/* Invisible hit pad = former list gap; hover fires here, chip stays visual-sized. */
+.pc-link-shell {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  padding-block: 0.275rem;
+  cursor: pointer;
+}
+
 @media (min-width: 768px) {
-  .pc-links {
-    gap: 1.15rem;
+  .pc-link-shell {
+    padding-block: 0.575rem;
   }
 }
 
@@ -1679,33 +1760,55 @@ onUnmounted(() => {
   object-position: top center;
   pointer-events: none;
   opacity: 0;
-  transform: scale(1.045);
+  transform: scale(1);
   transform-origin: 50% 50%;
-  transition:
-    opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: opacity, transform;
+  filter: blur(0);
+  z-index: 0;
 }
 
-.pc-preview__shot.is-visible {
-  z-index: 1;
+/* Previous shot stays put underneath — no exit motion. */
+.pc-preview__shot.is-shown:not(.is-visible) {
   opacity: 1;
   transform: scale(1);
+  filter: blur(0);
+  z-index: 0;
+}
+
+/* New shot: large scale + blur + opacity 0 → cover the parked one. */
+.pc-preview__shot.is-visible {
+  z-index: 1;
+  animation: pc-shot-in 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pc-shot-in {
+  from {
+    opacity: 0;
+    transform: scale(1.14);
+    filter: blur(14px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pc-preview,
   .pc-preview__shot {
     transition: none;
-    will-change: auto;
-  }
-
-  .pc-preview__shot {
-    transform: none;
   }
 
   .pc-preview__shot.is-visible {
+    animation: none;
+    opacity: 1;
     transform: none;
+    filter: none;
+  }
+
+  .pc-preview__shot.is-shown:not(.is-visible) {
+    transform: none;
+    filter: none;
   }
 }
 

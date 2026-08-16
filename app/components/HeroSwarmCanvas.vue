@@ -2,7 +2,7 @@
 /**
  * Hero swarm — tilted torus spiral (ring + helix twist), slow plane drift.
  * ≥1200: cursor knocks balls; they return to moving seats.
- * <1200: no pointer interaction (mobile/tablet baked or calm orbit).
+ * <1200: baked orbit; mobile/coarse also tilts the ring from the gyroscope.
  */
 import * as THREE from 'three'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
@@ -587,6 +587,60 @@ async function bootScene() {
   let ringRadius = 1.2
   let ringTiltPhase = 0
 
+  /** Device tilt (lite) — smoothed offsets added to the baked ring orientation. */
+  let gyroPitch = 0
+  let gyroRoll = 0
+  let gyroPitchT = 0
+  let gyroRollT = 0
+  const GYRO_MAX = 0.45
+  const GYRO_SMOOTH = 0.14
+  const GYRO_BETA_REST = 55
+  let removeGyroListeners: (() => void) | null = null
+
+  if (lite && !reduced && typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
+    const onOrient = (e: DeviceOrientationEvent) => {
+      if (e.beta == null || e.gamma == null) return
+      const pitch = THREE.MathUtils.clamp(
+        (e.beta - GYRO_BETA_REST) / 40,
+        -1,
+        1,
+      )
+      const roll = THREE.MathUtils.clamp(e.gamma / 40, -1, 1)
+      gyroPitchT = pitch * GYRO_MAX
+      gyroRollT = roll * GYRO_MAX
+    }
+
+    const startListening = () => {
+      window.addEventListener('deviceorientation', onOrient, { passive: true })
+      removeGyroListeners = () => {
+        window.removeEventListener('deviceorientation', onOrient)
+        removeGyroListeners = null
+      }
+    }
+
+    const DOE = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+      requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
+    }
+
+    if (typeof DOE.requestPermission === 'function') {
+      const unlock = () => {
+        window.removeEventListener('pointerdown', unlock)
+        void DOE.requestPermission!()
+          .then((state) => {
+            if (state === 'granted' && gen === bootGen) startListening()
+          })
+          .catch(() => {})
+      }
+      window.addEventListener('pointerdown', unlock, { passive: true })
+      removeGyroListeners = () => {
+        window.removeEventListener('pointerdown', unlock)
+        removeGyroListeners = null
+      }
+    } else {
+      startListening()
+    }
+  }
+
   const pointer = new THREE.Vector3()
   const pointerPrev = new THREE.Vector3()
   const pointerVel = new THREE.Vector3()
@@ -845,6 +899,7 @@ async function bootScene() {
   const prevRemovePointer = removePointerListeners
   removePointerListeners = () => {
     prevRemovePointer?.()
+    removeGyroListeners?.()
     document.removeEventListener('visibilitychange', onPageVisibility)
   }
 
@@ -889,11 +944,21 @@ async function bootScene() {
     const step = reduced ? 0 : dt
 
     if (!reduced) {
+      if (lite) {
+        gyroPitch += (gyroPitchT - gyroPitch) * GYRO_SMOOTH
+        gyroRoll += (gyroRollT - gyroRoll) * GYRO_SMOOTH
+      }
       ringTiltPhase += RING_TILT_SPEED * step
       ringEuler.set(
-        ringBaseEuler.x + Math.sin(ringTiltPhase) * 0.22,
-        ringBaseEuler.y + ringTiltPhase * 0.35,
-        ringBaseEuler.z + Math.cos(ringTiltPhase * 0.7) * 0.12,
+        ringBaseEuler.x
+          + Math.sin(ringTiltPhase) * 0.22
+          + (lite ? gyroPitch : 0),
+        ringBaseEuler.y
+          + ringTiltPhase * 0.35
+          + (lite ? gyroRoll * 0.55 : 0),
+        ringBaseEuler.z
+          + Math.cos(ringTiltPhase * 0.7) * 0.12
+          + (lite ? gyroRoll * 0.85 : 0),
         'XYZ',
       )
       ringQuat.setFromEuler(ringEuler)
