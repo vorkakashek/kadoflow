@@ -75,7 +75,7 @@ export const canvasFrames: SiteNavFrame[] = [
     id: 'about',
     kind: 'page',
     to: '/about',
-    label: 'О Kado',
+    label: 'О Кадо',
     blurb: 'Студия, подход, автор',
     index: '04',
     motif: 'about',

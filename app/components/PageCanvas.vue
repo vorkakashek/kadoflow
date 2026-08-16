@@ -15,6 +15,7 @@ import {
   type IrisGeom,
 } from '~/utils/irisClip'
 import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
+import { setChipBgOrigin } from '~/utils/chipHoverBg'
 
 const {
   open,
@@ -31,7 +32,6 @@ const {
   irisLive,
   pageIrisLive,
 } = usePageCanvas()
-const { suppressed: siteCursorOff } = useSiteCursor()
 const route = useRoute()
 const router = useRouter()
 
@@ -40,9 +40,6 @@ const maskEl = ref<HTMLElement | null>(null)
 const navEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const deskEl = ref<HTMLElement | null>(null)
-const goEl = ref<HTMLElement | null>(null)
-const goCircleEl = ref<HTMLElement | null>(null)
-const goWordEl = ref<HTMLElement | null>(null)
 
 let lastFocus: HTMLElement | null = null
 let savedScrollY = 0
@@ -65,18 +62,12 @@ const NAV_LEAVE_WIPE_DELAY = 0.048
 const NAV_WAVE_AMP = 3.4
 const NAV_WAVE_VB_W = 64
 const LINK_ENTER_S = 0.48
-const PREVIEW_ENTER_S = 0.52
 const LINK_STAGGER = 0.045
 
 /** Hovered / focused link — drives the right-hand preview. */
 const hoverId = ref<string | null>(null)
 
-const previewId = computed(() => {
-  if (hoverId.value) return hoverId.value
-  /* Touch / coarse: keep a default so the plate isn’t empty. */
-  if (isThumb.value || isNarrow.value) return shownCurrentId.value
-  return null
-})
+const previewId = computed(() => hoverId.value ?? shownCurrentId.value)
 
 const previewFrame = computed(
   () => canvasFrames.find((f) => f.id === previewId.value) ?? null,
@@ -91,15 +82,6 @@ let irisResolve: (() => void) | null = null
 let enterTl: { kill: () => void } | null = null
 let wordTween: { kill: () => void } | null = null
 let dotsTween: { kill: () => void } | null = null
-let goTl: { kill: () => void } | null = null
-let goFollow = false
-let goState: 'off' | 'in' | 'on' | 'out' = 'off'
-let goPressed = false
-let goPressAt = 0
-let goReleaseTimer = 0
-const GO_PRESS_SCALE = 0.84
-const GO_PRESS_MS = 160
-
 function killIris() {
   irisTween?.kill()
   irisTween = null
@@ -111,7 +93,6 @@ function killIris() {
 }
 
 function killActiveMotion() {
-  hideGoCursor(true)
   killIris()
   enterTl?.kill()
   enterTl = null
@@ -293,7 +274,6 @@ function hideCanvasSurface() {
     'page-canvas-surface',
     'page-canvas-iris',
   )
-  hideGoCursor(true)
 }
 
 function frameIsCurrent(frame: SiteNavFrame) {
@@ -319,12 +299,21 @@ function onLinkEnter(frame: SiteNavFrame) {
 
 function onLinkLeave(e: PointerEvent) {
   const next = e.relatedTarget
-  if (next instanceof Element) {
-    if (next.closest('.pc-link') || next.closest('.pc-preview')) return
-  }
-  /* Fine pointer: empty the plate when leaving the split (links + preview). */
-  if (!isThumb.value && !isNarrow.value) setHoverFrame(null)
-  hideGoCursor()
+  if (next instanceof Element && next.closest('.pc-link')) return
+  setHoverFrame(null)
+}
+
+function onLinkPointerLeave(e: PointerEvent) {
+  const next = e.relatedTarget
+  /* Still inside another link — keep preview. */
+  if (next instanceof Element && next.closest('.pc-link')) return
+  /* Empty air in the column (nav stretched) or toward preview — clear. */
+  setHoverFrame(null)
+}
+
+function onChipPointer(e: PointerEvent | FocusEvent) {
+  const el = e.currentTarget
+  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
 }
 
 function onLinkFocus(frame: SiteNavFrame) {
@@ -518,201 +507,15 @@ async function ensureFrameCentered(
   })
 }
 
-function canUseGoCursor() {
-  if (isNarrow.value) return false
-  if (typeof window === 'undefined') return false
-  return window.matchMedia('(pointer: fine)').matches
-}
-
-function setGoPos(x: number, y: number) {
-  const el = goEl.value
-  if (!el) return
-  el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`
-}
-
-function onGoWindowMove(e: PointerEvent) {
-  if (!goFollow) return
-  setGoPos(e.clientX, e.clientY)
-}
-
-function startGoFollow() {
-  if (goFollow) return
-  goFollow = true
-  siteCursorOff.value = true
-  window.addEventListener('pointermove', onGoWindowMove, { passive: true })
-}
-
-function stopGoFollow() {
-  goFollow = false
-  siteCursorOff.value = false
-  window.removeEventListener('pointermove', onGoWindowMove)
-}
-
-function snapGoOff() {
-  goTl?.kill()
-  goTl = null
-  goState = 'off'
-  goPressed = false
-  if (goReleaseTimer) {
-    window.clearTimeout(goReleaseTimer)
-    goReleaseTimer = 0
-  }
-  stopGoFollow()
-  clearGoPressListeners()
-  if (!gsapMod) return
-  if (goCircleEl.value) gsapMod.set(goCircleEl.value, { scale: 0 })
-  if (goWordEl.value) gsapMod.set(goWordEl.value, { opacity: 0 })
-}
-
-function showGoCursor(x: number, y: number) {
-  if (!canUseGoCursor()) return
-  setGoPos(x, y)
-  startGoFollow()
-  if (goState === 'in' || goState === 'on') return
-  goState = 'in'
-  void playGoIn()
-}
-
-async function playGoIn() {
-  const g = await gsap()
-  const circle = goCircleEl.value
-  const word = goWordEl.value
-  if (goState !== 'in' || !circle || !word) return
-  goTl?.kill()
-  g.killTweensOf(circle)
-  const land = goPressed ? GO_PRESS_SCALE : 1
-  if (reducedMotion.value) {
-    g.set(circle, { scale: land })
-    g.set(word, { opacity: 1 })
-    goState = 'on'
-    goTl = null
-    return
-  }
-  const tl = g.timeline({
-    onComplete: () => {
-      if (goState === 'in') goState = 'on'
-      goTl = null
-    },
-  })
-  goTl = tl
-  tl.to(circle, { scale: land, duration: 0.3, ease: 'power2.out', force3D: true }, 0)
-  tl.to(word, { opacity: 1, duration: 0.2, ease: 'power2.out' }, 0.22)
-}
-
-function hideGoCursor(instant = false) {
-  if (goState === 'off' && !goFollow) return
-  /* Leave animation already running — don't snap it on plaque click / close. */
-  if (goState === 'out') return
-  if (instant || reducedMotion.value || !gsapMod || !goCircleEl.value || !goWordEl.value) {
-    snapGoOff()
-    return
-  }
-  goState = 'out'
-  goPressed = false
-  if (goReleaseTimer) {
-    window.clearTimeout(goReleaseTimer)
-    goReleaseTimer = 0
-  }
-  clearGoPressListeners()
-  goTl?.kill()
-  const circle = goCircleEl.value
-  const word = goWordEl.value
-  gsapMod.killTweensOf(circle)
-  const tl = gsapMod.timeline({
-    onComplete: () => {
-      if (goState !== 'out') return
-      goState = 'off'
-      stopGoFollow()
-      goTl = null
-    },
-  })
-  goTl = tl
-  tl.to(word, { opacity: 0, duration: 0.14, ease: 'power1.out' }, 0)
-  tl.to(
-    circle,
-    { scale: 0, duration: 0.24, ease: 'power2.in', force3D: true },
-    0.14,
-  )
-}
-
-function clearGoPressListeners() {
-  window.removeEventListener('pointerup', onGoPressUp)
-  window.removeEventListener('pointercancel', onGoPressUp)
-}
-
-function pressGoCursor() {
-  if (goState !== 'in' && goState !== 'on') return
-  goPressed = true
-  goPressAt = performance.now()
-  if (goReleaseTimer) {
-    window.clearTimeout(goReleaseTimer)
-    goReleaseTimer = 0
-  }
-  const circle = goCircleEl.value
-  if (!gsapMod || !circle) return
-  gsapMod.to(circle, {
-    scale: GO_PRESS_SCALE,
-    duration: GO_PRESS_MS / 1000,
-    ease: 'power2.out',
-    overwrite: 'auto',
-    force3D: true,
-  })
-}
-
-function releaseGoCursor() {
-  if (!goPressed && !goReleaseTimer) return
-  const wait = Math.max(0, GO_PRESS_MS - (performance.now() - goPressAt))
-  const run = () => {
-    goReleaseTimer = 0
-    goPressed = false
-    if (goState !== 'in' && goState !== 'on') return
-    const circle = goCircleEl.value
-    if (!gsapMod || !circle) return
-    gsapMod.to(circle, {
-      scale: 1,
-      duration: 0.18,
-      ease: 'power2.out',
-      overwrite: 'auto',
-      force3D: true,
-    })
-  }
-  if (goReleaseTimer) window.clearTimeout(goReleaseTimer)
-  if (wait > 0) goReleaseTimer = window.setTimeout(run, wait)
-  else run()
-}
-
-function onGoPressDown(e: PointerEvent) {
-  if (e.button !== 0) return
-  if (e.pointerType === 'touch') return
-  if (!canUseGoCursor()) return
-  clearGoPressListeners()
-  pressGoCursor()
-  window.addEventListener('pointerup', onGoPressUp)
-  window.addEventListener('pointercancel', onGoPressUp)
-}
-
-function onGoPressUp() {
-  clearGoPressListeners()
-  releaseGoCursor()
-}
-
 function plaqueLinks() {
   return rootEl.value?.querySelectorAll('.pc-link') ?? []
-}
-
-function previewShell() {
-  return rootEl.value?.querySelector('.pc-preview') as HTMLElement | null
 }
 
 function resetEnterProps() {
   if (!gsapMod) return
   const links = plaqueLinks()
-  const preview = previewShell()
   if (links.length) {
     gsapMod.set(links, { clearProps: 'opacity,visibility,transform' })
-  }
-  if (preview) {
-    gsapMod.set(preview, { clearProps: 'opacity,visibility,transform' })
   }
   const chip = menuChip()
   if (chip?.track) gsapMod.set(chip.track, { yPercent: 0 })
@@ -818,17 +621,19 @@ function resetNavVisibility() {
 async function playPlaqueEnter() {
   const g = await gsap()
   const links = plaqueLinks()
-  const preview = previewShell()
   enterTl?.kill()
   if (!links.length) return
   g.set(links, { autoAlpha: 0, y: 18 })
-  if (preview) g.set(preview, { autoAlpha: 0, y: 20 })
   if (reducedMotion.value) {
-    g.set(links, { autoAlpha: 1, y: 0 })
-    if (preview) g.set(preview, { autoAlpha: 1, y: 0 })
+    g.set(links, { clearProps: 'opacity,visibility,transform' })
     return
   }
-  const tl = g.timeline()
+  const tl = g.timeline({
+    onComplete: () => {
+      g.set(links, { clearProps: 'opacity,visibility,transform' })
+      enterTl = null
+    },
+  })
   enterTl = tl
   tl.to(
     links,
@@ -841,42 +646,6 @@ async function playPlaqueEnter() {
     },
     0.16,
   )
-  if (preview) {
-    tl.to(
-      preview,
-      {
-        autoAlpha: 1,
-        y: 0,
-        duration: PREVIEW_ENTER_S,
-        ease: 'power3.out',
-      },
-      0.28,
-    )
-  }
-}
-
-function onSheetEnter(e: PointerEvent) {
-  if (e.pointerType === 'touch') return
-  if (!open.value || !previewFrame.value) return
-  if (canUseGoCursor()) showGoCursor(e.clientX, e.clientY)
-}
-
-function onSheetMove(e: PointerEvent) {
-  if (!goFollow) return
-  setGoPos(e.clientX, e.clientY)
-}
-
-function onSheetLeave(e: PointerEvent) {
-  const sheet = e.currentTarget as HTMLElement
-  const next = e.relatedTarget
-  if (next instanceof Element && sheet.contains(next)) return
-  hideGoCursor()
-}
-
-function onPreviewClick() {
-  const frame = previewFrame.value
-  if (!frame) return
-  void goToFrame(frame)
 }
 
 function mailWavePath(amp: number) {
@@ -1183,8 +952,6 @@ async function playClose() {
 async function goToFrame(frame: SiteNavFrame) {
   if (!open.value) return
 
-  hideGoCursor()
-
   if (frameIsCurrent(frame)) {
     closeCanvas()
     return
@@ -1275,10 +1042,6 @@ function onKeydown(e: KeyboardEvent) {
   closeCanvas()
 }
 
-watch(previewId, (id) => {
-  if (!id) hideGoCursor()
-})
-
 watch(open, async (isOpen, wasOpen) => {
   if (isOpen) {
     shownCurrentId.value = matchFramePath(route.path)
@@ -1318,12 +1081,10 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('resize', syncFrameAspect, { passive: true })
   for (const frame of canvasFrames) {
-    for (const src of [
-      frame.preview,
-      frame.previewBw,
-      frame.previewM,
-      frame.previewMBw,
-    ]) {
+    const srcs = isThumb.value
+      ? []
+      : [frame.preview, frame.previewBw]
+    for (const src of srcs) {
       const img = new Image()
       img.src = src
     }
@@ -1340,13 +1101,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', syncFrameAspect)
   hideCanvasSurface()
   mailWaveTl?.kill()
-  goTl?.kill()
-  stopGoFollow()
-  if (goReleaseTimer) {
-    window.clearTimeout(goReleaseTimer)
-    goReleaseTimer = 0
-  }
-  clearGoPressListeners()
   killIris()
   stopNavChromeTrack()
   if (document.documentElement.classList.contains('page-canvas-lock')) {
@@ -1428,56 +1182,51 @@ onUnmounted(() => {
             :tabindex="open ? 0 : -1"
             aria-label="Switch language"
           >
-            {{ isThumb ? 'en' : 'EN' }}
+            en
           </button>
         </div>
       </div>
 
       <div ref="stageEl" class="page-canvas__stage" data-pc-scroller>
-        <div
-          ref="deskEl"
-          class="page-canvas__desk"
-          @pointerleave="onLinkLeave"
-        >
+        <div ref="deskEl" class="page-canvas__desk">
           <nav
             class="pc-links"
             aria-label="Страницы"
+            @pointerleave="onLinkLeave"
           >
             <button
               v-for="frame in canvasFrames"
               :key="frame.id"
               type="button"
-              class="pc-link"
+              class="pc-link chip-scale-host"
               :class="{
-                'pc-link--current': frameIsCurrent(frame),
+                'is-chip-on pc-link--current': frameIsCurrent(frame),
                 'pc-link--hot': linkIsHot(frame),
               }"
               :data-frame-id="frame.id"
               :tabindex="open ? 0 : -1"
               :aria-current="frameIsCurrent(frame) ? 'page' : undefined"
               @click="goToFrame(frame)"
-              @pointerenter="onLinkEnter(frame)"
-              @focusin="onLinkFocus(frame)"
+              @pointerenter="onChipPointer($event); onLinkEnter(frame)"
+              @pointerleave="onChipPointer($event); onLinkPointerLeave($event)"
+              @focusin="onChipPointer($event); onLinkFocus(frame)"
+              @focusout="onLinkPointerLeave($event)"
             >
+              <span class="chip-scale-bg" aria-hidden="true">
+                <span class="chip-scale-bg__fill" />
+              </span>
               <span class="pc-link__index">{{ frame.index }}</span>
               <span class="pc-link__label">{{ frame.label }}</span>
             </button>
           </nav>
 
           <div
+            v-if="!isThumb"
             class="pc-preview"
             :class="{ 'pc-preview--on': !!previewFrame }"
             aria-hidden="true"
           >
-            <div
-              class="pc-preview__sheet"
-              :class="{ 'pc-preview__sheet--live': !!previewFrame }"
-              @click="onPreviewClick"
-              @pointerenter="onSheetEnter"
-              @pointermove="onSheetMove"
-              @pointerleave="onSheetLeave"
-              @pointerdown="onGoPressDown"
-            >
+            <div class="pc-preview__sheet">
               <img
                 v-for="frame in canvasFrames"
                 :key="frame.id"
@@ -1493,11 +1242,6 @@ onUnmounted(() => {
         </div>
       </div>
       </div>
-    </div>
-    <div ref="goEl" class="pc-go" aria-hidden="true">
-      <span ref="goCircleEl" class="pc-go__circle">
-        <span ref="goWordEl" class="pc-go__word">сюда</span>
-      </span>
     </div>
   </Teleport>
 </template>
@@ -1566,6 +1310,10 @@ onUnmounted(() => {
   }
   .page-canvas__veil {
     pointer-events: none;
+  }
+  .page-canvas__chrome-top {
+    padding: var(--pc-inset-top) var(--pc-inset-right) 0 var(--pc-inset-left);
+    min-height: 0;
   }
 }
 
@@ -1728,9 +1476,11 @@ onUnmounted(() => {
 .page-canvas--thumb .page-canvas__desk {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 1.25rem;
+  box-sizing: border-box;
+  min-height: 100%;
   height: auto;
-  min-height: 0;
   width: 100%;
   max-width: none;
   margin-inline: 0;
@@ -1738,18 +1488,12 @@ onUnmounted(() => {
   padding-top: 0;
 }
 
-.page-canvas--thumb .pc-preview {
-  order: -1;
-  width: 100%;
-  max-width: none;
-}
-
 .page-canvas--thumb .pc-links {
   width: 100%;
 }
 
 .page-canvas--thumb .pc-link__label {
-  font-size: calc(var(--type-lead) * 1.15);
+  font-size: calc(var(--type-lead) * 1.932);
 }
 
 .page-canvas__stage {
@@ -1784,20 +1528,6 @@ onUnmounted(() => {
   display: none;
 }
 
-@media (max-width: 767.98px) {
-  .page-canvas {
-    --pc-inset-top: calc(var(--layout-margin) + var(--safe-top));
-    --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right));
-    --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom));
-    --pc-inset-left: calc(2 * var(--layout-margin) + var(--safe-left));
-  }
-
-  .page-canvas__chrome-top {
-    padding: var(--pc-inset-top) var(--pc-inset-right) 0 var(--pc-inset-left);
-    min-height: 0;
-  }
-}
-
 @media (min-width: 768px) {
   .page-canvas__desk {
     display: grid;
@@ -1817,23 +1547,56 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.35rem;
+  gap: 0.55rem;
+  width: max-content;
+  max-width: 100%;
   min-width: 0;
+  justify-self: start;
+}
+
+@media (min-width: 768px) {
+  .pc-links {
+    gap: 1.15rem;
+  }
 }
 
 .pc-link {
+  position: relative;
+  z-index: 0;
   display: inline-flex;
   align-items: baseline;
-  gap: 0.7rem;
+  gap: 0.75rem;
+  width: max-content;
+  max-width: 100%;
   margin: 0;
-  padding: 0.2rem 0;
+  padding: 8px 28px 8px 18px;
   border: 0;
+  border-radius: 9999px;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
   outline: none;
+}
+
+/* Canvas veil ≈ default chip fill — bump contrast so the scale-in reads. */
+.pc-link :deep(.chip-scale-bg__fill) {
+  background-color: color-mix(
+    in srgb,
+    var(--palette-ink) 9%,
+    color-mix(in srgb, var(--palette-sand) 82%, var(--palette-ash))
+  );
+}
+
+.pc-link--current :deep(.chip-scale-bg__fill) {
+  background-color: color-mix(in srgb, var(--palette-sand) 55%, var(--palette-moss));
+}
+
+.pc-link__index,
+.pc-link__label {
+  position: relative;
+  z-index: 1;
 }
 
 .pc-link__index {
@@ -1843,10 +1606,11 @@ onUnmounted(() => {
   color: var(--palette-ash);
   line-height: 1;
   transform: translateY(-0.05em);
+  transition: color 0.28s var(--motion-ease, ease);
 }
 
 .pc-link__label {
-  font-size: clamp(1.65rem, 3.6vw, 3.1rem);
+  font-size: clamp(1.85rem, 4vw, 3.35rem);
   font-weight: 500;
   letter-spacing: -0.03em;
   line-height: 1.05;
@@ -1854,21 +1618,29 @@ onUnmounted(() => {
   transition: color 0.28s var(--motion-ease, ease);
 }
 
+@media (min-width: 768px) {
+  .pc-link {
+    padding: 10px 36px 10px 22px;
+  }
+
+  .pc-link__label {
+    font-size: clamp(2.35rem, 4.6vw, 4rem);
+  }
+}
+
 .pc-link--hot .pc-link__label,
 .pc-link:focus-visible .pc-link__label {
   color: var(--palette-ink);
 }
 
-.pc-link--current .pc-link__label {
-  color: var(--palette-ink);
-}
-
+.pc-link--current .pc-link__label,
 .pc-link--current .pc-link__index {
-  color: var(--palette-ink);
+  color: var(--palette-forest);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pc-link__label {
+  .pc-link__label,
+  .pc-link__index {
     transition: none;
   }
 }
@@ -1877,12 +1649,17 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   min-width: 0;
-  opacity: 0.55;
-  transition: opacity 0.32s var(--motion-ease, ease);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.32s var(--motion-ease, ease),
+    visibility 0.32s var(--motion-ease, ease);
 }
 
 .pc-preview--on {
   opacity: 1;
+  visibility: visible;
 }
 
 .pc-preview__sheet {
@@ -1890,18 +1667,7 @@ onUnmounted(() => {
   aspect-ratio: var(--pc-aspect, 16 / 9);
   border-radius: 4px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--palette-stone) 55%, var(--palette-sand));
-  cursor: default;
-}
-
-.pc-preview__sheet--live {
-  cursor: pointer;
-}
-
-@media (pointer: fine) {
-  .pc-preview__sheet--live {
-    cursor: none;
-  }
+  background: transparent;
 }
 
 .pc-preview__shot {
@@ -1913,62 +1679,35 @@ onUnmounted(() => {
   object-position: top center;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.34s var(--motion-ease, ease);
+  transform: scale(1.045);
+  transform-origin: 50% 50%;
+  transition:
+    opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
 }
 
 .pc-preview__shot.is-visible {
+  z-index: 1;
   opacity: 1;
+  transform: scale(1);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pc-preview,
   .pc-preview__shot {
     transition: none;
-  }
-}
-</style>
-
-<style>
-.pc-go {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 111;
-  pointer-events: none;
-  width: 4.75rem;
-  height: 4.75rem;
-  margin: 0;
-  will-change: transform;
-}
-
-.pc-go__circle {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  border-radius: 50%;
-  background: var(--palette-ink);
-  color: var(--palette-milk);
-  transform: scale(0);
-  transform-origin: 50% 50%;
-  will-change: transform;
-}
-
-.pc-go__word {
-  font-family: var(--font-sans);
-  font-size: calc(var(--type-nav) * 0.8);
-  letter-spacing: 0.02em;
-  line-height: 1;
-  white-space: nowrap;
-  opacity: 0;
-  will-change: opacity;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pc-go__circle,
-  .pc-go__word {
     will-change: auto;
   }
+
+  .pc-preview__shot {
+    transform: none;
+  }
+
+  .pc-preview__shot.is-visible {
+    transform: none;
+  }
 }
+
 </style>
+
