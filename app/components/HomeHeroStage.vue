@@ -64,7 +64,7 @@ if (import.meta.client) {
 const sceneLive = ref(true)
 /** WebGL rAF — deferred on mobile until iris veil is done (revealT≈1). */
 const swarmLoopReady = ref(false)
-const { open: pageCanvasOpen, busy: pageCanvasBusy, skipHeroIntro, heroSwarmReady, surfaceOn, irisLive, pageIrisLive, navHopActive, heroGlPrewarm, resolveHeroGlPrewarm } = usePageCanvas()
+const { open: pageCanvasOpen, busy: pageCanvasBusy, skipHeroIntro, heroSwarmReady, surfaceOn, irisLive, pageIrisLive, navHopActive, heroGlPrewarm, heroGlRevealBusy, resolveHeroGlPrewarm } = usePageCanvas()
 /** Keep the last GL frame visible while the menu covers the page. */
 const swarmVisible = computed(
   () =>
@@ -77,16 +77,13 @@ const swarmVisible = computed(
  * iris holes and for a few frames after until WebGL presents under the lid.
  */
 const glCoverHold = ref(false)
+/** Menu hop — keep GL rendering under the lid from prewarm through iris out. */
+const glCoverHopSession = ref(false)
 
-/** Iris / menu session — cover on, swarm paused (close + hop only, not open). */
+/** Iris / menu session — cover on only for SPA hop while GL has no frame yet. */
 const glCoverNeed = computed(() => {
   if (!sceneLive.value) return false
-  if (pageIrisLive.value) return true
-  if (!surfaceOn.value) return false
-  // Menu fully open or opening iris — page may show through the hole; keep GL live.
-  if (pageCanvasOpen.value) return false
-  // Close iris / hop reveal while the canvas surface is still up.
-  return irisLive.value || !pageCanvasOpen.value
+  return pageIrisLive.value
 })
 
 const glCoverLocked = computed(() => glCoverNeed.value || glCoverHold.value)
@@ -116,32 +113,52 @@ function cancelGlCoverHold() {
   glCoverHold.value = false
 }
 
+function finishHeroRevealQuiet() {
+  glCoverHold.value = false
+  glCoverHopSession.value = false
+}
+
 watch(glCoverNeed, (need, wasNeed) => {
   if (need) {
-    cancelGlCoverHold()
+    if (!glCoverHopSession.value && !pageIrisLive.value) cancelGlCoverHold()
     return
   }
   if (!wasNeed || !sceneLive.value) return
-  cancelGlCoverHold()
+  // Never drop hold between need→handoff — one blank frame flashes the GL buffer.
   glCoverHold.value = true
-  const hop = navHopActive.value
+  const hop = glCoverHopSession.value || navHopActive.value
   const frames = hop
-    ? (mobileLite.value ? 10 : 4)
-    : (mobileLite.value ? 4 : 2)
+    ? (mobileLite.value ? 12 : 8)
+    : (mobileLite.value ? 6 : 4)
   void waitGlFrames(frames).then(() => {
-    glCoverHold.value = false
+    finishHeroRevealQuiet()
   })
 })
+
+/** Home below the fold — no GL iris guard; release menu gate immediately. */
+watch(
+  () =>
+    heroGlRevealBusy.value
+    && !surfaceOn.value
+    && !pageCanvasOpen.value
+    && !irisLive.value
+    && !pageIrisLive.value,
+  (settle) => {
+    if (!settle || glCoverNeed.value || sceneLive.value) return
+    finishHeroRevealQuiet()
+  },
+)
 
 async function runHeroGlPrewarm() {
   if (!sceneLive.value) {
     resolveHeroGlPrewarm()
     return
   }
+  glCoverHopSession.value = true
   glCoverHold.value = true
   await waitGlFrames(mobileLite.value ? 8 : 4)
-  if (glCoverNeed.value) glCoverHold.value = false
   resolveHeroGlPrewarm()
+  // Hold stays up through the iris reveal — cleared in glCoverNeed watch.
 }
 
 watch(heroGlPrewarm, () => {
@@ -412,6 +429,13 @@ watch(
 )
 
 onMounted(() => {
+  if (pageIrisLive.value) {
+    glCoverHopSession.value = true
+    glCoverHold.value = true
+  } else if (heroGlRevealBusy.value) {
+    glCoverHold.value = true
+  }
+
   // Don't freeze at rest — living edges + hover need an unfrozen silhouette.
   setFrozen(false)
   updateCopyParallax()
@@ -568,6 +592,8 @@ onUnmounted(() => {
   introTl = null
   heroSwarmReady.value = false
   cancelGlCoverHold()
+  glCoverHopSession.value = false
+  finishHeroRevealQuiet()
   setFrozen(false)
   mediaFadeTween?.kill()
   ctx?.revert()

@@ -26,7 +26,7 @@ const topFocusEl = ref<HTMLElement | null>(null)
 const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
 
-const { canvasMotionPaused } = usePageCanvas()
+const { canvasMotionPaused, open: pageCanvasOpen, busy: pageCanvasBusy, surfaceOn, heroGlRevealBusy } = usePageCanvas()
 
 defineExpose({
   section,
@@ -140,7 +140,7 @@ function hostFillIntact() {
 }
 
 async function setupLineFill(force = false) {
-  if (canvasMotionPaused()) return
+  if (!force && canvasMotionPaused()) return
   if (!force && fillCtx && hostFillIntact()) {
     try {
       stMod?.update()
@@ -216,10 +216,38 @@ function scheduleRebuild() {
   }, 120)
 }
 
+/** Home often mounts under the menu overlay during a hop — build after unlock. */
+async function waitHeroGlReveal(maxMs = 2400) {
+  const deadline = performance.now() + maxMs
+  while (heroGlRevealBusy.value && performance.now() < deadline) {
+    await new Promise<void>((r) => {
+      requestAnimationFrame(() => r())
+    })
+  }
+}
+
+async function ensureLineFill() {
+  if (hostFillIntact()) return
+  await waitHeroGlReveal()
+  if (canvasMotionPaused()) return
+  await setupLineFill(true)
+}
+
+watch(
+  () => pageCanvasOpen.value || pageCanvasBusy.value || surfaceOn.value,
+  async (active) => {
+    if (active) return
+    await nextTick()
+    requestAnimationFrame(() => {
+      void ensureLineFill()
+    })
+  },
+)
+
 onMounted(async () => {
   fillMountedAt = performance.now()
   await nextTick()
-  await setupLineFill(true)
+  await ensureLineFill()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
   if (bodyFocusEl.value) {
     resizeObserver = new ResizeObserver(() => {

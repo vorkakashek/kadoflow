@@ -8,6 +8,7 @@ import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
 const {
   open: canvasOpen,
   surfaceOn: canvasSurface,
+  busy: menuBusy,
   toggleCanvas,
   fabLabelOn,
   registerFabFit,
@@ -26,6 +27,7 @@ const fabEl = ref<HTMLElement | null>(null)
 const logoEl = ref<HTMLElement | null>(null)
 const navEl = ref<HTMLElement | null>(null)
 const menuBtnEl = ref<HTMLElement | null>(null)
+const menuSlotEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
 const fabBottomExtra = ref(0)
 const thumbNav = ref(false)
@@ -317,6 +319,7 @@ async function morph(animate: boolean) {
   if (snap) {
     if (gsapMod) gsapMod.killTweensOf(bar)
     applyBox(bar, width, m.height, m.paddingTop, m.paddingBottom, m.sidePad)
+    syncMenuFloat()
     return
   }
 
@@ -332,6 +335,8 @@ async function morph(animate: boolean) {
     ease: ANIM_EASE,
     overwrite: true,
     force3D: false,
+    onUpdate: syncMenuFloat,
+    onComplete: syncMenuFloat,
   })
 }
 
@@ -378,7 +383,7 @@ async function fitFabLabel(on: boolean, instant = false) {
   const fab = fabEl.value
   if (!fab || !thumbNav.value) return
   const word = fab.querySelector('.menu-fab-word') as HTMLElement | null
-  const label = fab.querySelector('.menu-fab-label') as HTMLElement | null
+  const label = fab.querySelector('.menu-sizer-menu') as HTMLElement | null
   if (!word || !label) return
   const g = await gsap()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -433,7 +438,28 @@ async function fitFabLabel(on: boolean, instant = false) {
   })
 }
 
+function syncMenuFloat() {
+  const slot = menuSlotEl.value
+  const btn = menuBtnEl.value
+  if (!slot || !btn || typeof window === 'undefined') return
+  if (thumbNav.value) return
+  const r = slot.getBoundingClientRect()
+  btn.style.top = `${Math.round(r.top)}px`
+  btn.style.right = `${Math.round(window.innerWidth - r.right)}px`
+}
+
+function fitDeskChipWord() {
+  if (canvasOpen.value || canvasSurface.value) return
+  const btn = menuBtnEl.value
+  if (!btn || thumbNav.value) return
+  const word = btn.querySelector('.menu-chip-word') as HTMLElement | null
+  const sizer = btn.querySelector('.menu-sizer-menu') as HTMLElement | null
+  if (!word || !sizer) return
+  word.style.width = `${Math.ceil(sizer.scrollWidth)}px`
+}
+
 function onScroll() {
+  syncMenuFloat()
   syncFabLabel()
   if (canvasLocksScroll()) return
 
@@ -464,9 +490,13 @@ function onScroll() {
 }
 
 function onResize() {
-  if (isMobileChromeHeightOnlyResize()) return
+  if (isMobileChromeHeightOnlyResize()) {
+    syncMenuFloat()
+    return
+  }
   refreshTokens()
   void morph(false)
+  syncMenuFloat()
 }
 
 /**
@@ -478,12 +508,14 @@ function syncFabViewport() {
   const vv = window.visualViewport
   if (!vv || vv.height < 80) {
     fabBottomExtra.value = 0
+    syncMenuFloat()
     return
   }
   fabBottomExtra.value = Math.min(
     96,
     Math.max(0, window.innerHeight - vv.offsetTop - vv.height),
   )
+  syncMenuFloat()
 }
 
 function syncThumbNav() {
@@ -500,6 +532,13 @@ onMounted(() => {
   syncFabViewport()
   void nextTick(() => {
     void fitFabLabel(fabLabelOn.value, true)
+    fitDeskChipWord()
+    syncMenuFloat()
+  })
+  void document.fonts?.ready.then(() => {
+    fitDeskChipWord()
+    if (thumbNav.value) void fitFabLabel(fabLabelOn.value, true)
+    syncMenuFloat()
   })
   window.addEventListener('scroll', onScroll, { passive: true })
   window.addEventListener('resize', onResize, { passive: true })
@@ -690,40 +729,32 @@ onUnmounted(() => {
           </NuxtLink>
         </nav>
 
-        <button
-          ref="menuBtnEl"
-          type="button"
-          class="header-desk-menu menu-btn header-chip site-nav chip-scale-host col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end text-ink md:flex"
-          :class="{ 'header-chip--scrolled': headerCollapsed }"
-          :aria-expanded="canvasOpen"
-          :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
-          @pointerenter="onChipPointer"
-          @pointerleave="onChipPointer"
-          @click="toggleCanvas"
+        <span
+          ref="menuSlotEl"
+          class="header-desk-menu menu-btn menu-btn-slot header-chip site-nav col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end pointer-events-none invisible md:flex"
+          aria-hidden="true"
         >
-          <span class="chip-scale-bg" aria-hidden="true" />
-          <span class="menu-btn-label">меню</span>
-          <span class="menu-dots" aria-hidden="true">
+          <span class="menu-chip-word">меню</span>
+          <span class="menu-dots">
             <span class="menu-dot" />
             <span class="menu-dot" />
           </span>
-        </button>
+        </span>
       </div>
     </div>
   </header>
 
-  <!-- Mobile thumb-zone menu — pinned to visual viewport bottom (matches right inset). -->
   <Teleport to="body">
     <button
-      ref="fabEl"
+      ref="menuBtnEl"
       type="button"
-      class="menu-fab site-nav chip-scale-host pointer-events-auto flex items-center text-ink"
-      :class="{ 'menu-fab--compact': !fabLabelOn }"
-      :inert="canvasSurface"
-      :tabindex="canvasSurface ? -1 : 0"
-      :style="{
-        bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
+      class="header-desk-menu menu-btn menu-btn--float header-chip site-nav chip-scale-host items-center justify-end gap-2 text-ink"
+      :class="{
+        'header-chip--scrolled': headerCollapsed,
+        'header-intro-hide': introPending,
+        'menu-chip-busy': menuBusy,
       }"
+      :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
       :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
       @pointerenter="onChipPointer"
@@ -731,9 +762,57 @@ onUnmounted(() => {
       @click="toggleCanvas"
     >
       <span class="chip-scale-bg" aria-hidden="true" />
-      <span class="menu-fab-word" aria-hidden="true">
-        <span class="menu-fab-word__clip">
-          <span class="menu-fab-label">меню</span>
+      <span class="menu-chip-word">
+        <span class="menu-chip-sizers" aria-hidden="true">
+          <span class="menu-sizer-menu">меню</span>
+          <span class="menu-sizer-back">закрыть</span>
+        </span>
+        <span class="menu-chip-window">
+          <span class="menu-chip-track">
+            <span class="menu-chip-line">меню</span>
+            <span class="menu-chip-line">закрыть</span>
+          </span>
+        </span>
+      </span>
+      <span class="menu-dots" aria-hidden="true">
+        <span class="menu-dot" />
+        <span class="menu-dot" />
+      </span>
+    </button>
+  </Teleport>
+
+  <!-- Mobile thumb-zone menu — pinned to visual viewport bottom (matches right inset). -->
+  <Teleport to="body">
+    <button
+      ref="fabEl"
+      type="button"
+      class="menu-fab site-nav chip-scale-host pointer-events-auto flex items-center text-ink"
+      :class="{
+        'menu-fab--compact': !fabLabelOn,
+        'menu-chip-busy': menuBusy,
+      }"
+      :tabindex="0"
+      :style="{
+        bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
+      }"
+      :aria-busy="menuBusy"
+      :aria-expanded="canvasOpen"
+      :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+      @pointerenter="onChipPointer"
+      @pointerleave="onChipPointer"
+      @click="toggleCanvas"
+    >
+      <span class="chip-scale-bg" aria-hidden="true" />
+      <span class="menu-chip-word menu-fab-word" aria-hidden="true">
+        <span class="menu-chip-sizers">
+          <span class="menu-sizer-menu">меню</span>
+          <span class="menu-sizer-back">закрыть</span>
+        </span>
+        <span class="menu-chip-window">
+          <span class="menu-chip-track">
+            <span class="menu-chip-line">меню</span>
+            <span class="menu-chip-line">закрыть</span>
+          </span>
         </span>
       </span>
       <span class="menu-dots" aria-hidden="true">
@@ -757,7 +836,8 @@ onUnmounted(() => {
 /* Instant while the close overlay still covers — a 0.32s fade after zoom
    looks like the header remounting. */
 html.page-canvas-lock .site-header,
-html.page-canvas-lock .menu-fab {
+html.page-canvas-lock .menu-fab,
+html.page-canvas-lock .menu-btn--float {
   transition: none;
 }
 
@@ -839,6 +919,82 @@ html.page-canvas-lock .menu-fab {
   margin-inline: -18px;
 }
 
+.menu-btn--float {
+  position: fixed;
+  z-index: 111;
+  pointer-events: auto;
+  display: none;
+  margin-inline: 0;
+}
+
+@media (min-width: 768px) and (pointer: fine) {
+  .menu-btn--float {
+    display: inline-flex;
+  }
+}
+
+.menu-chip-busy {
+  pointer-events: none;
+  cursor: default;
+}
+
+.menu-chip-word {
+  position: relative;
+  z-index: 1;
+  display: block;
+  flex: 0 0 auto;
+  overflow: hidden;
+  height: 1.25em;
+  width: 0;
+  transform: translateY(-2px);
+}
+
+.menu-btn-slot .menu-chip-word {
+  width: max-content;
+  transform: none;
+}
+
+.menu-chip-sizers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.menu-chip-sizers span {
+  display: block;
+  width: max-content;
+}
+
+.menu-chip-window {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.menu-chip-track {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-chip-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 1.25em;
+  white-space: nowrap;
+}
+
+.menu-btn:disabled,
+.menu-fab:disabled {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.55;
+}
+
 .menu-dots {
   position: relative;
   z-index: 1;
@@ -865,13 +1021,26 @@ html.page-canvas-lock .menu-fab {
   transform: rotate(90deg);
 }
 
+html.page-canvas-surface .menu-dots {
+  transition: none;
+}
+
+html.page-canvas-surface .menu-btn:hover .menu-dots,
+html.page-canvas-surface .menu-fab:hover .menu-dots,
+html.page-canvas-surface .menu-btn:focus-visible .menu-dots,
+html.page-canvas-surface .menu-fab:focus-visible .menu-dots,
+html.page-canvas-surface .menu-btn[aria-expanded='true'] .menu-dots,
+html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
+  transform: none;
+}
+
 .menu-fab {
   position: fixed;
   top: auto;
   left: auto;
   right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
   bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
-  z-index: 100;
+  z-index: 111;
   box-sizing: border-box;
   display: flex;
   margin: 0;

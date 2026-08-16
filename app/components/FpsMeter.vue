@@ -43,7 +43,7 @@ onUnmounted(() => {
 <template>
   <div
     v-if="visible"
-    class="fps-meter pointer-events-none fixed top-0 left-0 z-[9999] select-none"
+    class="fps-meter pointer-events-none fixed top-0 right-0 z-[9999] select-none"
     aria-hidden="true"
   >
     <span>{{ fps }}</span>
@@ -54,7 +54,7 @@ onUnmounted(() => {
 
 <style scoped>
 .fps-meter {
-  margin: calc(var(--safe-top, 0px) + 8px) 0 0 8px;
+  margin: calc(var(--safe-top, 0px) + 8px) calc(var(--safe-right, 0px) + 8px) 0 0;
   padding: 4px 8px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--palette-ink) 78%, transparent);

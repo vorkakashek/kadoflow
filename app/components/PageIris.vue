@@ -8,7 +8,6 @@ import gsap from 'gsap'
 import {
   applyIrisClip,
   clearIrisClip,
-  clipFromGeom,
   IRIS_CLOSE_EASE,
   IRIS_CLOSE_S,
   IRIS_OPEN_EASE,
@@ -19,8 +18,17 @@ import {
   type IrisGeom,
 } from '~/utils/irisClip'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
+import { isThumbNav } from '~/utils/mobileViewport'
 
-const { surfaceOn, waitForHeroSwarm, pageIrisLive } = usePageCanvas()
+const {
+  surfaceOn,
+  waitForHeroSwarm,
+  pageIrisLive,
+  menuHomeIrisReveal,
+  menuHomeIrisSnap,
+  resolveMenuHomeIrisReveal,
+  resolveMenuHomeIrisSnap,
+} = usePageCanvas()
 const rootEl = ref<HTMLElement | null>(null)
 const live = ref(false)
 
@@ -106,7 +114,12 @@ function hideLive() {
   live.value = false
   pageIrisLive.value = false
   setLock(false)
-  clearIrisClip(rootEl.value)
+  const root = rootEl.value
+  clearIrisClip(root)
+  if (root) {
+    root.style.opacity = ''
+    root.style.willChange = ''
+  }
   pendingReveal = false
 }
 
@@ -118,16 +131,32 @@ function killTween() {
   done?.()
 }
 
+function menuHopIrisOrigin(fallback?: IrisGeom): IrisGeom {
+  const view = viewportIrisBox()
+  const el =
+    document.querySelector('.menu-fab')
+    ?? document.querySelector('.menu-btn--float')
+  const thumb = isThumbNav()
+  return irisGeomFromBox(el?.getBoundingClientRect() ?? null, view, fallback ?? {
+    w: 96,
+    h: 40,
+    cx: view.width - 56,
+    cy: thumb ? view.height - 56 : 36,
+  })
+}
+
 async function tweenIris(
   from: IrisGeom,
   to: IrisGeom,
   duration: number,
   ease: string,
+  onFrame?: (geom: IrisGeom) => void,
+  liveOrigin?: () => IrisGeom,
 ) {
   const root = rootEl.value
   if (!root) return
   killTween()
-  applyIrisClip(root, clipFromGeom(from))
+  applyIrisClip(root, from)
   root.style.willChange = 'clip-path'
   const proxy = { w: from.w, h: from.h }
   await new Promise<void>((resolve) => {
@@ -139,14 +168,10 @@ async function tweenIris(
       ease,
       overwrite: true,
       onUpdate: () => {
-        applyIrisClip(
-          root,
-          clipFromGeom({
-            ...from,
-            w: proxy.w,
-            h: proxy.h,
-          }),
-        )
+        const anchor = liveOrigin?.() ?? from
+        const geom = { ...anchor, w: proxy.w, h: proxy.h }
+        applyIrisClip(root, geom)
+        onFrame?.(geom)
       },
       onComplete: () => {
         tween = null
@@ -165,19 +190,114 @@ async function cover(start: IrisGeom, token: number) {
   await nextTick()
   if (token !== gen) return
   void root.offsetWidth
+  gsap.set(root, { opacity: 1 })
   const dest = irisCoverFrom(start)
-  applyIrisClip(root, clipFromGeom(start))
+  applyIrisClip(root, start)
   await tweenIris(start, dest, IRIS_OPEN_S, IRIS_OPEN_EASE)
   if (token !== gen) return
-  applyIrisClip(root, clipFromGeom(dest))
+  applyIrisClip(root, dest)
+  root.style.willChange = ''
 }
 
-async function reveal(start: IrisGeom, token: number) {
-  const dest = irisCoverFrom(start)
-  await tweenIris(dest, start, IRIS_CLOSE_S, IRIS_CLOSE_EASE)
+async function reveal(token: number) {
+  const root = rootEl.value
+  if (!root) {
+    hideLive()
+    return
+  }
+  killTween()
+  root.style.willChange = 'opacity'
+  await new Promise<void>((resolve) => {
+    tweenResolve = resolve
+    tween = gsap.to(root, {
+      opacity: 0,
+      duration: IRIS_CLOSE_S,
+      ease: 'power2.out',
+      overwrite: true,
+      onComplete: () => {
+        tween = null
+        const done = tweenResolve
+        tweenResolve = null
+        done?.()
+      },
+    })
+  })
   if (token !== gen) return
   hideLive()
 }
+
+async function revealMenuHome(
+  seed: IrisGeom,
+  token: number,
+  onFrame?: (geom: IrisGeom) => void,
+) {
+  const anchor = () => menuHopIrisOrigin(seed)
+  const dest = irisCoverFrom(anchor())
+  await tweenIris(
+    dest,
+    anchor(),
+    IRIS_CLOSE_S,
+    IRIS_CLOSE_EASE,
+    onFrame,
+    anchor,
+  )
+  if (token !== gen) return
+  hideLive()
+}
+
+async function runMenuHomeSnap(req: NonNullable<typeof menuHomeIrisSnap.value>) {
+  const root = rootEl.value
+  if (!root) {
+    resolveMenuHomeIrisSnap()
+    return
+  }
+  try {
+    showLive()
+    await nextTick()
+    void root.offsetWidth
+    const anchor = menuHopIrisOrigin(req.geom)
+    applyIrisClip(root, irisCoverFrom(anchor))
+  } catch {
+    hideLive()
+  } finally {
+    resolveMenuHomeIrisSnap()
+  }
+}
+
+async function runMenuHomeReveal(req: NonNullable<typeof menuHomeIrisReveal.value>) {
+  const root = rootEl.value
+  if (!root) {
+    resolveMenuHomeIrisReveal()
+    return
+  }
+  const token = ++gen
+  try {
+    if (!live.value) {
+      showLive()
+      await nextTick()
+      if (token !== gen) return
+      const anchor = menuHopIrisOrigin(req.geom)
+      applyIrisClip(root, irisCoverFrom(anchor))
+    }
+    await revealMenuHome(req.geom, token, req.onFrame)
+    if (token !== gen) return
+    req.handoff?.()
+  } catch {
+    hideLive()
+  } finally {
+    resolveMenuHomeIrisReveal()
+  }
+}
+
+watch(menuHomeIrisSnap, (req) => {
+  if (!req) return
+  void runMenuHomeSnap(req)
+})
+
+watch(menuHomeIrisReveal, (req) => {
+  if (!req) return
+  void runMenuHomeReveal(req)
+})
 
 onMounted(() => {
   const router = useRouter()
@@ -210,8 +330,7 @@ onMounted(() => {
       })
       if (to.path === '/') await waitForHeroSwarm()
       if (token !== gen) return
-      originGeom = resolveOrigin(to.path)
-      await reveal(originGeom, token)
+      await reveal(token)
     } catch {
       hideLive()
     } finally {
@@ -250,7 +369,7 @@ onUnmounted(() => {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 105;
+  z-index: 112;
   pointer-events: none;
   background: color-mix(in srgb, var(--palette-sand) 78%, var(--palette-ash));
 }

@@ -1,7 +1,23 @@
 /**
  * Page Canvas / workspace menu — shared open state.
  */
+import type { IrisGeom } from '~/utils/irisClip'
+
 let heroGlPrewarmResolvers: Array<() => void> = []
+let menuHomeRevealResolvers: Array<() => void> = []
+let menuHomeSnapResolvers: Array<() => void> = []
+
+export type MenuHomeIrisReveal = {
+  id: number
+  geom: IrisGeom
+  onFrame?: (geom: IrisGeom) => void
+  handoff?: () => void
+}
+
+export type MenuHomeIrisSnap = {
+  id: number
+  geom: IrisGeom
+}
 
 export function usePageCanvas() {
   const open = useState('page-canvas-open', () => false)
@@ -19,6 +35,8 @@ export function usePageCanvas() {
    * the stone lid while the overlay still covers the page.
    */
   const heroGlPrewarm = useState('hero-gl-prewarm', () => 0)
+  /** Menu hop iris + post-reveal hold — defer Kado fill / layout work until false. */
+  const heroGlRevealBusy = useState('hero-gl-reveal-busy', () => false)
   /**
    * Thumb FAB word «меню». Scroll-down hides it; open/close always restores it.
    * Compact (dots-only) is never the rest state after a menu session.
@@ -35,6 +53,16 @@ export function usePageCanvas() {
   const irisLive = useState('page-canvas-iris-live', () => false)
   /** SPA page hop overlay — iris reveal onto home. */
   const pageIrisLive = useState('page-iris-live', () => false)
+  /** Menu → home hop: PageIris iris-out onto the menu chip after swarm prewarm. */
+  const menuHomeIrisReveal = useState<MenuHomeIrisReveal | null>(
+    'menu-home-iris-reveal',
+    () => null,
+  )
+  /** Menu → home hop: snap PageIris to full cover (no logo-style iris-in). */
+  const menuHomeIrisSnap = useState<MenuHomeIrisSnap | null>(
+    'menu-home-iris-snap',
+    () => null,
+  )
 
   /** Block line-fill rebuild while the menu overlay owns scroll (no layout reflow). */
   function canvasMotionPaused() {
@@ -44,18 +72,26 @@ export function usePageCanvas() {
     )
   }
 
+  /** Menu button idle — false for the full open/close/hop + hero GL settle pipeline. */
+  function menuIdle() {
+    return !busy.value
+  }
+
   function openCanvas() {
-    if (open.value || busy.value) return
+    if (!menuIdle()) return
+    busy.value = true
     open.value = true
   }
 
   function closeCanvas() {
-    if (!open.value) return
+    if (!menuIdle() || !open.value) return
+    busy.value = true
     open.value = false
   }
 
   function toggleCanvas() {
-    if (busy.value && !open.value) return
+    if (!menuIdle()) return
+    busy.value = true
     open.value = !open.value
   }
 
@@ -107,21 +143,66 @@ export function usePageCanvas() {
     for (const resolve of pending) resolve()
   }
 
+  function requestMenuHomeIrisReveal(
+    geom: IrisGeom,
+    opts: { onFrame?: (geom: IrisGeom) => void; handoff?: () => void } = {},
+  ) {
+    return new Promise<void>((resolve) => {
+      menuHomeRevealResolvers.push(resolve)
+      menuHomeIrisReveal.value = {
+        id: (menuHomeIrisReveal.value?.id ?? 0) + 1,
+        geom,
+        onFrame: opts.onFrame,
+        handoff: opts.handoff,
+      }
+    })
+  }
+
+  function resolveMenuHomeIrisReveal() {
+    menuHomeIrisReveal.value = null
+    const pending = menuHomeRevealResolvers.splice(0)
+    for (const resolve of pending) resolve()
+  }
+
+  function requestMenuHomeIrisSnap(geom: IrisGeom) {
+    return new Promise<void>((resolve) => {
+      menuHomeSnapResolvers.push(resolve)
+      menuHomeIrisSnap.value = {
+        id: (menuHomeIrisSnap.value?.id ?? 0) + 1,
+        geom,
+      }
+    })
+  }
+
+  function resolveMenuHomeIrisSnap() {
+    menuHomeIrisSnap.value = null
+    const pending = menuHomeSnapResolvers.splice(0)
+    for (const resolve of pending) resolve()
+  }
+
   return {
     open,
     busy,
     surfaceOn,
     navHopActive,
     heroGlPrewarm,
+    heroGlRevealBusy,
     skipHeroIntro,
     heroSwarmReady,
     irisLive,
     pageIrisLive,
+    menuHomeIrisReveal,
+    menuHomeIrisSnap,
     canvasMotionPaused,
     fabLabelOn,
+    menuIdle,
     waitForHeroSwarm,
     requestHeroGlPrewarm,
     resolveHeroGlPrewarm,
+    requestMenuHomeIrisReveal,
+    resolveMenuHomeIrisReveal,
+    requestMenuHomeIrisSnap,
+    resolveMenuHomeIrisSnap,
     revealFabLabel,
     restoreFabLabel,
     registerFabFit,

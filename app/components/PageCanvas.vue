@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { canvasFrames, matchFramePath, type SiteNavFrame } from '~/utils/siteNav'
-import { setChipBgOrigin } from '~/utils/chipHoverBg'
 import { isNarrowViewport, isThumbNav } from '~/utils/mobileViewport'
 import {
   abortTileHover,
@@ -10,13 +9,15 @@ import {
   leaveTileHover,
   resizeTileHover,
   settleTileHover,
+  waitTileHoverSettle,
 } from '~/utils/tileHoverDistort'
+import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
 import {
   applyIrisClip,
   clearIrisClip,
-  clipFromGeom,
   irisCoverFrom,
   irisGeomFromBox,
+  viewportIrisBox,
   IRIS_CLOSE_EASE,
   IRIS_CLOSE_S,
   IRIS_OPEN_EASE,
@@ -30,27 +31,25 @@ const {
   busy,
   surfaceOn,
   navHopActive,
+  heroGlRevealBusy,
   skipHeroIntro,
   waitForHeroSwarm,
   requestHeroGlPrewarm,
   closeCanvas,
-  revealFabLabel,
   restoreFabLabel,
+  fabLabelOn,
   irisLive,
+  pageIrisLive,
 } = usePageCanvas()
 const { suppressed: siteCursorOff } = useSiteCursor()
 const route = useRoute()
 const router = useRouter()
 
 const rootEl = ref<HTMLElement | null>(null)
+const maskEl = ref<HTMLElement | null>(null)
+const navEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const deskEl = ref<HTMLElement | null>(null)
-const closeBtnEl = ref<HTMLButtonElement | null>(null)
-const closeTrackEl = ref<HTMLElement | null>(null)
-const closeDotsEl = ref<HTMLElement | null>(null)
-const closeWordEl = ref<HTMLElement | null>(null)
-const closeSizerMenuEl = ref<HTMLElement | null>(null)
-const closeSizerBackEl = ref<HTMLElement | null>(null)
 const goEl = ref<HTMLElement | null>(null)
 const goCircleEl = ref<HTMLElement | null>(null)
 const goWordEl = ref<HTMLElement | null>(null)
@@ -101,6 +100,8 @@ function killIris() {
   const resolve = irisResolve
   irisResolve = null
   resolve?.()
+  const clipRoot = irisClipEl()
+  if (clipRoot) clipRoot.style.willChange = ''
 }
 
 function stopTileHover() {
@@ -121,8 +122,12 @@ function killActiveMotion() {
   stopTileHover()
   const scroller = navScrollRoot()
   if (scroller && gsapMod) gsapMod.killTweensOf(scroller)
-  if (gsapMod && closeDotsEl.value) gsapMod.killTweensOf(closeDotsEl.value)
-  if (gsapMod && closeWordEl.value) gsapMod.killTweensOf(closeWordEl.value)
+  const chip = menuChip()
+  const btn = menuButtonEl()
+  if (gsapMod && chip?.dots) gsapMod.killTweensOf(chip.dots)
+  if (gsapMod && chip?.word) gsapMod.killTweensOf(chip.word)
+  if (gsapMod && chip?.track) gsapMod.killTweensOf(chip.track)
+  if (gsapMod && btn) gsapMod.killTweensOf(btn)
 }
 
 function onShotError(e: Event) {
@@ -141,65 +146,111 @@ function menuButtonEl() {
   if (isThumb.value) {
     return document.querySelector('.menu-fab') as HTMLElement | null
   }
-  return document.querySelector('.site-header .menu-btn') as HTMLElement | null
+  return document.querySelector('.menu-btn--float') as HTMLElement | null
+}
+
+function menuChip() {
+  const btn = menuButtonEl()
+  if (!btn) return null
+  return {
+    word: btn.querySelector('.menu-chip-word') as HTMLElement | null,
+    track: btn.querySelector('.menu-chip-track') as HTMLElement | null,
+    dots: btn.querySelector('.menu-dots') as HTMLElement | null,
+    sizerMenu: btn.querySelector('.menu-sizer-menu') as HTMLElement | null,
+    sizerBack: btn.querySelector('.menu-sizer-back') as HTMLElement | null,
+  }
+}
+
+function irisFallback(container: { width: number; height: number }) {
+  return {
+    w: 96,
+    h: 40,
+    cx: container.width - 56,
+    cy: isThumb.value ? container.height - 56 : 36,
+  }
 }
 
 function irisButtonGeom(): IrisGeom {
   const root = rootEl.value
   const canvas = root?.getBoundingClientRect()
-  const container = canvas
+  const laidOut = !!canvas && canvas.width > 1 && canvas.height > 1
+  const container = laidOut
     ? {
         left: canvas.left,
         top: canvas.top,
         width: canvas.width,
         height: canvas.height,
       }
-    : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+    : viewportIrisBox()
   const el = menuButtonEl()
-  return irisGeomFromBox(el?.getBoundingClientRect() ?? null, container, {
-    w: 96,
-    h: 40,
-    cx: container.width - 56,
-    cy: isThumb.value ? container.height - 56 : 36,
-  })
+  return irisGeomFromBox(
+    el?.getBoundingClientRect() ?? null,
+    container,
+    irisFallback(container),
+  )
+}
+
+/** Chip rect at tap — viewport coords match the fullscreen canvas (`inset: 0`). */
+function captureMenuPill(): IrisGeom {
+  const view = viewportIrisBox()
+  const el = menuButtonEl()
+  return irisGeomFromBox(
+    el?.getBoundingClientRect() ?? null,
+    view,
+    irisFallback(view),
+  )
+}
+
+function irisClipEl() {
+  return rootEl.value
+}
+
+/** GL / scroll guard for menu→home hop — no PageIris visual layer on top. */
+function setPageIrisGuard(on: boolean) {
+  pageIrisLive.value = on
+  document.documentElement.classList.toggle('page-iris-lock', on)
 }
 
 async function tweenIris(opts: {
-  from: IrisGeom
-  to: IrisGeom
-  duration: number
-  ease: string
+  dir: 'open' | 'close'
+  pill: IrisGeom
   followMenu?: boolean
 }) {
-  const root = rootEl.value
-  if (!root) return
-  const g = await gsap()
+  const clipRoot = irisClipEl()
+  if (!clipRoot) return
+  const g = gsapMod ?? (await gsap())
   killIris()
-  applyIrisClip(root, clipFromGeom(opts.from))
-  root.style.willChange = 'clip-path'
-  const proxy = { w: opts.from.w, h: opts.from.h }
+  const seed = opts.pill
+  const cover = irisCoverFrom(seed).w
+  const proxy = { t: opts.dir === 'open' ? 0 : 1 }
+
+  const paint = () => {
+    const origin = opts.dir === 'open' || !opts.followMenu ? seed : irisButtonGeom()
+    const r0 = Math.min(origin.w, origin.h) / 2
+    applyIrisClip(clipRoot, {
+      ...origin,
+      w: origin.w + (cover - origin.w) * proxy.t,
+      h: origin.h + (cover - origin.h) * proxy.t,
+      r: r0 + (cover / 2 - r0) * proxy.t,
+    })
+  }
+
+  paint()
+  clipRoot.style.willChange = 'clip-path'
   await new Promise<void>((resolve) => {
     irisResolve = resolve
     irisTween = g.to(proxy, {
-      w: opts.to.w,
-      h: opts.to.h,
-      duration: opts.duration,
-      ease: opts.ease,
+      t: opts.dir === 'open' ? 1 : 0,
+      duration: opts.dir === 'open' ? IRIS_OPEN_S : IRIS_CLOSE_S,
+      ease: opts.dir === 'open' ? IRIS_OPEN_EASE : IRIS_CLOSE_EASE,
       overwrite: true,
       onUpdate: () => {
-        const live = opts.followMenu ? irisButtonGeom() : opts.from
-        applyIrisClip(
-          root,
-          clipFromGeom({
-            ...live,
-            w: proxy.w,
-            h: proxy.h,
-          }),
-        )
+        paint()
         if (opts.followMenu) syncNavChrome()
       },
       onComplete: () => {
         irisTween = null
+        clipRoot.style.willChange = ''
         const done = irisResolve
         irisResolve = null
         done?.()
@@ -210,6 +261,7 @@ async function tweenIris(opts: {
 
 function showCanvasSurface() {
   document.documentElement.classList.add('page-canvas-surface')
+  resetNavVisibility()
   const root = rootEl.value
   if (root) {
     root.style.display = ''
@@ -223,14 +275,16 @@ function showCanvasSurface() {
 function hideCanvasSurface() {
   stopNavChromeTrack()
   restoreFabLabel()
+  resetNavVisibility()
   const root = rootEl.value
+  const clipRoot = irisClipEl()
   if (root) {
     // Hide before unclip — otherwise one frame of full overlay after the disc.
     root.style.display = 'none'
-    clearIrisClip(root)
+    if (clipRoot) clearIrisClip(clipRoot)
     resetEnterProps()
     clearBackSlot()
-    root.classList.remove('page-canvas--surface', 'page-canvas--open')
+    root.classList.remove('page-canvas--surface', 'page-canvas--open', 'page-canvas--iris')
     root.style.opacity = ''
     root.style.visibility = ''
     root.style.pointerEvents = ''
@@ -251,33 +305,24 @@ function frameIsCurrent(frame: SiteNavFrame) {
 }
 
 function frameShot(frame: SiteNavFrame, tone: 'color' | 'bw') {
-  if (isThumb.value) {
-    return tone === 'bw' ? frame.previewMBw : frame.previewM
-  }
   return tone === 'bw' ? frame.previewBw : frame.preview
 }
 
 function setIrisLive(on: boolean) {
   document.documentElement.classList.toggle('page-canvas-iris', on)
+  rootEl.value?.classList.toggle('page-canvas--iris', on)
   irisLive.value = on
 }
 
 function clearBackSlot() {
   const root = rootEl.value
-  if (root) {
-    root.style.removeProperty('--pc-inset-top')
-    root.style.removeProperty('--pc-inset-right')
-    root.style.removeProperty('--pc-inset-bottom')
-    root.style.removeProperty('--pc-inset-left')
-    root.style.removeProperty('--pc-close-h')
-    root.style.removeProperty('--pc-lead-h')
-  }
-  const back = closeBtnEl.value
-  if (!back) return
-  back.style.top = ''
-  back.style.right = ''
-  back.style.bottom = ''
-  back.style.left = ''
+  if (!root) return
+  root.style.removeProperty('--pc-inset-top')
+  root.style.removeProperty('--pc-inset-right')
+  root.style.removeProperty('--pc-inset-bottom')
+  root.style.removeProperty('--pc-inset-left')
+  root.style.removeProperty('--pc-close-h')
+  root.style.removeProperty('--pc-lead-h')
 }
 
 function setNavInset(
@@ -539,11 +584,12 @@ async function playGoIn() {
 
 function hideGoCursor(instant = false) {
   if (goState === 'off' && !goFollow) return
+  /* Leave animation already running — don't snap it on plaque click / close. */
+  if (goState === 'out') return
   if (instant || reducedMotion.value || !gsapMod || !goCircleEl.value || !goWordEl.value) {
     snapGoOff()
     return
   }
-  if (goState === 'out') return
   goState = 'out'
   goTl?.kill()
   const circle = goCircleEl.value
@@ -565,11 +611,6 @@ function hideGoCursor(instant = false) {
   )
 }
 
-function onChipPointer(e: PointerEvent) {
-  const el = e.currentTarget
-  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
-}
-
 function plaqueSheets() {
   return rootEl.value?.querySelectorAll('.pc-frame__sheet') ?? []
 }
@@ -588,61 +629,83 @@ function resetEnterProps() {
   if (metas.length) {
     gsapMod.set(metas, { clearProps: 'opacity,visibility,transform' })
   }
-  if (closeTrackEl.value) {
-    gsapMod.set(closeTrackEl.value, { yPercent: 0 })
-  }
-  if (closeDotsEl.value) {
-    gsapMod.set(closeDotsEl.value, { rotation: 0 })
-  }
-  const menuW = closeSizerMenuEl.value?.offsetWidth ?? 0
-  if (closeWordEl.value && menuW) {
-    gsapMod.set(closeWordEl.value, { width: menuW })
-  }
+  const chip = menuChip()
+  if (chip?.track) gsapMod.set(chip.track, { yPercent: 0 })
+  if (chip?.dots) gsapMod.set(chip.dots, { clearProps: 'transform' })
+  const menuW = chip?.sizerMenu?.scrollWidth ?? 0
+  if (chip?.word && menuW) gsapMod.set(chip.word, { width: menuW })
 }
 
 function measureCloseWord(to: 'menu' | 'back') {
-  const el = to === 'menu' ? closeSizerMenuEl.value : closeSizerBackEl.value
-  return Math.ceil(el?.getBoundingClientRect().width ?? 0)
+  const chip = menuChip()
+  const el = to === 'menu' ? chip?.sizerMenu : chip?.sizerBack
+  return Math.ceil(el?.scrollWidth ?? 0)
 }
 
 function swapCloseWord(to: 'menu' | 'back', instant = false) {
-  const track = closeTrackEl.value
-  const box = closeWordEl.value
+  const chip = menuChip()
+  const track = chip?.track
+  const box = chip?.word
+  const btn = menuButtonEl()
+  const fab = btn?.classList.contains('menu-fab') ? btn : null
   if (!gsapMod) return
   wordTween?.kill()
   wordTween = null
   const snap = instant || reducedMotion.value
   const yPercent = to === 'menu' ? 0 : -50
   const w = measureCloseWord(to)
+  const fabPad = 24
   if (snap) {
     if (track) gsapMod.set(track, { yPercent })
     if (box && w) gsapMod.set(box, { width: w })
+    if (fab) gsapMod.set(fab, { paddingLeft: fabPad, paddingRight: fabPad, gap: 8 })
     return
   }
+  const expanding = to === 'back'
+  const ease = expanding ? 'power3.out' : CHIP_FIT_EASE
   const tl = gsapMod.timeline({
     onComplete: () => {
       wordTween = null
     },
   })
   wordTween = tl
-  if (track) {
-    tl.to(
-      track,
-      { yPercent, duration: CHIP_FIT_S, ease: CHIP_FIT_EASE, overwrite: true },
-      0,
-    )
-  }
   if (box && w) {
     tl.to(
       box,
-      { width: w, duration: CHIP_FIT_S, ease: CHIP_FIT_EASE, overwrite: true },
+      { width: w, duration: CHIP_FIT_S, ease, overwrite: true },
+      0,
+    )
+  }
+  if (track) {
+    tl.to(
+      track,
+      {
+        yPercent,
+        duration: CHIP_FIT_S * (expanding ? 0.62 : 0.72),
+        ease: expanding ? 'power3.out' : CHIP_FIT_EASE,
+        overwrite: true,
+      },
+      0,
+    )
+  }
+  if (fab) {
+    tl.to(
+      fab,
+      {
+        paddingLeft: fabPad,
+        paddingRight: fabPad,
+        gap: 8,
+        duration: CHIP_FIT_S,
+        ease,
+        overwrite: true,
+      },
       0,
     )
   }
 }
 
 function spinCloseDots(up: boolean, instant = false) {
-  const el = closeDotsEl.value
+  const el = menuChip()?.dots
   if (!el || !gsapMod) return
   dotsTween?.kill()
   dotsTween = null
@@ -654,12 +717,17 @@ function spinCloseDots(up: boolean, instant = false) {
   dotsTween = gsapMod.to(el, {
     rotation,
     duration: CHIP_FIT_S,
-    ease: CHIP_FIT_EASE,
+    ease: up ? 'power3.out' : CHIP_FIT_EASE,
     overwrite: true,
     onComplete: () => {
       dotsTween = null
     },
   })
+}
+
+function resetNavVisibility() {
+  const nav = navEl.value
+  if (nav && gsapMod) gsapMod.set(nav, { clearProps: 'opacity,visibility' })
 }
 
 async function playPlaqueEnter() {
@@ -849,6 +917,20 @@ async function waitForRoutePaint() {
   await waitFrames(2)
 }
 
+/** Home hero shell (stone lid) before iris exposes the GL stack. */
+async function waitForHomeHeroShell(maxMs = 2400) {
+  await nextTick()
+  await waitFrames(2)
+  const deadline = performance.now() + maxMs
+  while (performance.now() < deadline) {
+    if (document.querySelector('.hero-swarm-cover')) {
+      await waitFrames(2)
+      return
+    }
+    await waitFrames(1)
+  }
+}
+
 /** Let a hidden WebGL canvas present at least one real frame before the iris hole shows it. */
 function waitFrames(n: number) {
   return new Promise<void>((resolve) => {
@@ -869,9 +951,16 @@ function pinPageScroll() {
   lockScroll(true)
 }
 
-async function prepareThumbIrisChip() {
-  if (!isThumb.value) return
-  await revealFabLabel()
+/** Full iris cover immediately — hides tile GL before route / gsap work hits the main thread. */
+async function snapIrisCover() {
+  setIrisLive(true)
+  syncNavChrome()
+  const start = irisButtonGeom()
+  const cover = irisCoverFrom(start)
+  const clipRoot = irisClipEl()
+  if (clipRoot) applyIrisClip(clipRoot, cover)
+  abortTileHover()
+  return { start, cover }
 }
 
 async function unlockSession(
@@ -903,82 +992,77 @@ function isCloseRun(gen: number) {
   return gen === motionGen && !open.value
 }
 
+function isHomeRoute() {
+  const p = route.path
+  return p === '/' || p === ''
+}
+
+function finishMenuCloseQuiet() {
+  setPageIrisGuard(false)
+  heroGlRevealBusy.value = false
+  busy.value = false
+}
+
 async function playOpen() {
   const root = rootEl.value
   const gen = ++motionGen
   killActiveMotion()
   busy.value = true
+  fabLabelOn.value = true
+  const tapPill = captureMenuPill()
 
   try {
-    await prepareThumbIrisChip()
-    if (!isOpenRun(gen)) return
-    await gsap()
-    if (!isOpenRun(gen)) return
+    if (!gsapMod) await gsap()
+    const g = gsapMod
+    if (!g || !isOpenRun(gen)) return
+
+    const dotsReady = !isThumb.value && !!menuButtonEl()?.matches(':hover')
+    if (reducedMotion.value) {
+      swapCloseWord('back', true)
+      spinCloseDots(true, true)
+    } else {
+      swapCloseWord('back')
+      if (dotsReady) spinCloseDots(true, true)
+      else spinCloseDots(true)
+    }
+
     showCanvasSurface()
     pinPageScroll()
     if (!isOpenRun(gen)) return
     setIrisLive(true)
-    await nextTick()
-    if (!isOpenRun(gen)) return
     void root?.offsetWidth
-    swapCloseWord('menu', true)
     startNavChromeTrack()
     syncNavChrome()
-    const start = irisButtonGeom()
-    const cover = irisCoverFrom(start)
     if (root) {
-      applyIrisClip(root, clipFromGeom(reducedMotion.value ? cover : start))
-    }
-    void ensureFrameCentered(shownCurrentId.value, 'instant', gen)
-
-    if (root) {
-      const g = await gsap()
-      if (!isOpenRun(gen)) return
       g.set(root, { clearProps: 'opacity,visibility,pointerEvents' })
-      if (closeTrackEl.value) g.set(closeTrackEl.value, { yPercent: 0 })
-      if (closeDotsEl.value) g.set(closeDotsEl.value, { rotation: 0 })
+    }
+    const clipRoot = irisClipEl()
+    if (clipRoot) {
+      applyIrisClip(clipRoot, reducedMotion.value ? irisCoverFrom(tapPill) : tapPill)
     }
 
-    const dotsReady = !isThumb.value && !!menuButtonEl()?.matches(':hover')
+    void ensureFrameCentered(shownCurrentId.value, 'instant', gen)
 
     if (reducedMotion.value) {
       syncNavChrome()
-      if (root) clearIrisClip(root)
+      if (clipRoot) clearIrisClip(clipRoot)
       setIrisLive(false)
-      swapCloseWord('back', true)
-      spinCloseDots(true, true)
       await playPlaqueEnter()
       return
     }
 
-    if (dotsReady) spinCloseDots(true, true)
-    else {
-      await new Promise<void>((r) => {
-        requestAnimationFrame(() => r())
-      })
-      if (!isOpenRun(gen)) return
-      spinCloseDots(true)
-    }
-
-    await playPlaqueEnter()
-    if (!isOpenRun(gen)) return
-
-    await tweenIris({
-      from: start,
-      to: cover,
-      duration: IRIS_OPEN_S,
-      ease: IRIS_OPEN_EASE,
-      followMenu: true,
-    })
+    void playPlaqueEnter()
+    await tweenIris({ dir: 'open', pill: tapPill })
     if (!isOpenRun(gen)) return
     syncNavChrome()
-    if (root) clearIrisClip(root)
+    const clipRootDone = irisClipEl()
+    if (clipRootDone) clearIrisClip(clipRootDone)
     setIrisLive(false)
-    swapCloseWord('back')
   } catch (err) {
     console.warn('[PageCanvas] playOpen failed', err)
     showCanvasSurface()
-    if (root) clearIrisClip(root)
+    const clipRootErr = irisClipEl()
+    if (clipRootErr) clearIrisClip(clipRootErr)
     setIrisLive(false)
     resetEnterProps()
     swapCloseWord('back', true)
@@ -994,6 +1078,8 @@ async function playClose() {
   killActiveMotion()
   busy.value = true
   showCanvasSurface()
+  const homeClose = isHomeRoute()
+  if (homeClose) heroGlRevealBusy.value = true
 
   try {
     if (reducedMotion.value) {
@@ -1001,29 +1087,22 @@ async function playClose() {
       spinCloseDots(false, true)
       await unlockSession()
       hideCanvasSurface()
+      if (!homeClose) finishMenuCloseQuiet()
       return
     }
 
-    await gsap()
+    if (!gsapMod) await gsap()
     if (!isCloseRun(gen)) return
+    const pill = captureMenuPill()
     swapCloseWord('menu')
     spinCloseDots(false)
-
-    const root = rootEl.value
-    setIrisLive(true)
-    await nextTick()
+    await snapIrisCover()
     if (!isCloseRun(gen)) return
-    syncNavChrome()
-    const start = irisButtonGeom()
-    const cover = irisCoverFrom(start)
-    if (root) applyIrisClip(root, clipFromGeom(cover))
 
-    await tweenIris({
-      from: cover,
-      to: start,
-      duration: IRIS_CLOSE_S,
-      ease: IRIS_CLOSE_EASE,
-    })
+    if (homeClose) await waitFrames(2)
+    if (!isCloseRun(gen)) return
+
+    await tweenIris({ dir: 'close', pill, followMenu: true })
     if (!isCloseRun(gen)) return
     hideCanvasSurface()
     await unlockSession()
@@ -1031,8 +1110,12 @@ async function playClose() {
     console.warn('[PageCanvas] playClose failed', err)
     hideCanvasSurface()
     await unlockSession()
+    finishMenuCloseQuiet()
   } finally {
-    if (isCloseRun(gen)) busy.value = false
+    if (isCloseRun(gen)) {
+      heroGlRevealBusy.value = false
+      busy.value = false
+    }
   }
 }
 
@@ -1044,9 +1127,12 @@ async function goToFrame(frame: SiteNavFrame) {
   const sheet = rootEl.value?.querySelector(
     `[data-frame-id="${frame.id}"] .pc-frame__sheet`,
   )
-  settleTileHover(sheet instanceof HTMLElement ? sheet : null)
-  hideGoCursor(true)
+  hideGoCursor()
+  const sheetEl = sheet instanceof HTMLElement ? sheet : null
+
   if (frameIsCurrent(frame)) {
+    settleTileHover(sheetEl)
+    await waitTileHoverSettle(sheetEl)
     closeCanvas()
     return
   }
@@ -1068,43 +1154,64 @@ async function goToFrame(frame: SiteNavFrame) {
       return
     }
 
-    if (frame.id === 'home') skipHeroIntro.value = true
-    open.value = false
-    swapCloseWord('menu')
-    spinCloseDots(false)
-
-    await router.push(frame.to)
-    await waitForRoutePaint()
-    if (gen !== motionGen) return
     if (frame.id === 'home') {
+      skipHeroIntro.value = true
+      heroGlRevealBusy.value = true
+      preloadHomeSceneAssets()
+    }
+
+    settleTileHover(sheetEl)
+    await waitTileHoverSettle(sheetEl)
+    if (gen !== motionGen) return
+
+    if (frame.id === 'home') {
+      setPageIrisGuard(true)
+      const { start } = await snapIrisCover()
+      if (gen !== motionGen) return
+      open.value = false
+
+      await router.push(frame.to)
+      await waitForHomeHeroShell()
+      if (gen !== motionGen) return
       await waitForHeroSwarm()
       if (gen !== motionGen) return
       await requestHeroGlPrewarm()
+      if (gen !== motionGen) return
+      setPageIrisGuard(false)
+      await waitFrames(isThumb.value ? 14 : 10)
+      if (gen !== motionGen) return
+
+      swapCloseWord('menu')
+      spinCloseDots(false)
+      await tweenIris({ dir: 'close', pill: start, followMenu: true })
+      if (gen !== motionGen) return
+      hideCanvasSurface()
+      await unlockSession({ restoreScroll: false })
+      heroGlRevealBusy.value = false
+    } else {
+      open.value = false
+      await gsap()
+      if (gen !== motionGen) return
+      swapCloseWord('menu')
+      spinCloseDots(false)
+      const { start } = await snapIrisCover()
+      if (gen !== motionGen) return
+
+      await router.push(frame.to)
+      await waitForRoutePaint()
+      if (gen !== motionGen) return
+
+      await tweenIris({ dir: 'close', pill: start, followMenu: true })
+      if (gen !== motionGen) return
+      hideCanvasSurface()
+      await unlockSession({ restoreScroll: false })
     }
     if (gen !== motionGen) return
-
-    const root = rootEl.value
-    setIrisLive(true)
-    await nextTick()
-    if (gen !== motionGen) return
-    syncNavChrome()
-    const start = irisButtonGeom()
-    const cover = irisCoverFrom(start)
-    if (root) applyIrisClip(root, clipFromGeom(cover))
-
-    await tweenIris({
-      from: cover,
-      to: start,
-      duration: IRIS_CLOSE_S,
-      ease: IRIS_CLOSE_EASE,
-    })
-    if (gen !== motionGen) return
-    hideCanvasSurface()
-    await unlockSession({ restoreScroll: false })
     lastFocus?.focus({ preventScroll: true })
     lastFocus = null
   } catch (err) {
     console.warn('[PageCanvas] hop failed', err)
+    finishMenuCloseQuiet()
     hideCanvasSurface()
     await unlockSession({ restoreScroll: false })
   } finally {
@@ -1116,7 +1223,7 @@ async function goToFrame(frame: SiteNavFrame) {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
-  if (!open.value) return
+  if (!open.value || busy.value) return
   e.preventDefault()
   e.stopPropagation()
   closeCanvas()
@@ -1125,12 +1232,10 @@ function onKeydown(e: KeyboardEvent) {
 watch(open, async (isOpen, wasOpen) => {
   if (isOpen) {
     shownCurrentId.value = matchFramePath(route.path)
-    busy.value = true
     const ae = document.activeElement
     lastFocus = ae instanceof HTMLElement ? ae : null
-    await nextTick()
     await playOpen()
-    if (open.value) closeBtnEl.value?.focus({ preventScroll: true })
+    if (open.value) menuButtonEl()?.focus({ preventScroll: true })
   } else if (wasOpen) {
     if (navFromCanvas || navHopActive.value) return
     await playClose()
@@ -1140,7 +1245,7 @@ watch(open, async (isOpen, wasOpen) => {
       lastFocus = null
     }
   }
-})
+}, { flush: 'sync' })
 
 watch(
   () => route.fullPath,
@@ -1209,8 +1314,11 @@ onUnmounted(() => {
       aria-modal="true"
       aria-label="Навигация по сайту"
     >
-      <div class="page-canvas__veil" @click="closeCanvas" />
+      <div ref="maskEl" class="page-canvas__mask">
+        <div class="page-canvas__veil" @click="closeCanvas" />
+      </div>
 
+      <div ref="navEl" class="page-canvas__nav">
       <div class="page-canvas__chrome">
         <div class="page-canvas__chrome-top">
           <div class="page-canvas__chrome-lead">
@@ -1256,34 +1364,6 @@ onUnmounted(() => {
               </span>
             </a>
           </div>
-          <button
-            ref="closeBtnEl"
-            type="button"
-            class="page-canvas__close chip-scale-host"
-            :tabindex="open ? 0 : -1"
-            aria-label="Закрыть меню"
-            @pointerenter="onChipPointer"
-            @pointerleave="onChipPointer"
-            @click="closeCanvas"
-          >
-            <span class="chip-scale-bg" aria-hidden="true" />
-            <span ref="closeWordEl" class="page-canvas__close-word">
-              <span class="page-canvas__close-sizers" aria-hidden="true">
-                <span ref="closeSizerMenuEl">меню</span>
-                <span ref="closeSizerBackEl">закрыть</span>
-              </span>
-              <span class="page-canvas__close-window">
-                <span ref="closeTrackEl" class="page-canvas__close-track">
-                  <span class="page-canvas__close-line">меню</span>
-                  <span class="page-canvas__close-line">закрыть</span>
-                </span>
-              </span>
-            </span>
-            <span ref="closeDotsEl" class="page-canvas__dots" aria-hidden="true">
-              <span class="page-canvas__dot" />
-              <span class="page-canvas__dot" />
-            </span>
-          </button>
         </div>
         <div class="page-canvas__chrome-foot">
           <button
@@ -1292,7 +1372,7 @@ onUnmounted(() => {
             :tabindex="open ? 0 : -1"
             aria-label="Switch language"
           >
-            EN
+            {{ isThumb ? 'en' : 'EN' }}
           </button>
         </div>
       </div>
@@ -1350,6 +1430,7 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+      </div>
     </div>
     <div ref="goEl" class="pc-go" aria-hidden="true">
       <span ref="goCircleEl" class="pc-go__circle">
@@ -1381,6 +1462,9 @@ onUnmounted(() => {
   display: block;
   visibility: visible;
   opacity: 1;
+  /* Stable containing block for fixed chrome + clip-path. Don't toggle
+     on iris start/end — layer promotion fights the WebGL compositor. */
+  transform: translateZ(0);
 }
 
 .page-canvas--open,
@@ -1390,6 +1474,18 @@ onUnmounted(() => {
 
 .page-canvas--surface:not(.page-canvas--open) {
   pointer-events: none;
+}
+
+.page-canvas__mask {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.page-canvas__nav {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 
 .page-canvas__veil {
@@ -1523,47 +1619,10 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(8px);
 }
 
-.page-canvas__close {
-  position: fixed;
-  top: var(--pc-inset-top);
-  right: var(--pc-inset-right);
-  z-index: 3;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-shrink: 0;
-  gap: 8px;
-  margin: 0;
-  padding: 8px 18px;
-  appearance: none;
-  border: 0;
-  border-radius: 9999px;
-  background: transparent;
-  font-family: inherit;
-  font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  cursor: pointer;
-  color: var(--palette-ink);
-  pointer-events: auto;
-}
-
 .page-canvas--thumb {
   --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
   --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
   --pc-inset-left: calc(2 * var(--layout-margin) + var(--safe-left, 0px));
-}
-
-.page-canvas--thumb .page-canvas__close {
-  top: auto;
-  right: var(--pc-inset-right);
-  bottom: var(--pc-inset-bottom);
-  padding: 10px 24px;
-  background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .page-canvas--thumb .page-canvas__chrome-foot {
@@ -1579,7 +1638,7 @@ onUnmounted(() => {
   height: var(--pc-close-h);
   display: inline-flex;
   align-items: center;
-  padding: 10px 0;
+  padding: 10px 1.1rem;
   font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
   font-weight: 500;
   letter-spacing: -0.02em;
@@ -1600,67 +1659,52 @@ onUnmounted(() => {
 .page-canvas--thumb .page-canvas__stage {
   padding-top: calc(var(--pc-inset-top) + var(--pc-lead-h) + 0.5rem);
   padding-bottom: calc(var(--pc-inset-bottom) + var(--pc-close-h) + 0.75rem);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
-.page-canvas__close-word {
-  position: relative;
-  z-index: 1;
-  display: block;
-  flex: 0 0 auto;
-  overflow: hidden;
-  height: 1.25em;
-  width: 2.75em;
-  transform: translateY(-2px);
+.page-canvas--thumb .page-canvas__desk {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem 0.55rem;
+  height: auto;
+  min-height: 0;
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  overflow: visible;
+  align-content: start;
+  padding-top: 0;
 }
 
-.page-canvas__close-sizers {
-  position: absolute;
-  left: 0;
-  top: 0;
-  visibility: hidden;
-  pointer-events: none;
-  white-space: nowrap;
+.page-canvas--thumb .pc-frame {
+  width: 100%;
+  max-width: none;
+  padding: 0.45rem;
+  gap: 0.4rem;
 }
 
-.page-canvas__close-sizers span {
-  display: block;
+.page-canvas--thumb .pc-frame__sheet {
+  aspect-ratio: 16 / 9;
 }
 
-.page-canvas__close-window {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
+.page-canvas--thumb .pc-frame__blurb {
+  display: none;
 }
 
-.page-canvas__close-track {
-  display: flex;
-  flex-direction: column;
+.page-canvas--thumb .pc-frame__label {
+  font-size: calc(var(--type-lead) * 0.88);
 }
 
-.page-canvas__close-line {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  height: 1.25em;
-  white-space: nowrap;
+.page-canvas--thumb .pc-frame__here {
+  padding: 0.12em 0.55em;
+  font-size: 0.55rem;
 }
 
-.page-canvas__dots {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transform-origin: center center;
-  will-change: transform;
-}
-
-.page-canvas__dot {
-  display: block;
-  width: 4px;
-  height: 4px;
-  border-radius: 9999px;
-  background: currentColor;
+@media (orientation: landscape) {
+  .page-canvas--thumb .page-canvas__desk {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .page-canvas__stage {
@@ -1706,34 +1750,6 @@ onUnmounted(() => {
   .page-canvas__chrome-top {
     padding: var(--pc-inset-top) var(--pc-inset-right) 0 var(--pc-inset-left);
     min-height: 0;
-  }
-
-  .page-canvas__stage {
-    overflow: hidden;
-    padding-top: calc(var(--pc-inset-top) + var(--pc-lead-h) + 0.5rem);
-    padding-bottom: calc(var(--pc-inset-bottom) + var(--pc-close-h) + 0.75rem);
-  }
-
-  .page-canvas__desk {
-    display: flex;
-    gap: 1.5rem;
-    height: 100%;
-    min-height: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-    touch-action: pan-x;
-    align-items: center;
-    padding-top: 0;
-  }
-
-  .pc-frame {
-    flex: 0 0 min(70vw, calc(50svh * var(--pc-aspect, 0.5)));
-  }
-
-  .pc-frame__sheet {
-    aspect-ratio: var(--pc-aspect, 9 / 19.5);
   }
 }
 

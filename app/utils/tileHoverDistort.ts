@@ -406,6 +406,35 @@ export function settleTileHover(host?: HTMLElement | null) {
   }
 }
 
+/** Wait until hover distort reaches full blend (used before iris hop / close). */
+export function waitTileHoverSettle(host?: HTMLElement | null): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve()
+
+  const layer = host
+    ? layerFor(host)
+    : (layers.find((l) => l.held && l.parent) ?? null)
+  if (!layer?.parent) return Promise.resolve()
+
+  const cur = factorOf(layer)
+  if (cur >= 0.995 && !layer.tween) return Promise.resolve()
+
+  const maxMs =
+    (Math.max(0.18, SPEED_IN * (1 - Math.min(cur, 0.99)) * 0.55) + 0.1) * 1000
+  const deadline = performance.now() + maxMs
+
+  return new Promise((resolve) => {
+    const tick = () => {
+      const f = factorOf(layer)
+      if ((f >= 0.995 && !layer.tween) || performance.now() >= deadline) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    tick()
+  })
+}
+
 export function leaveTileHover(host?: HTMLElement | null) {
   const targets = host
     ? [layerFor(host)].filter((l): l is Layer => !!l)
