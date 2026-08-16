@@ -31,6 +31,11 @@ const BALL_COUNT_MOBILE = 12
 /** Mobile on-screen diameter vs fluid curve. */
 const MOBILE_BALL_DIAMETER_SCALE = 1.2
 /**
+ * iOS gyro on — attach only after first paint, never with capture-phase
+ * unlock listeners during boot (that path blanked the hero on Safari).
+ */
+const GYRO_ENABLE_IOS = true
+/**
  * Lite keeps helix depth so balls sit on different planes
  * (1 = full tube, 0 = flat screen plane).
  */
@@ -170,6 +175,13 @@ const emit = defineEmits<{
 }>()
 
 const canvasHost = ref<HTMLElement | null>(null)
+/** iOS: show until DeviceOrientation permission is granted. */
+const motionUnlockVisible = ref(false)
+let gyroUnlockFn: (() => void) | null = null
+
+function onMotionUnlockTap() {
+  gyroUnlockFn?.()
+}
 
 let renderer: THREE.WebGLRenderer | null = null
 let animationId = 0
@@ -626,17 +638,17 @@ async function bootScene() {
   let tipFromGrav = false
   let tipGravStamp = 0
   /** Tip → balls toward lowered edge. */
-  const GYRO_DEPTH_FORCE = 0.00039
+  const GYRO_DEPTH_FORCE = 0.00072
   /** In-plane spin → tangential shove on the pile. */
-  const GYRO_YAW_FORCE = 0.00048
+  const GYRO_YAW_FORCE = 0.00088
   /** Brief orbit kick while spinning (rad/ms at full signal). */
-  const GYRO_SPIN_ORBIT = 0.0024
-  const GYRO_SMOOTH = 0.28
+  const GYRO_SPIN_ORBIT = 0.0042
+  const GYRO_SMOOTH = 0.32
   const GYRO_RATE_SCALE = 100
   const GYRO_DELTA_SCALE = 5
   const GYRO_TARGET_DECAY = 0.82
   /** Orient fallback: degrees of tip → full force (flat-relative). */
-  const GYRO_TIP_ANGLE = 28
+  const GYRO_TIP_ANGLE = 22
   const GYRO_SWEEP_FRONT = 0.32
   const GYRO_SWEEP_BACK = 1
   const lookTarget = new THREE.Vector3()
@@ -649,115 +661,169 @@ async function bootScene() {
   const LITE_MAX_SPEED = 0.22
   const LITE_LEASH = 2.2
   let removeGyroListeners: (() => void) | null = null
+  let gyroAttachScheduled = false
 
-  if (lite && !reduced && typeof window !== 'undefined') {
-    const unwrapDelta = (d: number) => {
-      if (d > 180) return d - 360
-      if (d < -180) return d + 360
-      return d
-    }
+  /** Wire unlock ASAP so the first tap can open the iOS permission sheet. */
+  const attachGyroSensors = () => {
+    if (!lite || reduced || typeof window === 'undefined') return
+    if (isIOS && !GYRO_ENABLE_IOS) return
+    if (removeGyroListeners) return
 
-    const onOrient = (e: DeviceOrientationEvent) => {
-      if (e.beta == null || e.gamma == null) return
-      gyroArmed = true
-
-      const gravFresh =
-        tipFromGrav && performance.now() - tipGravStamp < 250
-      if (!gravFresh) {
-        // Flat-relative: gamma>0 right edge down → balls right;
-        // beta>0 top raised (bottom lower) → balls down.
-        gyroRollT = THREE.MathUtils.clamp(e.gamma / GYRO_TIP_ANGLE, -1, 1)
-        gyroPitchT = THREE.MathUtils.clamp(-e.beta / GYRO_TIP_ANGLE, -1, 1)
+    try {
+      const unwrapDelta = (d: number) => {
+        if (d > 180) return d - 360
+        if (d < -180) return d + 360
+        return d
       }
 
-      if (e.alpha != null && prevAlpha != null) {
-        const ratesFresh =
-          gyroFromRate && performance.now() - gyroRateStamp < 200
-        if (!ratesFresh) {
-          const dA = unwrapDelta(e.alpha - prevAlpha)
-          if (Math.abs(dA) > 0.35) {
-            gyroYawT = THREE.MathUtils.clamp(dA / GYRO_DELTA_SCALE, -1, 1)
+      const onOrient = (e: DeviceOrientationEvent) => {
+        if (e.beta == null || e.gamma == null) return
+        gyroArmed = true
+        motionUnlockVisible.value = false
+
+        const gravFresh =
+          tipFromGrav && performance.now() - tipGravStamp < 250
+        if (!gravFresh) {
+          gyroRollT = THREE.MathUtils.clamp(e.gamma / GYRO_TIP_ANGLE, -1, 1)
+          gyroPitchT = THREE.MathUtils.clamp(-e.beta / GYRO_TIP_ANGLE, -1, 1)
+        }
+
+        if (e.alpha != null && prevAlpha != null) {
+          const ratesFresh =
+            gyroFromRate && performance.now() - gyroRateStamp < 200
+          if (!ratesFresh) {
+            const dA = unwrapDelta(e.alpha - prevAlpha)
+            if (Math.abs(dA) > 0.35) {
+              gyroYawT = THREE.MathUtils.clamp(dA / GYRO_DELTA_SCALE, -1, 1)
+            }
           }
         }
+        prevAlpha = e.alpha
       }
-      prevAlpha = e.alpha
-    }
 
-    const onMotion = (e: DeviceMotionEvent) => {
-      gyroArmed = true
+      const onMotion = (e: DeviceMotionEvent) => {
+        gyroArmed = true
+        motionUnlockVisible.value = false
 
-      // Gravity on the screen plane → balls toward the lowered edge.
-      // Lift right edge → left lower → ax < 0 → balls left; lift top → balls down.
-      const g = e.accelerationIncludingGravity
-      if (g && g.x != null && g.y != null) {
-        const gx = g.x / 9.81
-        const gy = g.y / 9.81
-        if (Math.hypot(gx, gy) < 0.08) {
-          // Face-up on the table — no in-plane tip.
-          gyroRollT = 0
-          gyroPitchT = 0
-        } else {
-          gyroRollT = THREE.MathUtils.clamp(gx, -1, 1)
-          gyroPitchT = THREE.MathUtils.clamp(gy, -1, 1)
+        const g = e.accelerationIncludingGravity
+        if (g && g.x != null && g.y != null) {
+          const gx = g.x / 9.81
+          const gy = g.y / 9.81
+          if (Math.hypot(gx, gy) < 0.08) {
+            gyroRollT = 0
+            gyroPitchT = 0
+          } else {
+            gyroRollT = THREE.MathUtils.clamp(gx, -1, 1)
+            gyroPitchT = THREE.MathUtils.clamp(gy, -1, 1)
+          }
+          tipFromGrav = true
+          tipGravStamp = performance.now()
         }
-        tipFromGrav = true
-        tipGravStamp = performance.now()
-      }
 
-      const r = e.rotationRate
-      if (r && r.alpha != null) {
-        gyroFromRate = true
-        gyroRateStamp = performance.now()
-        gyroYawT = THREE.MathUtils.clamp(r.alpha / GYRO_RATE_SCALE, -1, 1)
-      }
-    }
-
-    const startListening = () => {
-      window.addEventListener('deviceorientation', onOrient, { passive: true })
-      window.addEventListener('deviceorientationabsolute', onOrient, {
-        passive: true,
-      })
-      window.addEventListener('devicemotion', onMotion, { passive: true })
-      removeGyroListeners = () => {
-        window.removeEventListener('deviceorientation', onOrient)
-        window.removeEventListener('deviceorientationabsolute', onOrient)
-        window.removeEventListener('devicemotion', onMotion)
-        removeGyroListeners = null
-      }
-    }
-
-    const DOE = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
-      requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
-    }
-    const DME = DeviceMotionEvent as typeof DeviceMotionEvent & {
-      requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
-    }
-
-    if (isIOS && typeof DOE.requestPermission === 'function') {
-      const unlock = () => {
-        window.removeEventListener('pointerdown', unlock, true)
-        window.removeEventListener('touchend', unlock, true)
-        const tasks: Promise<string>[] = [DOE.requestPermission!()]
-        if (typeof DME.requestPermission === 'function') {
-          tasks.push(DME.requestPermission!())
+        const r = e.rotationRate
+        if (r && r.alpha != null) {
+          gyroFromRate = true
+          gyroRateStamp = performance.now()
+          gyroYawT = THREE.MathUtils.clamp(r.alpha / GYRO_RATE_SCALE, -1, 1)
         }
-        void Promise.allSettled(tasks).then((results) => {
-          const ok = results.some(
-            (r) => r.status === 'fulfilled' && r.value === 'granted',
-          )
-          if (ok && gen === bootGen) startListening()
-        })
       }
-      window.addEventListener('pointerdown', unlock, { capture: true, passive: true })
-      window.addEventListener('touchend', unlock, { capture: true, passive: true })
-      removeGyroListeners = () => {
-        window.removeEventListener('pointerdown', unlock, true)
-        window.removeEventListener('touchend', unlock, true)
-        removeGyroListeners = null
+
+      const startListening = () => {
+        window.addEventListener('deviceorientation', onOrient, { passive: true })
+        window.addEventListener('devicemotion', onMotion, { passive: true })
+        motionUnlockVisible.value = false
+        gyroUnlockFn = null
+        removeGyroListeners = () => {
+          window.removeEventListener('deviceorientation', onOrient)
+          window.removeEventListener('devicemotion', onMotion)
+          removeGyroListeners = null
+        }
       }
-    } else {
-      startListening()
+
+      const DOE = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+        requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
+      }
+      const DME = DeviceMotionEvent as typeof DeviceMotionEvent & {
+        requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
+      }
+
+      const needsIosPerm =
+        isIOS && typeof DOE.requestPermission === 'function'
+
+      if (needsIosPerm) {
+        // iOS: sensors need a secure context + a user gesture calling requestPermission.
+        if (!window.isSecureContext) {
+          motionUnlockVisible.value = false
+          return
+        }
+
+        let unlocking = false
+        const detachUnlock = () => {
+          document.removeEventListener('pointerdown', unlock)
+          document.removeEventListener('touchend', unlock)
+          gyroUnlockFn = null
+        }
+
+        const unlock = () => {
+          if (unlocking || gen !== bootGen) return
+          unlocking = true
+
+          const tasks: Promise<string>[] = []
+          try {
+            tasks.push(DOE.requestPermission!())
+          } catch {
+            /* ignore */
+          }
+          if (typeof DME.requestPermission === 'function') {
+            try {
+              tasks.push(DME.requestPermission!())
+            } catch {
+              /* ignore */
+            }
+          }
+
+          void Promise.allSettled(tasks).then((results) => {
+            if (gen !== bootGen) return
+            const ok = results.some(
+              (r) => r.status === 'fulfilled' && r.value === 'granted',
+            )
+            if (ok) {
+              detachUnlock()
+              startListening()
+            } else {
+              // Keep button + listeners — denied / dismissed can retry.
+              unlocking = false
+            }
+          })
+        }
+
+        // Bubble only (capture-during-boot blanked the hero on Safari).
+        document.addEventListener('pointerdown', unlock, { passive: true })
+        document.addEventListener('touchend', unlock, { passive: true })
+        gyroUnlockFn = unlock
+        motionUnlockVisible.value = true
+        removeGyroListeners = () => {
+          detachUnlock()
+          motionUnlockVisible.value = false
+          removeGyroListeners = null
+        }
+      } else {
+        startListening()
+      }
+    } catch {
+      removeGyroListeners?.()
+      removeGyroListeners = null
+      motionUnlockVisible.value = false
     }
+  }
+
+  const scheduleGyroAttach = () => {
+    if (gyroAttachScheduled) return
+    if (!lite || reduced) return
+    if (isIOS && !GYRO_ENABLE_IOS) return
+    gyroAttachScheduled = true
+    // Immediate — delayed wire missed the first tap (no permission sheet).
+    attachGyroSensors()
   }
 
   const pointer = new THREE.Vector3()
@@ -1515,6 +1581,7 @@ async function bootScene() {
   syncCamera({ force: true })
   gl.render(scene, camera)
   if (lite) emitLit()
+  scheduleGyroAttach()
 
   if (props.active) startLoop()
   else stopLoop()
@@ -1533,14 +1600,30 @@ async function bootScene() {
 </script>
 
 <template>
-  <div
-    ref="canvasHost"
-    class="hero-swarm size-full touch-pan-y"
-    aria-hidden="true"
-  />
+  <div class="hero-swarm-root size-full">
+    <div
+      ref="canvasHost"
+      class="hero-swarm size-full touch-pan-y"
+      aria-hidden="true"
+    />
+    <Teleport to="body">
+      <button
+        v-if="motionUnlockVisible"
+        type="button"
+        class="motion-unlock"
+        @pointerdown.prevent="onMotionUnlockTap"
+      >
+        Включить гироскоп
+      </button>
+    </Teleport>
+  </div>
 </template>
 
 <style scoped>
+.hero-swarm-root {
+  position: relative;
+}
+
 .hero-swarm {
   cursor: grab;
   /* Belt-and-suspenders: never let the GL surface own vertical gestures. */
@@ -1549,7 +1632,7 @@ async function bootScene() {
 
 /* Under the brand preloader: keep the GL layer out of the compositor.
    Prefer opacity — a child with visibility:visible can override a hidden parent. */
-.hero-swarm--cold {
+.hero-swarm-root.hero-swarm--cold .hero-swarm {
   opacity: 0;
   pointer-events: none;
 }
@@ -1562,5 +1645,25 @@ async function bootScene() {
   display: block;
   width: 100%;
   height: 100%;
+}
+</style>
+
+<style>
+/* Teleported — must not be scoped (lives on body). */
+.motion-unlock {
+  position: fixed;
+  left: 50%;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  z-index: 80;
+  transform: translateX(-50%);
+  padding: 0.7rem 1.15rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(20, 18, 16, 0.88);
+  color: #f4efe8;
+  font: 600 0.875rem/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
 }
 </style>

@@ -10,6 +10,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   // Bind on all interfaces so phone can open the LAN IP.
+  // Device motion on iOS: use a public HTTPS tunnel (see preview:tunnel), not LAN HTTP.
   devServer: {
     host: '0.0.0.0',
     port: 3000,
@@ -20,13 +21,13 @@ export default defineNuxtConfig({
     server: {
       host: true,
       strictPort: true,
+      // Localtunnel / Cloudflare quick tunnels hit Vite's host check otherwise.
+      allowedHosts: ['.loca.lt', '.trycloudflare.com', '.ngrok-free.app', '.ngrok.io'],
       // Vite 8: WS options live on `server.ws` (hmr.* is deprecated).
-      // Same port as Nuxt so phone LAN doesn't fall back to :5173 and hang.
-      // Short timeout: a wedged WS must not freeze the PC tab forever.
+      // Bind HMR on the Nuxt port, but do NOT force client protocol/port —
+      // HTTPS tunnels need wss://host (443), LAN keeps ws://ip:3000 via location.
       ws: {
-        protocol: 'ws',
         port: 3000,
-        clientPort: 3000,
         timeout: 2000,
       },
     },

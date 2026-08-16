@@ -489,6 +489,16 @@ watch(
   { immediate: true },
 )
 
+/** Mobile: once GL is lit and preload is done, show the swarm — don’t depend only on iris revealT. */
+watch(
+  [swarmLit, () => preload.revealed.value],
+  ([lit, rev]) => {
+    if (!lit || !rev || !mobileLite.value) return
+    swarmLoopReady.value = true
+    coverMayLift.value = true
+  },
+)
+
 onMounted(() => {
   if (pageIrisLive.value) {
     glCoverHopSession.value = true

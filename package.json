@@ -8,6 +8,7 @@
     "pregenerate": "npm run tokens:fluid",
     "build": "npm run tokens:fluid && nuxt build",
     "dev": "nuxt dev --host",
+    "preview:tunnel": "npx --yes localtunnel --port 3000",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "previews": "node scripts/capture-previews.mjs",

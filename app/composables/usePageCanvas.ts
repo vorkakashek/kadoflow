@@ -131,10 +131,25 @@ export function usePageCanvas() {
     })
   }
 
-  function requestHeroGlPrewarm() {
+  /**
+   * Ask HomeHeroStage to paint under the lid. Always time out — if the hero
+   * never mounts / never answers, menu→home must not hang forever (busy lock).
+   */
+  function requestHeroGlPrewarm(maxMs = 900) {
     return new Promise<void>((resolve) => {
-      heroGlPrewarmResolvers.push(resolve)
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        resolve()
+      }
+      heroGlPrewarmResolvers.push(finish)
       heroGlPrewarm.value += 1
+      if (import.meta.client) {
+        window.setTimeout(() => {
+          resolveHeroGlPrewarm()
+        }, maxMs)
+      }
     })
   }
 

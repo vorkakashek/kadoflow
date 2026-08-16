@@ -26,6 +26,7 @@ const {
   skipHeroIntro,
   waitForHeroSwarm,
   requestHeroGlPrewarm,
+  resolveHeroGlPrewarm,
   closeCanvas,
   restoreFabLabel,
   fabLabelOn,
@@ -1080,6 +1081,9 @@ async function goToFrame(frame: SiteNavFrame) {
   } finally {
     navFromCanvas = false
     navHopActive.value = false
+    setPageIrisGuard(false)
+    heroGlRevealBusy.value = false
+    resolveHeroGlPrewarm()
     if (gen === motionGen) busy.value = false
   }
 }
