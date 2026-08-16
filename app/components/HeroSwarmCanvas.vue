@@ -547,13 +547,20 @@ async function bootScene() {
   }
   for (const material of materialPlan) material.dispose()
 
+  let litEmitted = false
+  const emitLit = () => {
+    if (litEmitted || gen !== bootGen) return
+    litEmitted = true
+    emit('lit')
+  }
+
   const applyEnvAssets = async () => {
     let assets: (THREE.DataTexture | THREE.Texture)[]
     try {
       assets = await assetsPromise
     } catch {
       pmrem.dispose()
-      if (gen === bootGen) emit('lit')
+      emitLit()
       return
     }
     if (gen !== bootGen || renderer !== gl) {
@@ -587,9 +594,11 @@ async function bootScene() {
 
     syncCamera({ force: true })
     gl.render(scene, camera)
-    emit('lit')
+    emitLit()
   }
   void applyEnvAssets()
+  // iOS: HDRI can hang on flaky nets — never leave the stone cover forever.
+  window.setTimeout(() => emitLit(), lite ? 1800 : 6000)
 
   const anchor = new THREE.Vector3(1.55, 0.05, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */
@@ -1501,6 +1510,12 @@ async function bootScene() {
 
   runFrame = tick
   if (gen !== bootGen) return
+
+  // Lite: lights alone are enough — lift the stone cover without waiting on HDRI.
+  syncCamera({ force: true })
+  gl.render(scene, camera)
+  if (lite) emitLit()
+
   if (props.active) startLoop()
   else stopLoop()
 

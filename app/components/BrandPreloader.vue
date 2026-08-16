@@ -385,7 +385,9 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         })
       }
       // Intros under the iris. Mobile keeps WebGL cold until veil ends (hero watches revealT).
+      // markRevealed() stamps revealT=1 — reset so iris progress can climb 0→1.
       preload.markRevealed()
+      preload.setRevealT(0)
     })
 
     if (irisHoleEl.value) {

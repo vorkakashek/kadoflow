@@ -587,18 +587,23 @@ onMounted(() => {
         }
         // `let` — immediate watch can fire before assignment (SPA return, revealT≈1).
         let stopRevealWatch: (() => void) | undefined
+        const armSwarm = () => {
+          if (gen !== introGen) return
+          swarmLoopReady.value = true
+          coverMayLift.value = true
+          stopRevealWatch?.()
+          stopRevealWatch = undefined
+        }
         stopRevealWatch = watch(
           () => preload.revealT.value,
           (t) => {
             if (t < 0.97) return
-            stopRevealWatch?.()
-            stopRevealWatch = undefined
-            if (gen !== introGen) return
-            swarmLoopReady.value = true
-            coverMayLift.value = true
+            armSwarm()
           },
           { immediate: true },
         )
+        // iOS: if iris progress never hits 0.97, don't leave an empty stone forever.
+        window.setTimeout(armSwarm, 1600)
       } else {
         // Desktop: run GL under the stone lid first, then fade media + lift lid.
         swarmLoopReady.value = true
