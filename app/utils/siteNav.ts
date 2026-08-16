@@ -30,7 +30,7 @@ export const headerLinks = [
   { label: 'контакт', to: '/contact' },
 ] as const
 
-/** Full Page Canvas layout — 2 per row on desktop. Equal tile size. */
+/** Full Page Canvas — link list + hover preview. */
 export const canvasFrames: SiteNavFrame[] = [
   {
     id: 'home',

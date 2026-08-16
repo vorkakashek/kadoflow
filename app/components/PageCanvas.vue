@@ -15,7 +15,6 @@ import {
   type IrisGeom,
 } from '~/utils/irisClip'
 import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
-import { setChipBgOrigin } from '~/utils/chipHoverBg'
 
 const {
   open,
@@ -65,9 +64,23 @@ const NAV_LEAVE_WIPE_S = 0.24
 const NAV_LEAVE_WIPE_DELAY = 0.048
 const NAV_WAVE_AMP = 3.4
 const NAV_WAVE_VB_W = 64
-const PLAQUE_IMG_S = 0.52
-const PLAQUE_TXT_S = 0.44
-const PLAQUE_STAGGER = 0.055
+const LINK_ENTER_S = 0.48
+const PREVIEW_ENTER_S = 0.52
+const LINK_STAGGER = 0.045
+
+/** Hovered / focused link — drives the right-hand preview. */
+const hoverId = ref<string | null>(null)
+
+const previewId = computed(() => {
+  if (hoverId.value) return hoverId.value
+  /* Touch / coarse: keep a default so the plate isn’t empty. */
+  if (isThumb.value || isNarrow.value) return shownCurrentId.value
+  return null
+})
+
+const previewFrame = computed(
+  () => canvasFrames.find((f) => f.id === previewId.value) ?? null,
+)
 
 let gsapMod: typeof import('gsap').default | null = null
 let motionGen = 0
@@ -118,8 +131,7 @@ function killActiveMotion() {
 
 function onShotError(e: Event) {
   const img = e.target as HTMLImageElement
-  const color = img.getAttribute('data-color')
-  if (color && img.src !== color) img.src = color
+  img.style.opacity = '0'
 }
 
 async function gsap() {
@@ -288,8 +300,36 @@ function frameIsCurrent(frame: SiteNavFrame) {
   return frame.id === shownCurrentId.value
 }
 
-function frameShot(frame: SiteNavFrame, tone: 'color' | 'bw') {
-  return tone === 'bw' ? frame.previewBw : frame.preview
+function frameShot(frame: SiteNavFrame) {
+  return isThumb.value ? frame.previewM : frame.preview
+}
+
+function linkIsHot(frame: SiteNavFrame) {
+  return previewId.value === frame.id
+}
+
+function setHoverFrame(frame: SiteNavFrame | null) {
+  hoverId.value = frame?.id ?? null
+}
+
+function onLinkEnter(frame: SiteNavFrame) {
+  if (!open.value) return
+  setHoverFrame(frame)
+}
+
+function onLinkLeave(e: PointerEvent) {
+  const next = e.relatedTarget
+  if (next instanceof Element) {
+    if (next.closest('.pc-link') || next.closest('.pc-preview')) return
+  }
+  /* Fine pointer: empty the plate when leaving the split (links + preview). */
+  if (!isThumb.value && !isNarrow.value) setHoverFrame(null)
+  hideGoCursor()
+}
+
+function onLinkFocus(frame: SiteNavFrame) {
+  if (!open.value) return
+  setHoverFrame(frame)
 }
 
 function setIrisLive(on: boolean) {
@@ -408,29 +448,18 @@ function lockScroll(lock: boolean, restoreY = savedScrollY) {
 
 function frameButton(id: string) {
   return rootEl.value?.querySelector(
-    `.pc-frame[data-frame-id="${id}"]`,
+    `.pc-link[data-frame-id="${id}"]`,
   ) as HTMLElement | null
 }
 
 function navScrollRoot() {
-  return isNarrow.value ? deskEl.value : stageEl.value
+  return stageEl.value
 }
 
 function frameScrollTargets(frameId: string) {
   const frame = frameButton(frameId)
   const scroller = navScrollRoot()
   if (!frame || !scroller) return null
-
-  if (isNarrow.value) {
-    return {
-      scroller,
-      left: Math.max(
-        0,
-        frame.offsetLeft - (scroller.clientWidth - frame.offsetWidth) / 2,
-      ),
-      top: scroller.scrollTop,
-    }
-  }
 
   const frameRect = frame.getBoundingClientRect()
   const box = scroller.getBoundingClientRect()
@@ -453,9 +482,7 @@ async function ensureFrameCentered(
   const { scroller, left, top } = targets
   const dx = Math.abs(left - scroller.scrollLeft)
   const dy = Math.abs(top - scroller.scrollTop)
-  const minDelta = isNarrow.value
-    ? Math.max(10, scroller.clientWidth * 0.03)
-    : Math.max(10, scroller.clientHeight * 0.03)
+  const minDelta = Math.max(10, scroller.clientHeight * 0.03)
   if (dx < minDelta && dy < minDelta) return
 
   const smooth = behavior === 'smooth' && !reducedMotion.value
@@ -656,11 +683,6 @@ function releaseGoCursor() {
 
 function onGoPressDown(e: PointerEvent) {
   if (e.button !== 0) return
-  const frame = e.currentTarget
-  if (frame instanceof HTMLElement) {
-    const bg = frame.querySelector('.pc-frame__hover-bg')
-    if (bg instanceof HTMLElement) setChipBgOrigin(bg, e)
-  }
   if (e.pointerType === 'touch') return
   if (!canUseGoCursor()) return
   clearGoPressListeners()
@@ -674,30 +696,23 @@ function onGoPressUp() {
   releaseGoCursor()
 }
 
-function onFramePointer(e: PointerEvent) {
-  const frame = e.currentTarget
-  if (!(frame instanceof HTMLElement)) return
-  const bg = frame.querySelector('.pc-frame__hover-bg')
-  if (bg instanceof HTMLElement) setChipBgOrigin(bg, e)
+function plaqueLinks() {
+  return rootEl.value?.querySelectorAll('.pc-link') ?? []
 }
 
-function plaqueSheets() {
-  return rootEl.value?.querySelectorAll('.pc-frame__sheet') ?? []
-}
-
-function plaqueMetas() {
-  return rootEl.value?.querySelectorAll('.pc-frame__meta') ?? []
+function previewShell() {
+  return rootEl.value?.querySelector('.pc-preview') as HTMLElement | null
 }
 
 function resetEnterProps() {
   if (!gsapMod) return
-  const sheets = plaqueSheets()
-  const metas = plaqueMetas()
-  if (sheets.length) {
-    gsapMod.set(sheets, { clearProps: 'opacity,visibility,transform' })
+  const links = plaqueLinks()
+  const preview = previewShell()
+  if (links.length) {
+    gsapMod.set(links, { clearProps: 'opacity,visibility,transform' })
   }
-  if (metas.length) {
-    gsapMod.set(metas, { clearProps: 'opacity,visibility,transform' })
+  if (preview) {
+    gsapMod.set(preview, { clearProps: 'opacity,visibility,transform' })
   }
   const chip = menuChip()
   if (chip?.track) gsapMod.set(chip.track, { yPercent: 0 })
@@ -802,49 +817,47 @@ function resetNavVisibility() {
 
 async function playPlaqueEnter() {
   const g = await gsap()
-  const sheets = plaqueSheets()
-  const metas = plaqueMetas()
+  const links = plaqueLinks()
+  const preview = previewShell()
   enterTl?.kill()
-  if (!sheets.length) return
-  g.set(sheets, { autoAlpha: 0, y: 28, scale: 0.97 })
-  if (metas.length) g.set(metas, { autoAlpha: 0, y: 16 })
+  if (!links.length) return
+  g.set(links, { autoAlpha: 0, y: 18 })
+  if (preview) g.set(preview, { autoAlpha: 0, y: 20 })
   if (reducedMotion.value) {
-    g.set(sheets, { autoAlpha: 1, y: 0, scale: 1 })
-    if (metas.length) g.set(metas, { autoAlpha: 1, y: 0 })
+    g.set(links, { autoAlpha: 1, y: 0 })
+    if (preview) g.set(preview, { autoAlpha: 1, y: 0 })
     return
   }
   const tl = g.timeline()
   enterTl = tl
   tl.to(
-    sheets,
+    links,
     {
       autoAlpha: 1,
       y: 0,
-      scale: 1,
-      duration: PLAQUE_IMG_S,
-      stagger: PLAQUE_STAGGER,
+      duration: LINK_ENTER_S,
+      stagger: LINK_STAGGER,
       ease: 'power3.out',
     },
-    0.18,
+    0.16,
   )
-  if (metas.length) {
+  if (preview) {
     tl.to(
-      metas,
+      preview,
       {
         autoAlpha: 1,
         y: 0,
-        duration: PLAQUE_TXT_S,
-        stagger: PLAQUE_STAGGER,
+        duration: PREVIEW_ENTER_S,
         ease: 'power3.out',
       },
-      0.32,
+      0.28,
     )
   }
 }
 
 function onSheetEnter(e: PointerEvent) {
   if (e.pointerType === 'touch') return
-  if (!open.value) return
+  if (!open.value || !previewFrame.value) return
   if (canUseGoCursor()) showGoCursor(e.clientX, e.clientY)
 }
 
@@ -857,9 +870,13 @@ function onSheetLeave(e: PointerEvent) {
   const sheet = e.currentTarget as HTMLElement
   const next = e.relatedTarget
   if (next instanceof Element && sheet.contains(next)) return
-  const toOtherSheet =
-    next instanceof Element && !!next.closest('.pc-frame__sheet')
-  if (!toOtherSheet) hideGoCursor()
+  hideGoCursor()
+}
+
+function onPreviewClick() {
+  const frame = previewFrame.value
+  if (!frame) return
+  void goToFrame(frame)
 }
 
 function mailWavePath(amp: number) {
@@ -1258,15 +1275,21 @@ function onKeydown(e: KeyboardEvent) {
   closeCanvas()
 }
 
+watch(previewId, (id) => {
+  if (!id) hideGoCursor()
+})
+
 watch(open, async (isOpen, wasOpen) => {
   if (isOpen) {
     shownCurrentId.value = matchFramePath(route.path)
+    hoverId.value = null
     const ae = document.activeElement
     lastFocus = ae instanceof HTMLElement ? ae : null
     await playOpen()
     if (open.value) menuButtonEl()?.focus({ preventScroll: true })
   } else if (wasOpen) {
     if (navFromCanvas || navHopActive.value) return
+    hoverId.value = null
     await playClose()
     if (!open.value) {
       hideCanvasSurface()
@@ -1411,59 +1434,62 @@ onUnmounted(() => {
       </div>
 
       <div ref="stageEl" class="page-canvas__stage" data-pc-scroller>
-        <div ref="deskEl" class="page-canvas__desk" role="list" data-pc-scroller-x>
-          <button
-            v-for="frame in canvasFrames"
-            :key="frame.id"
-            type="button"
-            class="pc-frame"
-            :class="[
-              `pc-frame--${frame.motif}`,
-              { 'pc-frame--current': frameIsCurrent(frame) },
-            ]"
-            :data-frame-id="frame.id"
-            role="listitem"
-            :tabindex="open ? 0 : -1"
-            :aria-current="frameIsCurrent(frame) ? 'page' : undefined"
-            @click="goToFrame(frame)"
-            @pointerenter="onFramePointer"
-            @pointerdown="onGoPressDown"
+        <div
+          ref="deskEl"
+          class="page-canvas__desk"
+          @pointerleave="onLinkLeave"
+        >
+          <nav
+            class="pc-links"
+            aria-label="Страницы"
           >
-            <span class="pc-frame__hover-bg" aria-hidden="true" />
+            <button
+              v-for="frame in canvasFrames"
+              :key="frame.id"
+              type="button"
+              class="pc-link"
+              :class="{
+                'pc-link--current': frameIsCurrent(frame),
+                'pc-link--hot': linkIsHot(frame),
+              }"
+              :data-frame-id="frame.id"
+              :tabindex="open ? 0 : -1"
+              :aria-current="frameIsCurrent(frame) ? 'page' : undefined"
+              @click="goToFrame(frame)"
+              @pointerenter="onLinkEnter(frame)"
+              @focusin="onLinkFocus(frame)"
+            >
+              <span class="pc-link__index">{{ frame.index }}</span>
+              <span class="pc-link__label">{{ frame.label }}</span>
+            </button>
+          </nav>
+
+          <div
+            class="pc-preview"
+            :class="{ 'pc-preview--on': !!previewFrame }"
+            aria-hidden="true"
+          >
             <div
-              class="pc-frame__sheet"
-              aria-hidden="true"
+              class="pc-preview__sheet"
+              :class="{ 'pc-preview__sheet--live': !!previewFrame }"
+              @click="onPreviewClick"
               @pointerenter="onSheetEnter"
               @pointermove="onSheetMove"
               @pointerleave="onSheetLeave"
+              @pointerdown="onGoPressDown"
             >
-              <div class="pc-frame__paint">
-                <img
-                  class="pc-frame__shot pc-frame__shot--bw"
-                  :src="frameShot(frame, 'bw')"
-                  :data-color="frameShot(frame, 'color')"
-                  alt=""
-                  draggable="false"
-                  @error="onShotError"
-                >
-                <img
-                  class="pc-frame__shot pc-frame__shot--color"
-                  :src="frameShot(frame, 'color')"
-                  alt=""
-                  draggable="false"
-                >
-                <div class="pc-frame__motif" />
-              </div>
+              <img
+                v-for="frame in canvasFrames"
+                :key="frame.id"
+                class="pc-preview__shot"
+                :class="{ 'is-visible': previewId === frame.id }"
+                :src="frameShot(frame)"
+                alt=""
+                draggable="false"
+                @error="onShotError"
+              >
             </div>
-            <div class="pc-frame__meta">
-              <span class="pc-frame__index">{{ frame.index }}</span>
-              <div class="pc-frame__title-row">
-                <span class="pc-frame__label">{{ frame.label }}</span>
-                <span v-if="frameIsCurrent(frame)" class="pc-frame__here">Вы здесь</span>
-              </div>
-              <span class="pc-frame__blurb">{{ frame.blurb }}</span>
-            </div>
-          </button>
+          </div>
         </div>
       </div>
       </div>
@@ -1700,48 +1726,30 @@ onUnmounted(() => {
 }
 
 .page-canvas--thumb .page-canvas__desk {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.7rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
   height: auto;
   min-height: 0;
   width: 100%;
   max-width: none;
   margin-inline: 0;
   overflow: visible;
-  align-content: start;
   padding-top: 0;
 }
 
-.page-canvas--thumb .pc-frame {
-  --pc-frame-pad: 0.45rem;
+.page-canvas--thumb .pc-preview {
+  order: -1;
   width: 100%;
   max-width: none;
-  padding: var(--pc-frame-pad);
-  gap: 0.4rem;
 }
 
-.page-canvas--thumb .pc-frame__sheet {
-  aspect-ratio: 16 / 9;
+.page-canvas--thumb .pc-links {
+  width: 100%;
 }
 
-.page-canvas--thumb .pc-frame__blurb {
-  display: none;
-}
-
-.page-canvas--thumb .pc-frame__label {
-  font-size: calc(var(--type-lead) * 0.88);
-}
-
-.page-canvas--thumb .pc-frame__here {
-  padding: 0.12em 0.55em;
-  font-size: 0.55rem;
-}
-
-@media (orientation: landscape) {
-  .page-canvas--thumb .page-canvas__desk {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.page-canvas--thumb .pc-link__label {
+  font-size: calc(var(--type-lead) * 1.15);
 }
 
 .page-canvas__stage {
@@ -1793,240 +1801,130 @@ onUnmounted(() => {
 @media (min-width: 768px) {
   .page-canvas__desk {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: clamp(2rem, 4.2vh, 3.75rem);
-    align-content: start;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: clamp(1.5rem, 4vw, 3.5rem);
+    align-items: center;
     width: 100%;
-    max-width: var(--layout-span-9);
+    max-width: var(--layout-span-10);
     margin-inline: auto;
     padding-inline: 0;
     padding-top: clamp(0.35rem, 1.5vh, 1.25rem);
     padding-bottom: 1.25rem;
   }
-
-  .pc-frame {
-    width: 100%;
-    max-width: none;
-    justify-self: stretch;
-  }
 }
 
-@media (min-width: 1400px) {
-  .page-canvas__desk {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    max-width: var(--layout-span-8);
-  }
-}
-
-.pc-frame {
-  --pc-frame-pad: 1rem;
-  position: relative;
+.pc-links {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  padding: var(--pc-frame-pad);
-  overflow: hidden;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.pc-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0.2rem 0;
   border: 0;
-  border-radius: 10px;
   background: transparent;
-  text-align: left;
   color: inherit;
-  cursor: default;
-  outline: none;
   font: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
 }
 
-.pc-frame__hover-bg {
-  position: absolute;
-  z-index: 0;
-  /* Screenshot-sized rectangle — grows from the pointer like header chips. */
-  top: var(--pc-frame-pad);
-  left: var(--pc-frame-pad);
-  width: calc(100% - 2 * var(--pc-frame-pad));
-  aspect-ratio: var(--pc-aspect, 16 / 9);
-  border-radius: 4px;
-  pointer-events: none;
-  background: color-mix(
-    in srgb,
-    var(--palette-ink) 6.5%,
-    color-mix(in srgb, var(--palette-sand) 86%, var(--palette-ash))
-  );
-  transform: scale(0);
-  transform-origin: var(--chip-bg-x, 50%) var(--chip-bg-y, 50%);
-  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+.pc-link__index {
+  flex: 0 0 auto;
+  font-size: calc(var(--type-nav) * 0.72);
+  letter-spacing: 0.08em;
+  color: var(--palette-ash);
+  line-height: 1;
+  transform: translateY(-0.05em);
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .pc-frame:hover .pc-frame__hover-bg {
-    /* Past 1 so the plate shows in the frame padding, like the current tile. */
-    transform: scale(1.12);
-  }
+.pc-link__label {
+  font-size: clamp(1.65rem, 3.6vw, 3.1rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  color: color-mix(in srgb, var(--palette-ink) 42%, var(--palette-ash));
+  transition: color 0.28s var(--motion-ease, ease);
 }
 
-.pc-frame:focus-visible .pc-frame__hover-bg {
-  transform: scale(1.12);
+.pc-link--hot .pc-link__label,
+.pc-link:focus-visible .pc-link__label {
+  color: var(--palette-ink);
 }
 
-.pc-frame[data-chip-press] .pc-frame__hover-bg {
-  transform: scale(1.2);
+.pc-link--current .pc-link__label {
+  color: var(--palette-ink);
 }
 
-.pc-frame--current .pc-frame__hover-bg {
-  opacity: 0;
+.pc-link--current .pc-link__index {
+  color: var(--palette-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pc-frame__hover-bg {
-    transform: none;
-    opacity: 0;
-    transition: opacity 0.01s linear;
-  }
-
-  .pc-frame:hover .pc-frame__hover-bg,
-  .pc-frame:focus-visible .pc-frame__hover-bg,
-  .pc-frame[data-chip-press] .pc-frame__hover-bg {
-    transform: none;
-    opacity: 1;
-  }
-
-  .pc-frame--current .pc-frame__hover-bg {
-    opacity: 0;
+  .pc-link__label {
+    transition: none;
   }
 }
 
-.pc-frame__sheet {
+.pc-preview {
   position: relative;
-  z-index: 1;
+  width: 100%;
+  min-width: 0;
+  opacity: 0.55;
+  transition: opacity 0.32s var(--motion-ease, ease);
+}
+
+.pc-preview--on {
+  opacity: 1;
+}
+
+.pc-preview__sheet {
+  position: relative;
   aspect-ratio: var(--pc-aspect, 16 / 9);
   border-radius: 4px;
-  background: var(--palette-stone);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--palette-stone) 55%, var(--palette-sand));
+  cursor: default;
 }
 
-.pc-frame__paint {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
-  border-radius: inherit;
+.pc-preview__sheet--live {
+  cursor: pointer;
 }
 
 @media (pointer: fine) {
-  .pc-frame__sheet {
+  .pc-preview__sheet--live {
     cursor: none;
   }
 }
 
-.pc-frame__shot {
+.pc-preview__shot {
   position: absolute;
   inset: 0;
-  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: top center;
   pointer-events: none;
-}
-
-.pc-frame__shot--color {
-  z-index: 2;
   opacity: 0;
-  transition: opacity 0.38s var(--motion-ease, ease);
+  transition: opacity 0.34s var(--motion-ease, ease);
 }
 
-.pc-frame--current .pc-frame__shot--color {
+.pc-preview__shot.is-visible {
   opacity: 1;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .pc-frame__sheet:hover .pc-frame__shot--color,
-  .pc-frame:focus-visible .pc-frame__shot--color {
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .pc-frame__shot--color {
+  .pc-preview,
+  .pc-preview__shot {
     transition: none;
   }
-}
-
-.pc-frame--current {
-  background: color-mix(
-    in srgb,
-    var(--palette-ink) 12%,
-    color-mix(in srgb, var(--palette-sand) 78%, var(--palette-ash))
-  );
-}
-
-.pc-frame--current .pc-frame__sheet {
-  box-shadow: 0 0 0 2px var(--palette-ink);
-}
-
-.pc-frame:focus-visible .pc-frame__sheet {
-  box-shadow: 0 0 0 2px var(--palette-ink);
-}
-
-.pc-frame__motif {
-  position: absolute;
-  inset: 10%;
-  z-index: 0;
-  border-radius: 3px;
-  background:
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--palette-milk) 80%, transparent),
-      color-mix(in srgb, var(--palette-sand) 55%, transparent)
-    );
-}
-
-.pc-frame__meta {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 0.15rem;
-  padding-inline: 0.1rem;
-}
-
-.pc-frame__index {
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  color: var(--palette-ash);
-}
-
-.pc-frame__title-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-}
-
-.pc-frame__label {
-  font-size: var(--type-lead);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-
-.pc-frame__here {
-  flex: 0 0 auto;
-  margin-top: 0.15em;
-  padding: 0.18em 0.9em;
-  border-radius: 4px;
-  background: var(--palette-ink);
-  color: var(--palette-milk);
-  font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.pc-frame__blurb {
-  margin-top: 0.075rem;
-  font-size: var(--type-nav);
-  color: var(--palette-ash);
-  line-height: 1.3;
 }
 </style>
 
