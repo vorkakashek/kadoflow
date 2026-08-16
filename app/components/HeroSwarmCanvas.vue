@@ -601,8 +601,8 @@ async function bootScene() {
 
   /**
    * Device motion (lite):
-   * 1) Крен/тангаж — absolute beta/gamma vs hand-hold: tip an edge down → balls that way.
-   * 2) Рысканье — alpha rate: spin phone in its plane → rotate the pile.
+   * — Tip (any edge lower): balls slide toward the lowered side (gravity / beta·gamma).
+   * — Spin in the phone’s plane: the pile twists a little, then springs home.
    */
   let gyroYaw = 0
   let gyroPitch = 0
@@ -614,23 +614,23 @@ async function bootScene() {
   let prevAlpha: number | null = null
   let gyroFromRate = false
   let gyroRateStamp = 0
-  /** Tip sweep force (крен / тангаж). */
+  let tipFromGrav = false
+  let tipGravStamp = 0
+  /** Tip → balls toward lowered edge. */
   const GYRO_DEPTH_FORCE = 0.00039
-  /** In-plane twist (рысканье). */
-  const GYRO_YAW_FORCE = 0.00052
-  const GYRO_SPIN_ORBIT = 0.0028
+  /** In-plane spin → tangential shove on the pile. */
+  const GYRO_YAW_FORCE = 0.00048
+  /** Brief orbit kick while spinning (rad/ms at full signal). */
+  const GYRO_SPIN_ORBIT = 0.0024
   const GYRO_SMOOTH = 0.28
   const GYRO_RATE_SCALE = 100
   const GYRO_DELTA_SCALE = 5
   const GYRO_TARGET_DECAY = 0.82
-  /** Degrees of tip → full ball force. */
+  /** Orient fallback: degrees of tip → full force (flat-relative). */
   const GYRO_TIP_ANGLE = 28
-  /** Typical hand-hold beta (portrait, screen toward user). */
-  const GYRO_NEUTRAL_BETA = 68
-  /** Near-flat on a table — tip off, spin only. */
-  const GYRO_FLAT_BETA = 28
   const GYRO_SWEEP_FRONT = 0.32
   const GYRO_SWEEP_BACK = 1
+  const lookTarget = new THREE.Vector3()
   const LITE_WALL_X = 2.15
   const LITE_WALL_Y = 2.35
   const LITE_WALL_BOUNCE = 0.62
@@ -652,27 +652,15 @@ async function bootScene() {
       if (e.beta == null || e.gamma == null) return
       gyroArmed = true
 
-      const beta = e.beta
-      const gamma = e.gamma
-      const flat = Math.abs(beta) < GYRO_FLAT_BETA && Math.abs(gamma) < 22
-
-      if (flat) {
-        // On the table: no tip shove — only рысканье (alpha).
-        gyroPitchT = 0
-        gyroRollT = 0
-      } else {
-        // Крен: gamma > 0 → right edge down → balls right (+X).
-        gyroRollT = THREE.MathUtils.clamp(gamma / GYRO_TIP_ANGLE, -1, 1)
-        // Тангаж: beta below neutral → top toward ground → balls up (+Y).
-        // beta above neutral → top toward user → balls down (−Y).
-        gyroPitchT = THREE.MathUtils.clamp(
-          (GYRO_NEUTRAL_BETA - beta) / GYRO_TIP_ANGLE,
-          -1,
-          1,
-        )
+      const gravFresh =
+        tipFromGrav && performance.now() - tipGravStamp < 250
+      if (!gravFresh) {
+        // Flat-relative: gamma>0 right edge down → balls right;
+        // beta>0 top raised (bottom lower) → balls down.
+        gyroRollT = THREE.MathUtils.clamp(e.gamma / GYRO_TIP_ANGLE, -1, 1)
+        gyroPitchT = THREE.MathUtils.clamp(-e.beta / GYRO_TIP_ANGLE, -1, 1)
       }
 
-      // Alpha delta as spin fallback when rotationRate is missing/stale.
       if (e.alpha != null && prevAlpha != null) {
         const ratesFresh =
           gyroFromRate && performance.now() - gyroRateStamp < 200
@@ -687,13 +675,32 @@ async function bootScene() {
     }
 
     const onMotion = (e: DeviceMotionEvent) => {
-      const r = e.rotationRate
-      if (!r || r.alpha == null) return
       gyroArmed = true
-      gyroFromRate = true
-      gyroRateStamp = performance.now()
-      // Рысканье only — tip comes from orientation, not rates.
-      gyroYawT = THREE.MathUtils.clamp(r.alpha / GYRO_RATE_SCALE, -1, 1)
+
+      // Gravity on the screen plane → balls toward the lowered edge.
+      // Lift right edge → left lower → ax < 0 → balls left; lift top → balls down.
+      const g = e.accelerationIncludingGravity
+      if (g && g.x != null && g.y != null) {
+        const gx = g.x / 9.81
+        const gy = g.y / 9.81
+        if (Math.hypot(gx, gy) < 0.08) {
+          // Face-up on the table — no in-plane tip.
+          gyroRollT = 0
+          gyroPitchT = 0
+        } else {
+          gyroRollT = THREE.MathUtils.clamp(gx, -1, 1)
+          gyroPitchT = THREE.MathUtils.clamp(gy, -1, 1)
+        }
+        tipFromGrav = true
+        tipGravStamp = performance.now()
+      }
+
+      const r = e.rotationRate
+      if (r && r.alpha != null) {
+        gyroFromRate = true
+        gyroRateStamp = performance.now()
+        gyroYawT = THREE.MathUtils.clamp(r.alpha / GYRO_RATE_SCALE, -1, 1)
+      }
     }
 
     const startListening = () => {
@@ -893,6 +900,7 @@ async function bootScene() {
     }
 
     camera.lookAt(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
+    lookTarget.set(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
 
     const layoutH = lite ? Math.max(readAppScreenPx() * 0.92, h) : h
     const diameterPx = lite
@@ -1092,9 +1100,16 @@ async function bootScene() {
       if (lite) {
         if (!gyroFromRate || performance.now() - gyroRateStamp > 180) {
           gyroFromRate = false
-          // Tip holds while tilted (absolute). Only spin decays when still.
+          // Spin fades when the phone stops turning in-plane.
           gyroYawT *= GYRO_TARGET_DECAY
           if (Math.abs(gyroYawT) < 0.02) gyroYawT = 0
+        }
+        // Tip holds from gravity/orient while an edge is lowered — no decay here.
+        if (
+          tipFromGrav &&
+          performance.now() - tipGravStamp > 280
+        ) {
+          tipFromGrav = false
         }
         gyroYaw += (gyroYawT - gyroYaw) * GYRO_SMOOTH
         gyroPitch += (gyroPitchT - gyroPitch) * GYRO_SMOOTH
@@ -1112,22 +1127,25 @@ async function bootScene() {
 
     // Mobile: orbit seats + planar motion → collide → walls → spring home.
     if (lite) {
+      const settling = settleLeft > 0
+      if (settling) settleLeft = Math.max(0, settleLeft - dt)
+
       if (!reduced) {
+        camera.up.set(0, 1, 0)
+        camera.lookAt(lookTarget)
+        camera.updateMatrixWorld(true)
         camRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
         camUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize()
         camForward.setFromMatrixColumn(camera.matrixWorld, 2).normalize().negate()
       }
-      const settling = settleLeft > 0
-      if (settling) settleLeft = Math.max(0, settleLeft - dt)
       const wallX = ringRadius * LITE_WALL_X
       const wallY = ringRadius * LITE_WALL_Y
       const depthMax = ringRadius * LITE_DEPTH_MAX_RATIO
       const sweepSpan = Math.max(ringRadius * 1.35, balls[0].radius * 5)
 
-      // Крен → ±X, тангаж → ±Y (already mapped to “balls that way”).
+      // Tip → toward lowered edge. Spin → twist the pile (then springs home).
       const depthRight = gyroRoll
       const depthUp = gyroPitch
-      // Рысканье → rotate in the screen plane.
       const twist = gyroYaw
 
       const sweepW = (along: number, force: number) => {
@@ -1160,7 +1178,6 @@ async function bootScene() {
         const ball = balls[i]
         if (!reduced) {
           ball.angle += ORBIT_SPEED * step
-          // Phone spinning in its plane → seats rotate the same way.
           if (!settling && gyroArmed && Math.abs(twist) > 0.01) {
             ball.angle += twist * GYRO_SPIN_ORBIT * step
           }
@@ -1212,11 +1229,9 @@ async function bootScene() {
             )
           }
 
-          // Twist phone in its plane → tangential shove around the pile center.
           if (Math.abs(twist) > 0.01) {
             const rad = Math.hypot(alongR, alongU)
             if (rad > 1e-4) {
-              // CCW tangent in screen plane: (-y, x) — matches +alpha (CCW).
               const tR = -alongU / rad
               const tU = alongR / rad
               const radial = THREE.MathUtils.clamp(rad / sweepSpan, 0.25, 1.15)
