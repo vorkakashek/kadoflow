@@ -15,6 +15,8 @@ const {
 } = usePageCanvas()
 const route = useRoute()
 const links = headerLinks
+/** Optimistic “you are here” so the chip fill doesn’t wait for the iris hop. */
+const navHerePath = ref(route.path)
 const scrolled = ref(false)
 const canvasForced = computed(() => canvasSurface.value || canvasOpen.value)
 /** Menu pins the bar to the default wide layout — never the compact scroll state. */
@@ -44,6 +46,56 @@ function onChipPointer(e: PointerEvent) {
   if (el instanceof HTMLElement) setChipBgOrigin(el, e)
 }
 
+function onMenuHoverEnter(e: PointerEvent) {
+  const el = e.currentTarget
+  if (!(el instanceof HTMLElement)) return
+  setChipBgOrigin(el, e)
+  el.classList.add('is-chip-hover')
+}
+
+function onMenuHoverLeave(e: PointerEvent) {
+  const el = e.currentTarget
+  if (!(el instanceof HTMLElement)) return
+  const next = e.relatedTarget
+  if (next instanceof Node && el.contains(next)) return
+  el.classList.remove('is-chip-hover')
+}
+
+/** After busy ends, :hover may be true while the fill class was cleared. */
+function restoreMenuHoverFill() {
+  for (const el of [menuBtnEl.value, fabEl.value]) {
+    if (!(el instanceof HTMLElement)) continue
+    if (el.matches(':hover')) el.classList.add('is-chip-hover')
+    else el.classList.remove('is-chip-hover')
+  }
+}
+
+function navPathKey(path: string) {
+  return path.replace(/\/+$/, '') || '/'
+}
+
+function isNavHere(to: string) {
+  return navPathKey(navHerePath.value) === navPathKey(to)
+}
+
+function markNavHere(to: string, e?: PointerEvent) {
+  if (
+    e
+    && (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+  ) {
+    return
+  }
+  navHerePath.value = to
+}
+
+function onNavPointerDown(to: string, e: PointerEvent) {
+  markNavHere(to, e)
+}
+
+watch(() => route.path, (path) => {
+  navHerePath.value = path
+})
+
 /** Page canvas pins body (scrollY→0) — ignore that fake scroll for collapse morph. */
 function canvasLocksScroll() {
   return (
@@ -59,129 +111,14 @@ const ANIM_DURATION = 0.58
 const ANIM_EASE = 'power3.inOut'
 /** Below this, skip scroll collapse (no 1-col side gutters, keep full vertical inset). */
 const COLLAPSE_MIN_WIDTH = 768
-/** Nav underline: draw full wavy line, then straighten. Leave wipe stays. (−20% vs first timings.) */
-const NAV_DRAW_S = 0.44
-const NAV_FLAT_S = 0.224
-const NAV_LEAVE_AMP_S = 0.144
-const NAV_LEAVE_WIPE_S = 0.24
-const NAV_LEAVE_WIPE_DELAY = 0.048
-const NAV_WAVE_AMP = 3.4
-const NAV_WAVE_VB_W = 64
 let collapseTimer = 0
 let gsapMod: typeof import('gsap').default | null = null
 let fabFitTl: { kill: () => void } | null = null
 let fabFitResolve: (() => void) | null = null
-const navWaveTls = new WeakMap<Element, { kill: () => void }>()
-/** Last wave amp per link — leave must resume from here, not snap to 0. */
-const navWaveAmp = new WeakMap<Element, number>()
 
 async function gsap() {
   if (!gsapMod) gsapMod = (await import('gsap')).default
   return gsapMod
-}
-
-function wavePathD(amp: number) {
-  const a = Math.max(0, amp)
-  // Fewer, longer waves — not a tight ripple.
-  return `M1 4 Q 12 ${4 - a} 23 4 Q 34 ${4 + a} 45 4 Q 54 ${4 - a * 0.65} 63 4`
-}
-
-function applyWaveAmp(root: Element, path: SVGPathElement, amp: number) {
-  navWaveAmp.set(root, amp)
-  path.setAttribute('d', wavePathD(amp))
-}
-
-function navWaveParts(el: EventTarget | null) {
-  if (!(el instanceof HTMLElement)) return null
-  const path = el.querySelector('.nav-link__wave-path') as SVGPathElement | null
-  const reveal = el.querySelector('.nav-link__reveal') as SVGRectElement | null
-  if (!path || !reveal) return null
-  return { path, reveal, root: el }
-}
-
-async function onNavEnter(e: Event) {
-  const parts = navWaveParts(e.currentTarget)
-  if (!parts) return
-  const { path, reveal, root } = parts
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    applyWaveAmp(root, path, 0)
-    reveal.setAttribute('x', '0')
-    reveal.setAttribute('width', String(NAV_WAVE_VB_W))
-    return
-  }
-  const g = await gsap()
-  navWaveTls.get(root)?.kill()
-
-  const morph = { amp: NAV_WAVE_AMP }
-  applyWaveAmp(root, path, NAV_WAVE_AMP)
-  g.set(reveal, { attr: { x: 0, width: 0 } })
-
-  const tl = g.timeline()
-  navWaveTls.set(root, tl)
-
-  // 1) Draw the full wavy line L→R.
-  tl.to(reveal, {
-    attr: { width: NAV_WAVE_VB_W },
-    duration: NAV_DRAW_S,
-    ease: 'none',
-  })
-  // 2) Only after it's fully drawn — settle waves into a straight line.
-  tl.to(morph, {
-    amp: 0,
-    duration: NAV_FLAT_S,
-    ease: 'power2.out',
-    onUpdate: () => {
-      applyWaveAmp(root, path, morph.amp)
-    },
-  })
-}
-
-async function onNavLeave(e: Event) {
-  const parts = navWaveParts(e.currentTarget)
-  if (!parts) return
-  const { path, reveal, root } = parts
-  const g = await gsap()
-  navWaveTls.get(root)?.kill()
-
-  // Resume from current amp (interrupted draw/flatten) — no snap to straight.
-  const fromAmp = navWaveAmp.get(root) ?? 0
-  const morph = { amp: fromAmp }
-  const ampNeed = Math.max(0, NAV_WAVE_AMP - fromAmp) / NAV_WAVE_AMP
-  const ampDur = NAV_LEAVE_AMP_S * ampNeed
-  const wipeAt = ampDur > 0 ? NAV_LEAVE_WIPE_DELAY : 0
-
-  const tl = g.timeline()
-  navWaveTls.set(root, tl)
-
-  // Straight → wave (or already wavy), then wipe exits to the right.
-  if (ampDur > 0) {
-    tl.to(
-      morph,
-      {
-        amp: NAV_WAVE_AMP,
-        duration: ampDur,
-        ease: 'power1.out',
-        onUpdate: () => {
-          applyWaveAmp(root, path, morph.amp)
-        },
-      },
-      0,
-    )
-  } else {
-    applyWaveAmp(root, path, NAV_WAVE_AMP)
-  }
-  tl.to(
-    reveal,
-    {
-      attr: { x: NAV_WAVE_VB_W, width: 0 },
-      duration: NAV_LEAVE_WIPE_S,
-      ease: 'power1.in',
-      onComplete: () => {
-        applyWaveAmp(root, path, 0)
-      },
-    },
-    wipeAt,
-  )
 }
 
 function canCollapseHeader() {
@@ -444,7 +381,9 @@ function syncMenuFloat() {
   if (!slot || !btn || typeof window === 'undefined') return
   if (thumbNav.value) return
   const r = slot.getBoundingClientRect()
-  btn.style.top = `${Math.round(r.top)}px`
+  const bh = btn.offsetHeight || r.height
+  /* Center on the invisible grid slot so the chip shares the logo/nav row. */
+  btn.style.top = `${Math.round(r.top + (r.height - bh) / 2)}px`
   btn.style.right = `${Math.round(window.innerWidth - r.right)}px`
 }
 
@@ -558,6 +497,10 @@ onMounted(() => {
     { flush: 'sync' },
   )
 
+  watch(menuBusy, (on, was) => {
+    if (was && !on) void nextTick(restoreMenuHoverFill)
+  })
+
   watch(
     () => route.path,
     () => {
@@ -635,7 +578,7 @@ onUnmounted(() => {
 
 <template>
   <header
-    class="pointer-events-none fixed inset-x-0 top-0 z-[100] site-header"
+    class="pointer-events-none fixed inset-x-0 top-0 z-[113] site-header"
     :inert="canvasSurface"
   >
     <!--
@@ -650,7 +593,7 @@ onUnmounted(() => {
     >
       <div
         ref="barEl"
-        class="header-bar pointer-events-auto mx-auto grid max-w-full items-center"
+        class="header-bar pointer-events-none mx-auto grid max-w-full items-center"
         :class="{ 'header-bar--scrolled': headerCollapsed }"
         :style="{
           gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
@@ -660,7 +603,7 @@ onUnmounted(() => {
         <NuxtLink
           ref="logoEl"
           to="/"
-          class="header-logo-link col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
+          class="header-logo-link pointer-events-auto col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
           aria-label="Kadoflow — на главную"
           :tabindex="canvasSurface ? -1 : 0"
           @pointerenter="preloadHomeSceneAssets"
@@ -678,7 +621,7 @@ onUnmounted(() => {
 
         <nav
           ref="navEl"
-          class="header-nav header-chip site-nav col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
+          class="header-nav header-chip site-nav pointer-events-auto col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
           :class="{ 'header-chip--scrolled': headerCollapsed }"
           aria-label="Основная"
         >
@@ -686,45 +629,18 @@ onUnmounted(() => {
             v-for="(link, index) in links"
             :key="link.to"
             :to="link.to"
-            class="nav-link text-ink"
-            @pointerenter="onNavEnter"
-            @pointerleave="onNavLeave"
-            @focusin="onNavEnter"
-            @focusout="onNavLeave"
+            class="nav-link chip-scale-host text-ink"
+            :class="{ 'is-chip-on nav-link--here': isNavHere(link.to) }"
+            :aria-current="isNavHere(link.to) ? 'page' : undefined"
+            @pointerenter="onChipPointer"
+            @pointerleave="onChipPointer"
+            @focusin="onChipPointer"
+            @pointerdown="onNavPointerDown(link.to, $event)"
           >
-            <span class="nav-link__text">
-              <span class="nav-link__label">{{ link.label }}</span>
-              <svg
-                class="nav-link__wave"
-                viewBox="0 0 64 8"
-                preserveAspectRatio="none"
-                aria-hidden="true"
-              >
-                <defs>
-                  <clipPath
-                    :id="`nav-wave-clip-${index}`"
-                    clipPathUnits="userSpaceOnUse"
-                  >
-                    <rect
-                      class="nav-link__reveal"
-                      x="0"
-                      y="0"
-                      width="0"
-                      height="8"
-                    />
-                  </clipPath>
-                </defs>
-                <path
-                  class="nav-link__wave-path"
-                  :clip-path="`url(#nav-wave-clip-${index})`"
-                  d="M1 4 Q 12 0.8 23 4 Q 34 7.2 45 4 Q 54 1.8 63 4"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.35"
-                  stroke-linecap="butt"
-                />
-              </svg>
+            <span class="chip-scale-bg" aria-hidden="true">
+              <span class="chip-scale-bg__fill" />
             </span>
+            <span class="nav-link__label">{{ link.label }}</span>
             <span v-if="index < links.length - 1" class="nav-link__comma">,</span>
           </NuxtLink>
         </nav>
@@ -757,11 +673,13 @@ onUnmounted(() => {
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
       :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
-      @pointerenter="onChipPointer"
-      @pointerleave="onChipPointer"
+      @pointerenter="onMenuHoverEnter"
+      @pointerleave="onMenuHoverLeave"
       @click="toggleCanvas"
     >
-      <span class="chip-scale-bg" aria-hidden="true" />
+      <span class="chip-scale-bg" aria-hidden="true">
+        <span class="chip-scale-bg__fill" />
+      </span>
       <span class="menu-chip-word">
         <span class="menu-chip-sizers" aria-hidden="true">
           <span class="menu-sizer-menu">меню</span>
@@ -798,11 +716,13 @@ onUnmounted(() => {
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
       :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
-      @pointerenter="onChipPointer"
-      @pointerleave="onChipPointer"
+      @pointerenter="onMenuHoverEnter"
+      @pointerleave="onMenuHoverLeave"
       @click="toggleCanvas"
     >
-      <span class="chip-scale-bg" aria-hidden="true" />
+      <span class="chip-scale-bg" aria-hidden="true">
+        <span class="chip-scale-bg__fill" />
+      </span>
       <span class="menu-chip-word menu-fab-word" aria-hidden="true">
         <span class="menu-chip-sizers">
           <span class="menu-sizer-menu">меню</span>
@@ -830,7 +750,17 @@ onUnmounted(() => {
 }
 
 .site-header {
+  isolation: isolate;
   transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
+}
+
+/* Under the menu overlay; above the SPA hop veil so chrome stays put. */
+html.page-canvas-surface .site-header {
+  z-index: 100;
+}
+
+html.page-iris-lock:not(.page-canvas-surface) .site-header {
+  z-index: 113;
 }
 
 /* Instant while the close overlay still covers — a 0.32s fade after zoom
@@ -921,7 +851,7 @@ html.page-canvas-lock .menu-btn--float {
 
 .menu-btn--float {
   position: fixed;
-  z-index: 111;
+  z-index: 114;
   pointer-events: auto;
   display: none;
   margin-inline: 0;
@@ -934,7 +864,8 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .menu-chip-busy {
-  pointer-events: none;
+  /* Keep hit-testing — pointer-events:none clears :hover and it won’t
+     return until the next move (often looks like hover “falls off”). */
   cursor: default;
 }
 
@@ -946,7 +877,6 @@ html.page-canvas-lock .menu-btn--float {
   overflow: hidden;
   height: 1.25em;
   width: 0;
-  transform: translateY(-2px);
 }
 
 .menu-btn-slot .menu-chip-word {
@@ -1040,8 +970,7 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   left: auto;
   right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
   bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
-  z-index: 111;
-  box-sizing: border-box;
+  z-index: 114;
   display: flex;
   margin: 0;
   gap: 8px;
@@ -1091,10 +1020,6 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   width: max-content;
 }
 
-.menu-fab:active .chip-scale-bg {
-  background-color: var(--palette-stone);
-}
-
 .menu-btn-label,
 .menu-fab-label {
   position: relative;
@@ -1116,42 +1041,27 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
 
 .nav-link {
   position: relative;
+  z-index: 0;
   display: inline-flex;
   align-items: baseline;
   cursor: pointer;
   text-decoration: none;
   gap: 0;
-  /* Side padding matches menu; rounding lives on the nav chip group. */
   padding: 8px 18px;
   margin: -8px -4px;
-  border-radius: 0;
+  border-radius: 9999px;
   background: transparent;
 }
 
-.nav-link__text {
+.nav-link__label {
   position: relative;
-  display: inline-block;
-  padding-bottom: 0.28em;
+  z-index: 1;
 }
 
 .nav-link__comma {
+  position: relative;
+  z-index: 1;
   margin-left: 0.02em;
-}
-
-.nav-link__wave {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 0.48em;
-  overflow: hidden;
-  pointer-events: none;
-  color: var(--palette-ink);
-}
-
-.nav-link__wave-path {
-  fill: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

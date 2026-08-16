@@ -23,8 +23,8 @@ onMounted(() => {
           <NuxtPage />
         </div>
       </div>
-      <SiteHeader />
     </div>
+    <SiteHeader />
     <ClientOnly>
       <PageCanvas />
       <PageIris />

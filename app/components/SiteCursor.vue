@@ -10,11 +10,18 @@ const HOT_SEL = [
   'summary',
   'label',
   '[tabindex]:not([tabindex="-1"])',
-  '.chip-scale-host',
   '.pc-frame__sheet',
   '.hero-swarm',
   '.custom-scrollbar__track',
   '.custom-scrollbar__thumb',
+].join(',')
+
+/** Header chips — fade the dot instead of the “hot” grow. */
+const CHIP_FADE_SEL = [
+  '.nav-link',
+  '.menu-btn--float',
+  '.menu-fab',
+  '.header-logo-link',
 ].join(',')
 
 const TEXT_SEL = [
@@ -29,6 +36,7 @@ const enabled = ref(false)
 const hot = ref(false)
 const away = ref(true)
 const textOver = ref(false)
+const chipFade = ref(false)
 
 function canUse() {
   return window.matchMedia('(hover: hover) and (pointer: fine)').matches
@@ -50,12 +58,15 @@ function probe(x: number, y: number) {
   const node = document.elementFromPoint(x, y)
   if (!(node instanceof Element)) {
     hot.value = false
+    chipFade.value = false
     setTextOver(false)
     return
   }
   const overText = !!node.closest(TEXT_SEL)
   setTextOver(overText)
-  hot.value = !overText && !!node.closest(HOT_SEL)
+  const overChip = !!node.closest(CHIP_FADE_SEL)
+  chipFade.value = overChip
+  hot.value = !overText && !overChip && !!node.closest(HOT_SEL)
 }
 
 function onMove(e: PointerEvent) {
@@ -70,6 +81,7 @@ function onDocLeave(e: PointerEvent) {
   if (next instanceof Node && document.documentElement.contains(next)) return
   away.value = true
   hot.value = false
+  chipFade.value = false
 }
 
 onMounted(() => {
@@ -95,7 +107,7 @@ onUnmounted(() => {
       class="site-cursor"
       :class="{
         'site-cursor--hot': hot,
-        'site-cursor--hide': suppressed || away || textOver,
+        'site-cursor--hide': suppressed || away || textOver || chipFade,
       }"
       aria-hidden="true"
     >
@@ -114,7 +126,9 @@ onUnmounted(() => {
   height: 8px;
   pointer-events: none;
   mix-blend-mode: difference;
-  will-change: transform;
+  will-change: transform, opacity;
+  opacity: 1;
+  transition: opacity 0.28s var(--motion-ease, ease);
 }
 
 .site-cursor__dot {
@@ -138,6 +152,10 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .site-cursor {
+    transition: none;
+  }
+
   .site-cursor__dot {
     transition: none;
   }

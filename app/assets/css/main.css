@@ -122,9 +122,11 @@
   }
 }
 
-/* Chip hover fill — scales from the pointer. */
+/* Chip hover fill — scales from the pointer.
+   Click adds `.chip-press-play` on `__fill` → one shrink→expand keyframe. */
 .chip-scale-host {
   isolation: isolate;
+  overflow: visible;
 }
 
 .chip-scale-bg {
@@ -133,24 +135,51 @@
   z-index: 0;
   border-radius: inherit;
   pointer-events: none;
-  background-color: color-mix(in srgb, var(--palette-stone) 78%, var(--palette-sand));
   transform: scale(0);
   transform-origin: var(--chip-bg-x, 50%) var(--chip-bg-y, 50%);
   transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.chip-scale-bg__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: color-mix(in srgb, var(--palette-sand) 78%, var(--palette-ash));
+  transform-origin: 50% 50%;
+}
+
+/* Menu / close chip — moss accent. */
+.menu-btn--float .chip-scale-bg__fill,
+.menu-fab .chip-scale-bg__fill {
+  background-color: color-mix(in srgb, var(--palette-sand) 55%, var(--palette-moss));
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .chip-scale-host:hover .chip-scale-bg {
+  .chip-scale-host:hover .chip-scale-bg,
+  .chip-scale-host.is-chip-hover .chip-scale-bg {
     transform: scale(1);
   }
 }
 
-.chip-scale-host:focus-visible .chip-scale-bg {
+.chip-scale-host:focus-visible .chip-scale-bg,
+.chip-scale-host.is-chip-on .chip-scale-bg {
   transform: scale(1);
 }
 
-.chip-scale-host:active .chip-scale-bg {
-  background-color: var(--palette-stone);
+@keyframes chip-press {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.86);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.chip-scale-bg__fill.chip-press-play {
+  animation: chip-press 0.58s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -160,8 +189,14 @@
     transition: opacity 0.01s linear;
   }
 
+  .chip-scale-bg__fill.chip-press-play {
+    animation: none;
+  }
+
   .chip-scale-host:hover .chip-scale-bg,
-  .chip-scale-host:focus-visible .chip-scale-bg {
+  .chip-scale-host.is-chip-hover .chip-scale-bg,
+  .chip-scale-host:focus-visible .chip-scale-bg,
+  .chip-scale-host.is-chip-on .chip-scale-bg {
     opacity: 1;
   }
 }

@@ -1,16 +1,6 @@
 <script setup lang="ts">
 import { canvasFrames, matchFramePath, type SiteNavFrame } from '~/utils/siteNav'
 import { isNarrowViewport, isThumbNav } from '~/utils/mobileViewport'
-import {
-  abortTileHover,
-  canUseTileHoverFx,
-  disposeTileHover,
-  enterTileHover,
-  leaveTileHover,
-  resizeTileHover,
-  settleTileHover,
-  waitTileHoverSettle,
-} from '~/utils/tileHoverDistort'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
 import {
   applyIrisClip,
@@ -25,6 +15,7 @@ import {
   type IrisGeom,
 } from '~/utils/irisClip'
 import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
+import { setChipBgOrigin } from '~/utils/chipHoverBg'
 
 const {
   open,
@@ -66,9 +57,6 @@ if (import.meta.client) {
   isNarrow.value = isNarrowViewport()
   isThumb.value = isThumbNav()
 }
-let sheetHoverGen = 0
-let glHoverFailed = false
-let tileHoverHold = false
 
 const NAV_DRAW_S = 0.44
 const NAV_FLAT_S = 0.224
@@ -93,6 +81,11 @@ let dotsTween: { kill: () => void } | null = null
 let goTl: { kill: () => void } | null = null
 let goFollow = false
 let goState: 'off' | 'in' | 'on' | 'out' = 'off'
+let goPressed = false
+let goPressAt = 0
+let goReleaseTimer = 0
+const GO_PRESS_SCALE = 0.84
+const GO_PRESS_MS = 160
 
 function killIris() {
   irisTween?.kill()
@@ -104,12 +97,6 @@ function killIris() {
   if (clipRoot) clipRoot.style.willChange = ''
 }
 
-function stopTileHover() {
-  if (tileHoverHold) return
-  sheetHoverGen += 1
-  abortTileHover()
-}
-
 function killActiveMotion() {
   hideGoCursor(true)
   killIris()
@@ -119,7 +106,6 @@ function killActiveMotion() {
   wordTween = null
   dotsTween?.kill()
   dotsTween = null
-  stopTileHover()
   const scroller = navScrollRoot()
   if (scroller && gsapMod) gsapMod.killTweensOf(scroller)
   const chip = menuChip()
@@ -296,8 +282,6 @@ function hideCanvasSurface() {
     'page-canvas-iris',
   )
   hideGoCursor(true)
-  tileHoverHold = false
-  abortTileHover()
 }
 
 function frameIsCurrent(frame: SiteNavFrame) {
@@ -382,8 +366,6 @@ function syncFrameAspect() {
   const vh = Math.max(1, window.innerHeight)
   root.style.setProperty('--pc-aspect', String(vw / vh))
   if (surfaceOn.value) syncNavChrome()
-  if (!canUseTileHoverFx()) stopTileHover()
-  resizeTileHover()
 }
 
 let navChromeRaf = 0
@@ -543,7 +525,13 @@ function snapGoOff() {
   goTl?.kill()
   goTl = null
   goState = 'off'
+  goPressed = false
+  if (goReleaseTimer) {
+    window.clearTimeout(goReleaseTimer)
+    goReleaseTimer = 0
+  }
   stopGoFollow()
+  clearGoPressListeners()
   if (!gsapMod) return
   if (goCircleEl.value) gsapMod.set(goCircleEl.value, { scale: 0 })
   if (goWordEl.value) gsapMod.set(goWordEl.value, { opacity: 0 })
@@ -564,8 +552,10 @@ async function playGoIn() {
   const word = goWordEl.value
   if (goState !== 'in' || !circle || !word) return
   goTl?.kill()
+  g.killTweensOf(circle)
+  const land = goPressed ? GO_PRESS_SCALE : 1
   if (reducedMotion.value) {
-    g.set(circle, { scale: 1 })
+    g.set(circle, { scale: land })
     g.set(word, { opacity: 1 })
     goState = 'on'
     goTl = null
@@ -578,7 +568,7 @@ async function playGoIn() {
     },
   })
   goTl = tl
-  tl.to(circle, { scale: 1, duration: 0.3, ease: 'power2.out', force3D: true }, 0)
+  tl.to(circle, { scale: land, duration: 0.3, ease: 'power2.out', force3D: true }, 0)
   tl.to(word, { opacity: 1, duration: 0.2, ease: 'power2.out' }, 0.22)
 }
 
@@ -591,9 +581,16 @@ function hideGoCursor(instant = false) {
     return
   }
   goState = 'out'
+  goPressed = false
+  if (goReleaseTimer) {
+    window.clearTimeout(goReleaseTimer)
+    goReleaseTimer = 0
+  }
+  clearGoPressListeners()
   goTl?.kill()
   const circle = goCircleEl.value
   const word = goWordEl.value
+  gsapMod.killTweensOf(circle)
   const tl = gsapMod.timeline({
     onComplete: () => {
       if (goState !== 'out') return
@@ -609,6 +606,79 @@ function hideGoCursor(instant = false) {
     { scale: 0, duration: 0.24, ease: 'power2.in', force3D: true },
     0.14,
   )
+}
+
+function clearGoPressListeners() {
+  window.removeEventListener('pointerup', onGoPressUp)
+  window.removeEventListener('pointercancel', onGoPressUp)
+}
+
+function pressGoCursor() {
+  if (goState !== 'in' && goState !== 'on') return
+  goPressed = true
+  goPressAt = performance.now()
+  if (goReleaseTimer) {
+    window.clearTimeout(goReleaseTimer)
+    goReleaseTimer = 0
+  }
+  const circle = goCircleEl.value
+  if (!gsapMod || !circle) return
+  gsapMod.to(circle, {
+    scale: GO_PRESS_SCALE,
+    duration: GO_PRESS_MS / 1000,
+    ease: 'power2.out',
+    overwrite: 'auto',
+    force3D: true,
+  })
+}
+
+function releaseGoCursor() {
+  if (!goPressed && !goReleaseTimer) return
+  const wait = Math.max(0, GO_PRESS_MS - (performance.now() - goPressAt))
+  const run = () => {
+    goReleaseTimer = 0
+    goPressed = false
+    if (goState !== 'in' && goState !== 'on') return
+    const circle = goCircleEl.value
+    if (!gsapMod || !circle) return
+    gsapMod.to(circle, {
+      scale: 1,
+      duration: 0.18,
+      ease: 'power2.out',
+      overwrite: 'auto',
+      force3D: true,
+    })
+  }
+  if (goReleaseTimer) window.clearTimeout(goReleaseTimer)
+  if (wait > 0) goReleaseTimer = window.setTimeout(run, wait)
+  else run()
+}
+
+function onGoPressDown(e: PointerEvent) {
+  if (e.button !== 0) return
+  const frame = e.currentTarget
+  if (frame instanceof HTMLElement) {
+    const bg = frame.querySelector('.pc-frame__hover-bg')
+    if (bg instanceof HTMLElement) setChipBgOrigin(bg, e)
+  }
+  if (e.pointerType === 'touch') return
+  if (!canUseGoCursor()) return
+  clearGoPressListeners()
+  pressGoCursor()
+  window.addEventListener('pointerup', onGoPressUp)
+  window.addEventListener('pointercancel', onGoPressUp)
+}
+
+function onGoPressUp() {
+  clearGoPressListeners()
+  releaseGoCursor()
+}
+
+function onFramePointer(e: PointerEvent) {
+  const frame = e.currentTarget
+  if (!(frame instanceof HTMLElement)) return
+  const bg = frame.querySelector('.pc-frame__hover-bg')
+  if (bg instanceof HTMLElement) setChipBgOrigin(bg, e)
 }
 
 function plaqueSheets() {
@@ -776,24 +846,6 @@ function onSheetEnter(e: PointerEvent) {
   if (e.pointerType === 'touch') return
   if (!open.value) return
   if (canUseGoCursor()) showGoCursor(e.clientX, e.clientY)
-  if (reducedMotion.value || glHoverFailed || tileHoverHold || !canUseTileHoverFx()) return
-  const sheet = e.currentTarget as HTMLElement
-  const bw = sheet.querySelector('.pc-frame__shot--bw') as HTMLImageElement | null
-  const color = sheet.querySelector('.pc-frame__shot--color') as HTMLImageElement | null
-  if (!bw?.naturalWidth || !color?.naturalWidth) return
-  const fromColor = !!sheet.closest('.pc-frame--current')
-  const token = ++sheetHoverGen
-  const run = (g: NonNullable<typeof gsapMod>) => {
-    if (token !== sheetHoverGen || !open.value) return
-    if (!sheet.matches(':hover')) return
-    const ok = enterTileHover(g, sheet, fromColor ? color : bw, color)
-    if (!ok) glHoverFailed = true
-  }
-  if (gsapMod) {
-    run(gsapMod)
-    return
-  }
-  void gsap().then((g) => run(g))
 }
 
 function onSheetMove(e: PointerEvent) {
@@ -802,19 +854,12 @@ function onSheetMove(e: PointerEvent) {
 }
 
 function onSheetLeave(e: PointerEvent) {
-  if (tileHoverHold) return
   const sheet = e.currentTarget as HTMLElement
   const next = e.relatedTarget
   if (next instanceof Element && sheet.contains(next)) return
-  // Appending the GL canvas retriggers leave with relatedTarget=null.
-  if (sheet.matches(':hover')) return
   const toOtherSheet =
     next instanceof Element && !!next.closest('.pc-frame__sheet')
-  if (!toOtherSheet) {
-    sheetHoverGen += 1
-    hideGoCursor()
-  }
-  leaveTileHover(sheet)
+  if (!toOtherSheet) hideGoCursor()
 }
 
 function mailWavePath(amp: number) {
@@ -951,7 +996,7 @@ function pinPageScroll() {
   lockScroll(true)
 }
 
-/** Full iris cover immediately — hides tile GL before route / gsap work hits the main thread. */
+/** Full iris cover immediately — hides the overlay before route / gsap work hits the main thread. */
 async function snapIrisCover() {
   setIrisLive(true)
   syncNavChrome()
@@ -959,7 +1004,6 @@ async function snapIrisCover() {
   const cover = irisCoverFrom(start)
   const clipRoot = irisClipEl()
   if (clipRoot) applyIrisClip(clipRoot, cover)
-  abortTileHover()
   return { start, cover }
 }
 
@@ -1122,17 +1166,9 @@ async function playClose() {
 async function goToFrame(frame: SiteNavFrame) {
   if (!open.value) return
 
-  tileHoverHold = true
-  sheetHoverGen += 1
-  const sheet = rootEl.value?.querySelector(
-    `[data-frame-id="${frame.id}"] .pc-frame__sheet`,
-  )
   hideGoCursor()
-  const sheetEl = sheet instanceof HTMLElement ? sheet : null
 
   if (frameIsCurrent(frame)) {
-    settleTileHover(sheetEl)
-    await waitTileHoverSettle(sheetEl)
     closeCanvas()
     return
   }
@@ -1158,13 +1194,6 @@ async function goToFrame(frame: SiteNavFrame) {
       skipHeroIntro.value = true
       heroGlRevealBusy.value = true
       preloadHomeSceneAssets()
-    }
-
-    settleTileHover(sheetEl)
-    await waitTileHoverSettle(sheetEl)
-    if (gen !== motionGen) return
-
-    if (frame.id === 'home') {
       setPageIrisGuard(true)
       const { start } = await snapIrisCover()
       if (gen !== motionGen) return
@@ -1290,8 +1319,12 @@ onUnmounted(() => {
   mailWaveTl?.kill()
   goTl?.kill()
   stopGoFollow()
+  if (goReleaseTimer) {
+    window.clearTimeout(goReleaseTimer)
+    goReleaseTimer = 0
+  }
+  clearGoPressListeners()
   killIris()
-  disposeTileHover()
   stopNavChromeTrack()
   if (document.documentElement.classList.contains('page-canvas-lock')) {
     lockScroll(false)
@@ -1393,7 +1426,10 @@ onUnmounted(() => {
             :tabindex="open ? 0 : -1"
             :aria-current="frameIsCurrent(frame) ? 'page' : undefined"
             @click="goToFrame(frame)"
+            @pointerenter="onFramePointer"
+            @pointerdown="onGoPressDown"
           >
+            <span class="pc-frame__hover-bg" aria-hidden="true" />
             <div
               class="pc-frame__sheet"
               aria-hidden="true"
@@ -1678,9 +1714,10 @@ onUnmounted(() => {
 }
 
 .page-canvas--thumb .pc-frame {
+  --pc-frame-pad: 0.45rem;
   width: 100%;
   max-width: none;
-  padding: 0.45rem;
+  padding: var(--pc-frame-pad);
   gap: 0.4rem;
 }
 
@@ -1782,11 +1819,13 @@ onUnmounted(() => {
 }
 
 .pc-frame {
+  --pc-frame-pad: 1rem;
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  padding: 1rem;
+  padding: var(--pc-frame-pad);
+  overflow: hidden;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -1797,8 +1836,67 @@ onUnmounted(() => {
   font: inherit;
 }
 
+.pc-frame__hover-bg {
+  position: absolute;
+  z-index: 0;
+  /* Screenshot-sized rectangle — grows from the pointer like header chips. */
+  top: var(--pc-frame-pad);
+  left: var(--pc-frame-pad);
+  width: calc(100% - 2 * var(--pc-frame-pad));
+  aspect-ratio: var(--pc-aspect, 16 / 9);
+  border-radius: 4px;
+  pointer-events: none;
+  background: color-mix(
+    in srgb,
+    var(--palette-ink) 6.5%,
+    color-mix(in srgb, var(--palette-sand) 86%, var(--palette-ash))
+  );
+  transform: scale(0);
+  transform-origin: var(--chip-bg-x, 50%) var(--chip-bg-y, 50%);
+  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pc-frame:hover .pc-frame__hover-bg {
+    /* Past 1 so the plate shows in the frame padding, like the current tile. */
+    transform: scale(1.12);
+  }
+}
+
+.pc-frame:focus-visible .pc-frame__hover-bg {
+  transform: scale(1.12);
+}
+
+.pc-frame[data-chip-press] .pc-frame__hover-bg {
+  transform: scale(1.2);
+}
+
+.pc-frame--current .pc-frame__hover-bg {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-frame__hover-bg {
+    transform: none;
+    opacity: 0;
+    transition: opacity 0.01s linear;
+  }
+
+  .pc-frame:hover .pc-frame__hover-bg,
+  .pc-frame:focus-visible .pc-frame__hover-bg,
+  .pc-frame[data-chip-press] .pc-frame__hover-bg {
+    transform: none;
+    opacity: 1;
+  }
+
+  .pc-frame--current .pc-frame__hover-bg {
+    opacity: 0;
+  }
+}
+
 .pc-frame__sheet {
   position: relative;
+  z-index: 1;
   aspect-ratio: var(--pc-aspect, 16 / 9);
   border-radius: 4px;
   background: var(--palette-stone);
@@ -1844,13 +1942,6 @@ onUnmounted(() => {
   .pc-frame:focus-visible .pc-frame__shot--color {
     opacity: 1;
   }
-
-  .pc-frame__sheet--gl .pc-frame__shot,
-  .pc-frame__sheet--gl:hover .pc-frame__shot--color,
-  .pc-frame--current .pc-frame__sheet--gl .pc-frame__shot--color {
-    opacity: 0;
-    transition: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1889,6 +1980,8 @@ onUnmounted(() => {
 }
 
 .pc-frame__meta {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.15rem;
   padding-inline: 0.1rem;
