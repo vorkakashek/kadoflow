@@ -325,10 +325,10 @@ async function bootScene() {
   const isMobile = isNarrowViewport()
   const isIOS = isAppleTouchDevice()
   /**
-   * Mobile (Android + iOS): 6 balls, AA + 1k HDRI, baked helix orbit.
-   * No pointer / separation / chaos — budget goes into look, not physics.
+   * Mobile / coarse / iOS: budget for fill-rate — Standard mats, DPR 1, no MSAA,
+   * baked helix seats (no physics). Look comes from HDRI + lights, not transmission.
    */
-  const lite = isMobile || isIOS
+  const lite = isMobile || isIOS || isCoarse
   const wide =
     Math.max(window.innerWidth, host.clientWidth) >= DESKTOP_MIN_WIDTH
   /** Cursor knocks only on wide desktop — never below 1200. */
@@ -339,8 +339,8 @@ async function bootScene() {
     : lite
       ? BALL_COUNT_MOBILE
       : BALL_COUNT_TABLET
-  const sphereSegments = wide && !isCoarse ? 64 : lite ? 40 : 32
-  const pixelRatioCap = wide && !isCoarse ? 2 : lite ? 1.5 : 1.25
+  const sphereSegments = wide && !isCoarse ? 64 : lite ? 20 : 32
+  const pixelRatioCap = wide && !isCoarse ? 2 : lite ? 1 : 1.25
   const cameraZ = layout.cameraZ
   const ballDiameterPx = layout.diameterPx
   const ringScale = layout.ringScale
@@ -350,7 +350,7 @@ async function bootScene() {
   camera.position.set(0, 0.12, cameraZ)
 
   const gl = new THREE.WebGLRenderer({
-    antialias: true,
+    antialias: !lite,
     alpha: true,
     powerPreference: 'high-performance',
     // Desktop: keep last frame if rAF throttles (other monitor). Mobile: the
@@ -363,7 +363,8 @@ async function bootScene() {
   gl.outputColorSpace = THREE.SRGBColorSpace
   gl.toneMapping = THREE.ACESFilmicToneMapping
   gl.toneMappingExposure = 0.92
-  gl.sortObjects = true
+  /* Transparent frosted balls need depth sort — lite uses opaque Standard only. */
+  gl.sortObjects = !lite
   // Avoid auto-clear gaps if a frame is skipped mid-composite.
   gl.autoClear = true
   // Below 1200: PE none so scroll isn't stolen and knocks stay off.
@@ -425,53 +426,75 @@ async function bootScene() {
   }
 
   const matte = (color: THREE.Color) =>
-    new THREE.MeshPhysicalMaterial({
-      color,
-      roughness: 0.86,
-      metalness: 0.02,
-      clearcoat: lite ? 0.18 : 0.12,
-      clearcoatRoughness: lite ? 0.5 : 0.62,
-      sheen: lite ? 0.18 : 0.28,
-      sheenRoughness: 0.75,
-      sheenColor: new THREE.Color('#d7e4f0'),
-      envMapIntensity: lite ? 0.85 : 0.7,
-      specularIntensity: 0.5,
-    })
+    lite
+      ? new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.86,
+          metalness: 0.04,
+          envMapIntensity: 0.9,
+        })
+      : new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.86,
+          metalness: 0.02,
+          clearcoat: 0.12,
+          clearcoatRoughness: 0.62,
+          sheen: 0.28,
+          sheenRoughness: 0.75,
+          sheenColor: new THREE.Color('#d7e4f0'),
+          envMapIntensity: 0.7,
+          specularIntensity: 0.5,
+        })
 
+  /** Desktop: real glass. Lite: bright Standard stand-in — no transmission fill cost. */
   const frosted = (color: THREE.Color) =>
-    new THREE.MeshPhysicalMaterial({
-      color,
-      roughness: lite ? 0.42 : 0.48,
-      metalness: 0,
-      transmission: lite ? 0.82 : 0.88,
-      thickness: lite ? 1.1 : 1.6,
-      ior: 1.42,
-      transparent: true,
-      opacity: 1,
-      attenuationColor: color.clone().lerp(new THREE.Color('#e4eef7'), 0.4),
-      attenuationDistance: lite ? 1.2 : 1.6,
-      clearcoat: lite ? 0.28 : 0.4,
-      clearcoatRoughness: lite ? 0.4 : 0.35,
-      envMapIntensity: lite ? 1.05 : 1.15,
-      depthWrite: false,
-    })
+    lite
+      ? new THREE.MeshStandardMaterial({
+          color: color.clone().lerp(new THREE.Color('#eef4fa'), 0.35),
+          roughness: 0.28,
+          metalness: 0.06,
+          envMapIntensity: 1.25,
+        })
+      : new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.48,
+          metalness: 0,
+          transmission: 0.88,
+          thickness: 1.6,
+          ior: 1.42,
+          transparent: true,
+          opacity: 1,
+          attenuationColor: color.clone().lerp(new THREE.Color('#e4eef7'), 0.4),
+          attenuationDistance: 1.6,
+          clearcoat: 0.4,
+          clearcoatRoughness: 0.35,
+          envMapIntensity: 1.15,
+          depthWrite: false,
+        })
 
   const glossy = (color: THREE.Color) =>
-    new THREE.MeshPhysicalMaterial({
-      color,
-      roughness: lite ? 0.22 : 0.18,
-      metalness: 0.08,
-      clearcoat: lite ? 0.45 : 0.55,
-      clearcoatRoughness: lite ? 0.22 : 0.16,
-      reflectivity: 0.6,
-      envMapIntensity: lite ? 1.12 : 1.05,
-      specularIntensity: 0.75,
-      ior: 1.45,
-    })
+    lite
+      ? new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.22,
+          metalness: 0.1,
+          envMapIntensity: 1.15,
+        })
+      : new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.18,
+          metalness: 0.08,
+          clearcoat: 0.55,
+          clearcoatRoughness: 0.16,
+          reflectivity: 0.6,
+          envMapIntensity: 1.05,
+          specularIntensity: 0.75,
+          ior: 1.45,
+        })
 
   const materialPlan: THREE.Material[] = []
   if (lite) {
-    // Mobile: swap shiny green + glossy black for frosted glass (clear).
+    // Mobile: matte + “glass” Standard stand-ins (no Physical transmission).
     materialPlan.push(
       matte(COLORS.green.clone()),
       frosted(COLORS.white.clone()),
@@ -540,7 +563,7 @@ async function bootScene() {
       microRough = prepDataMap(assets[2], 2.6)
       for (const ball of balls) {
         const mat = ball.mesh.material as THREE.MeshPhysicalMaterial
-        if (mat.transmission && mat.transmission > 0) continue
+        if (typeof mat.transmission === 'number' && mat.transmission > 0) continue
         if (microRough) mat.roughnessMap = microRough
         if (microNormal) {
           mat.normalMap = microNormal
@@ -855,17 +878,11 @@ async function bootScene() {
 
   // No scroll stopLoop — that froze/restarted the GL layer every finger move (flicker).
   // Scene lifetime is owned by sceneLive / opacity fade only.
-  let scrollPaused = false
 
   const tick = (now: number) => {
     if (!loopRunning) return
     animationId = requestAnimationFrame(tick)
     if (!renderer) return
-
-    if (lite && scrollPaused) {
-      lastFrame = now
-      return
-    }
 
     const dt = Math.min(32, now - lastFrame)
     lastFrame = now

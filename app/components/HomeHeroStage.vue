@@ -19,10 +19,13 @@ const FADE_OUT_END_MOBILE = 0.42
 const SCENE_FADE_MORPH_MOBILE = 0.1
 /**
  * Swarm/media bleed past the stage box (px).
- * Must cover stacked roam+hover outward (~2× dent + bow) so the GL edge never shows.
+ * Desktop: cover stacked roam+hover outward (~2× dent + bow).
+ * Mobile: tight — shade fewer off-clip pixels (clip still hides the edge).
  */
 const SCENE_BLEED_Y = 168
 const SCENE_BLEED_X = 168
+const SCENE_BLEED_Y_LITE = 56
+const SCENE_BLEED_X_LITE = 56
 /** Copy rides scroll from the first pixel (not the fade window). Full shift over 1vh. */
 const COPY_PARALLAX_VH = 0.55
 
@@ -60,6 +63,13 @@ if (import.meta.client) {
   mobileLite.value = isNarrowViewport() || isCoarsePointer()
   syncSwarmInteractive()
 }
+
+const sceneBleedX = computed(() =>
+  mobileLite.value ? SCENE_BLEED_X_LITE : SCENE_BLEED_X,
+)
+const sceneBleedY = computed(() =>
+  mobileLite.value ? SCENE_BLEED_Y_LITE : SCENE_BLEED_Y,
+)
 
 const sceneLive = ref(true)
 /** WebGL rAF — deferred on mobile until iris veil is done (revealT≈1). */
@@ -627,10 +637,10 @@ onUnmounted(() => {
         ]"
         aria-hidden="true"
         :style="{
-          top: `-${SCENE_BLEED_Y}px`,
-          left: `-${SCENE_BLEED_X}px`,
-          width: `calc(100% + ${SCENE_BLEED_X * 2}px)`,
-          height: `calc(100% + ${SCENE_BLEED_Y * 2}px)`,
+          top: `-${sceneBleedY}px`,
+          left: `-${sceneBleedX}px`,
+          width: `calc(100% + ${sceneBleedX * 2}px)`,
+          height: `calc(100% + ${sceneBleedY * 2}px)`,
         }"
       >
         <ClientOnly>
