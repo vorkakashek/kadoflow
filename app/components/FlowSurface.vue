@@ -8,6 +8,13 @@ import {
 import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
 
 /**
+ * TEMP A/B — mobile without organic clip / grain.
+ * Hypothesis: clip-path + path rebuild costs more than the lite swarm.
+ * Flip to false to restore production silhouette.
+ */
+const EXP_MOBILE_NO_SURFACE_CLIP = true
+
+/**
  * Flow Surface — rounded-rect panel + clip mask.
  * Rest silhouette is geometrically straight faces + corner radii (no barrel bow).
  * A wide signed wave packet travels the perimeter (crest + trough).
@@ -58,6 +65,12 @@ function applyClipToDom(clip: string) {
 }
 
 function setMaskPath(d: string) {
+  if (skipOrganicClip()) {
+    pathD.value = ''
+    publishFlowSurfacePath('')
+    applyClipToDom('')
+    return
+  }
   if (d) pathD.value = d
   publishFlowSurfacePath(d)
   applyClipToDom(flowSurfaceMask.clipPath || (d ? FLOW_SURFACE_CLIP_CSS : ''))
@@ -70,6 +83,10 @@ const pathView = reactive({ w: 1, h: 1 })
 function isTouchUi() {
   // isCoarsePointer() already yields to (pointer: fine) on hybrid touch laptops.
   return isAppleTouchDevice() || isNarrowViewport() || isCoarsePointer()
+}
+
+function skipOrganicClip() {
+  return EXP_MOBILE_NO_SURFACE_CLIP && isTouchUi()
 }
 
 let ro: ResizeObserver | null = null
@@ -680,6 +697,17 @@ function publish(box?: { top: number; left: number; width: number; height: numbe
   pathView.w = pathW + EDGE_OVERSCAN * 2
   pathView.h = pathH + EDGE_OVERSCAN * 2
 
+  if (skipOrganicClip()) {
+    pathD.value = ''
+    flowSurfaceMask.openTopPath = ''
+    flowSurfaceMask.width = w
+    flowSurfaceMask.height = h
+    flowSurfaceMask.top = top
+    flowSurfaceMask.left = left
+    setMaskPath('')
+    return
+  }
+
   const allowLive = !isTouchUi()
   const fill = buildPath(pathW, pathH, 0, roamPhase, allowLive)
   pathD.value = fill
@@ -859,6 +887,7 @@ function syncGrainMotion() {
     window.clearInterval(grainTimer)
     grainTimer = 0
   }
+  if (skipOrganicClip()) return
   const el = grainEl.value
   if (motionQuery?.matches) {
     if (el) el.style.backgroundPosition = '0 0'
@@ -879,6 +908,11 @@ function syncGrainMotion() {
 
 onMounted(async () => {
   await nextTick()
+  if (skipOrganicClip()) {
+    console.info(
+      '[FlowSurface] EXP_MOBILE_NO_SURFACE_CLIP — organic clip + grain off (FPS A/B)',
+    )
+  }
   animStart = performance.now()
   roamLastNow = animStart
   liveMix = liveEdgeHardOff() || !liveEdgeArmed() ? 0 : 1
@@ -886,7 +920,8 @@ onMounted(async () => {
   publish()
   registerFlowSurfacePathFlush((box) => publish(box))
   // clipEl is mounted with mode=window — re-apply if publish raced ahead of the ref.
-  applyClipToDom(flowSurfaceMask.clipPath)
+  if (skipOrganicClip()) applyClipToDom('')
+  else applyClipToDom(flowSurfaceMask.clipPath)
   ensureLoop()
 
   watch(
@@ -977,6 +1012,7 @@ const slotInsetStyle = {
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div
+        v-if="!skipOrganicClip()"
         ref="grainEl"
         class="pointer-events-none absolute inset-0 z-[1]"
         aria-hidden="true"
@@ -1007,6 +1043,7 @@ const slotInsetStyle = {
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div
+        v-if="!skipOrganicClip()"
         ref="grainEl"
         class="pointer-events-none absolute inset-0 z-[1]"
         aria-hidden="true"
