@@ -180,10 +180,11 @@ function layoutMetrics() {
   const collapse = headerCollapsed.value && canCollapseHeader()
   /** Offset to column 2 on a 12-col track of width `collapsed` */
   const sidePad = collapse ? (collapsed + gutter) / 12 : 0
-  /** Mobile: tighten vertical logo insets ~15%. */
+  /** Mobile: vertical insets −15%; top logo gap +20% on top of that. */
   const mobile = !canCollapseHeader()
   const insetY = mobile ? inset * 0.85 : inset
-  const logoH = mobile ? headerContent * 0.8 : headerContent
+  const insetTop = mobile ? insetY * 1.2 : insetY
+  const logoH = mobile ? headerContent * 1.1 : headerContent
 
   return {
     expanded,
@@ -192,8 +193,8 @@ function layoutMetrics() {
     sidePad,
     height: collapse
       ? inset * 0.5 + headerContent + inset
-      : insetY * 2 + logoH,
-    paddingTop: collapse ? inset * 0.5 : insetY,
+      : insetTop + logoH + insetY,
+    paddingTop: collapse ? inset * 0.5 : insetTop,
     paddingBottom: collapse ? inset : insetY,
   }
 }
@@ -792,7 +793,7 @@ html.page-canvas-lock .menu-btn--float {
 
 @media (max-width: 767px) {
   .header-logo {
-    height: calc(var(--layout-header-content) * 0.8);
+    height: calc(var(--layout-header-content) * 1.1);
   }
 }
 

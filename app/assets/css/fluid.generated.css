@@ -124,11 +124,12 @@
   }
 }
 
-/* Header ↔ hero: surface-top tracks header chrome (mobile logo −20%, inset −15%). */
+/* Header ↔ hero: surface-top tracks header chrome (mobile logo ×1.1, inset −15%, top +20%). */
 :root {
   --layout-surface-top: calc(
-    2 * var(--layout-header-inset) * 0.85
-    + var(--layout-header-content) * 0.8
+    var(--layout-header-inset) * 0.85 * 1.2
+    + var(--layout-header-inset) * 0.85
+    + var(--layout-header-content) * 1.1
   );
 }
 

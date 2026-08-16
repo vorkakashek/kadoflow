@@ -87,11 +87,12 @@ css += `    --layout-margin-content: var(--layout-margin);\n`
 css += `  }\n`
 css += `}\n\n`
 
-css += `/* Header ↔ hero: surface-top tracks header chrome (mobile logo −20%, inset −15%). */\n`
+css += `/* Header ↔ hero: surface-top tracks header chrome (mobile logo ×1.1, inset −15%, top +20%). */\n`
 css += `:root {\n`
 css += `  --layout-surface-top: calc(\n`
-css += `    2 * var(--layout-header-inset) * 0.85\n`
-css += `    + var(--layout-header-content) * 0.8\n`
+css += `    var(--layout-header-inset) * 0.85 * 1.2\n`
+css += `    + var(--layout-header-inset) * 0.85\n`
+css += `    + var(--layout-header-content) * 1.1\n`
 css += `  );\n`
 css += `}\n\n`
 

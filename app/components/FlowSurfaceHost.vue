@@ -2,8 +2,9 @@
 /**
  * Fixed Flow Surface — one clipped window.
  * Desktop: hero → stone (plan h/v lag).
- * Mobile: scrub hero→stone, hop to term/word, then pin the frame into the
- * target so scroll carries it (no rAF follow). Center stays viewport-fixed.
+ * Mobile: scrub hero→stone with a light lag (not 1:1), box+morph on one live P
+ * so stage glue / copy / GL stay in phase; then hop to term/word and pin.
+ * Center stays viewport-fixed.
  */
 import {
   applyBox,
@@ -55,6 +56,8 @@ const HOP_DURATION = 0.42
 const HOP_EASE = 'power2.inOut'
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
+/** Mobile hero→stone scrub lag (seconds) — soft follow, not 1:1. Keep box+morph on same live P. */
+const MOBILE_SCRUB_LAG = 0.08
 
 const props = withDefaults(
   defineProps<{
@@ -64,9 +67,9 @@ const props = withDefaults(
     stoneEl?: HTMLElement | null
     /** Title + phonetic — hop after stone `top 10%`. */
     termEl?: HTMLElement | null
-    /** “Kadoflow” word — hop at stone `center top`. */
+    /** “Kadoflow” word — hop at stone `center top`; square hop at word `top 20%`. */
     wordEl?: HTMLElement | null
-    /** Body block — hop at `center top` → unbound square. */
+    /** Body block — layout / capture; square hop uses wordEl when present. */
     bodyEl?: HTMLElement | null
     plan?: SurfaceMorphPlan
     toneClass?: string
@@ -114,6 +117,9 @@ let stonePose: SurfaceBox | null = null
 let centerPose: SurfaceBox | null = null
 let scrubStartY = 0
 let scrubEndY = 0
+/** Scroll scrub progress target / live (lagged) — 0…1 along hero→stone. */
+let scrubTargetP = 0
+let scrubLiveP = 0
 let liveBox: SurfaceBox | null = null
 /** Snapshot used as hop tween start (destination tracks live each frame). */
 let hopFromBox: SurfaceBox | null = null
@@ -171,6 +177,27 @@ function roundBox(box: SurfaceBox): SurfaceBox {
     width: Math.max(1, Math.round(box.width)),
     height: Math.max(1, Math.round(box.height)),
   }
+}
+
+/** Subpixel box for morph paint — integer round caused stair-steps on slow scrub. */
+function morphBox(box: SurfaceBox): SurfaceBox {
+  return {
+    top: box.top,
+    left: box.left,
+    width: Math.max(1, box.width),
+    height: Math.max(1, box.height),
+  }
+}
+
+const BOX_EPS = 0.04
+
+function boxesNear(a: SurfaceBox, b: SurfaceBox) {
+  return (
+    Math.abs(a.top - b.top) < BOX_EPS
+    && Math.abs(a.left - b.left) < BOX_EPS
+    && Math.abs(a.width - b.width) < BOX_EPS
+    && Math.abs(a.height - b.height) < BOX_EPS
+  )
 }
 
 function captureDesktopPoses() {
@@ -291,13 +318,10 @@ function writeMaskBox(box: SurfaceBox, morph: number) {
 
 function paintBox(box: SurfaceBox, morph: number) {
   if (!frame.value || pinTo.value) return
-  const next = roundBox(box)
+  const next = morphBox(box)
   if (
     liveBox
-    && next.top === liveBox.top
-    && next.left === liveBox.left
-    && next.width === liveBox.width
-    && next.height === liveBox.height
+    && boxesNear(next, liveBox)
     && Math.abs(flowSurfaceMask.morph - morph) < 0.001
   ) {
     return
@@ -329,14 +353,39 @@ function scrubProgressAt(scrollY: number) {
   return Math.min(1, Math.max(0, (scrollY - scrubStartY) / span))
 }
 
-function paintScrub(scrollY = window.scrollY) {
+function paintScrubAt(p: number) {
+  if (!heroPose || !stonePose) {
+    ensureHeroRestPlaceholder()
+    return
+  }
+  // Linear box+morph from the same P — lag only on scrubLiveP (stage/copy/GL stay in phase).
+  const t = Math.min(1, Math.max(0, p))
+  paintBox(lerpBox(heroPose, stonePose, t), t)
+}
+
+function paintHeroRest() {
+  scrubLiveP = 0
+  scrubTargetP = 0
+  if (heroPose) paintBox(heroPose, 0)
+}
+
+/**
+ * Scrub paint. Default: set scroll target and lag toward it.
+ * `snap` locks live=target for boot / stage entry.
+ */
+function paintScrub(scrollY = window.scrollY, snap = false) {
   if (!heroPose || !stonePose) {
     ensureHeroRestPlaceholder()
     return
   }
   const p = scrubProgressAt(scrollY)
-  const ease = parseEase ? parseEase('power2.inOut')(p) : p
-  paintBox(lerpBox(heroPose, stonePose, ease), p)
+  scrubTargetP = p
+  if (snap) {
+    scrubLiveP = p
+    paintScrubAt(p)
+    return
+  }
+  ensureTick()
 }
 
 /** Pin slot inside a hop target (`[data-flow-pin]`), else the target itself. */
@@ -474,7 +523,7 @@ function requestStage(next: MobileStage, animate: boolean) {
     if (next === 'scrub' && mobileStage !== 'scrub') {
       mobileStage = 'scrub'
       killHopTween()
-      if (heroPose) paintBox(heroPose, 0)
+      paintHeroRest()
     }
     return
   }
@@ -568,7 +617,7 @@ function enterScrub() {
   unpinFrame()
   const paint = () => {
     if (!heroPose || !stonePose) return
-    paintScrub()
+    paintScrub(window.scrollY, true)
   }
   if (wasPinned) void nextTick(paint)
   else paint()
@@ -580,6 +629,7 @@ function stageFromScroll(): MobileStage {
   if (!stoneMark || !body) return 'scrub'
 
   const y = window.scrollY
+  // Body needed for corridor capture; square hop prefers the Kadoflow word.
   // During boot / unloaded stone image, markers sit near 0 and every hop looks “active”.
   if (!markersReliable()) {
     if (props.fromEl) {
@@ -591,8 +641,10 @@ function stageFromScroll(): MobileStage {
     return mobileStage
   }
 
-  // Body `center top` — square after Kadoflow (later than stone `center top`).
-  if (y >= scrollYForCenterTop(body)) return 'center'
+  // Kadoflow `top 20%` — start hop to unbound square (fallback: body center).
+  const squareMark = props.wordEl ?? body
+  const squareAt = props.wordEl ? 0.2 : 0.5
+  if (y >= scrollYForTopAt(squareMark, squareAt)) return 'center'
   if (y >= scrollYForCenterTop(stoneMark)) return 'word'
   if (y >= scrollYForTopAt(stoneMark, 0.1)) return 'term'
   return 'scrub'
@@ -683,8 +735,8 @@ function resyncAfterLayout() {
     suppressStageCallbacks = true
     // Paint only — pin/Teleport here re-enters ST refresh and freezes the tab.
     if (mobileStage === 'scrub' || !stageChangesAllowed()) {
-      if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintBox(heroPose, 0)
-      else paintScrub()
+      if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintHeroRest()
+      else paintScrub(window.scrollY, true)
     } else if (mobileStage === 'center' && centerPose) {
       paintBox(centerPose, 1)
     }
@@ -694,7 +746,7 @@ function resyncAfterLayout() {
     }
     if (scrubProgressAt(window.scrollY) < 0.02 && heroPose) {
       mobileStage = 'scrub'
-      paintBox(heroPose, 0)
+      paintHeroRest()
     }
     suppressStageCallbacks = false
     // Stage hops only after quiet window — never from layout thrash mid-boot.
@@ -727,8 +779,9 @@ function reconcileFromScroll() {
     return
   }
   const y = window.scrollY
-  if (y < lastScrollY - 1) {
-    // Intentional upward scroll — don't let forward-lock trap the hero.
+  const scrollingUp = y < lastScrollY - 1
+  if (scrollingUp) {
+    // Intentional upward scroll — don't let forward-lock trap the reverse path.
     stageLockUntil = 0
   }
   lastScrollY = y
@@ -740,11 +793,12 @@ function reconcileFromScroll() {
     return
   }
 
-  // Don't yank an in-flight forward hop back (threshold flicker).
-  if (hopTween && STAGE_RANK[next] < STAGE_RANK[mobileStage]) return
+  // Don't yank an in-flight forward hop back on threshold flicker —
+  // but do interrupt when the user is clearly scrolling up.
+  if (hopTween && STAGE_RANK[next] < STAGE_RANK[mobileStage] && !scrollingUp) return
 
-  const forward = STAGE_RANK[next] > STAGE_RANK[mobileStage]
-  requestStage(next, forward && next !== 'scrub')
+  // Animate hop↔hop both directions (scrub entry stays a snap via enterScrub).
+  requestStage(next, next !== 'scrub')
 }
 
 function setTargetsFromProgress(progress: number) {
@@ -765,8 +819,20 @@ function tick(now: number) {
   const dt = Math.min(0.064, Math.max(0, (now - lastTs) / 1000))
   lastTs = now
 
-  // Mobile hops + scrub paint themselves; desktop lag only here.
-  if (mobileActive) return
+  // Mobile scrub: light lag toward scroll target (box + morph share scrubLiveP).
+  if (mobileActive) {
+    if (mobileStage === 'scrub' && !hopTween && !pinTo.value && heroPose && stonePose) {
+      const lag = Math.max(0.04, MOBILE_SCRUB_LAG)
+      const k = 1 - Math.exp(-dt / lag)
+      scrubLiveP += (scrubTargetP - scrubLiveP) * k
+      if (Math.abs(scrubTargetP - scrubLiveP) < 0.00035) scrubLiveP = scrubTargetP
+      paintScrubAt(scrubLiveP)
+      if (Math.abs(scrubTargetP - scrubLiveP) >= 0.00035) {
+        raf = requestAnimationFrame(tick)
+      }
+    }
+    return
+  }
 
   const snapMorph = useMobileCorridor()
   if (snapMorph) {
@@ -911,22 +977,22 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
       invalidateOnRefresh: true,
       onUpdate: (self) => {
         if (mobileStage !== 'scrub') return
-        const ease = parseEase ? parseEase('power2.inOut')(self.progress) : self.progress
-        paintBox(lerpBox(heroPose!, stonePose!, ease), self.progress)
+        scrubTargetP = self.progress
+        ensureTick()
       },
       onRefresh: () => {
         captureMobilePoses()
         if (hopTween || !stageChangesAllowed()) {
-          if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintBox(heroPose, 0)
+          if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintHeroRest()
           return
         }
         if (typeof performance !== 'undefined' && performance.now() < stageLockUntil) return
         // Refresh: only repaint — never requestStage/pin (that re-enters refresh).
         if (!markersReliable() && scrubProgressAt(window.scrollY) < 0.02) {
-          if (heroPose) paintBox(heroPose, 0)
+          if (heroPose) paintHeroRest()
           return
         }
-        if (mobileStage === 'scrub') paintScrub()
+        if (mobileStage === 'scrub') paintScrub(window.scrollY, true)
       },
     }),
   )
@@ -966,8 +1032,8 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
 
   mobileTriggers.push(
     ScrollTrigger.create({
-      trigger: body,
-      start: 'center top',
+      trigger: props.wordEl ?? body,
+      start: props.wordEl ? 'top 20%' : 'center top',
       invalidateOnRefresh: true,
       onEnter: () => {
         if (!stageChangesAllowed()) return
@@ -982,12 +1048,12 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
 
   lastScrollY = window.scrollY
   // Snap scrub paint only — never pin/Teleport while ST is refreshing.
-  if (heroPose) paintBox(heroPose, 0)
+  paintHeroRest()
   mobileStage = 'scrub'
   // Defer refresh so logo→home first frame isn't blocked by ST measure.
   scheduleDeferredRefresh(ScrollTrigger)
   if (heroPose && scrubProgressAt(window.scrollY) < 0.02) {
-    paintBox(heroPose, 0)
+    paintHeroRest()
   }
   // suppressStageCallbacks cleared by buildMorph finally
   scheduleLayoutResync()
@@ -1131,8 +1197,8 @@ function onResize() {
       return
     }
     if (stageChangesAllowed()) syncMobileStage(false)
-    else if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintBox(heroPose, 0)
-    else paintScrub()
+    else if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintHeroRest()
+    else paintScrub(window.scrollY, true)
     return
   }
   paintDesktop()

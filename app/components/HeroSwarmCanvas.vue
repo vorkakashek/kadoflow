@@ -2,7 +2,7 @@
 /**
  * Hero swarm — tilted torus spiral (ring + helix twist), slow plane drift.
  * ≥1200: cursor knocks balls; they return to moving seats.
- * <1200: baked orbit; mobile/coarse also tilts the ring from the gyroscope.
+ * <1200: baked orbit + motion physics (angular velocity sweeps / collide / home).
  */
 import * as THREE from 'three'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
@@ -26,8 +26,17 @@ const ACTIVE_HDRI: keyof typeof HDRI_PRESETS = 'studioSoft'
 const DESKTOP_MIN_WIDTH = 1200
 const BALL_COUNT_DESKTOP = 32
 const BALL_COUNT_TABLET = 16
-/** Mobile: few high-quality balls on a baked orbit (no physics / pointer). */
-const BALL_COUNT_MOBILE = 6
+/** Mobile: orbit + tilt physics (no pointer). */
+const BALL_COUNT_MOBILE = 12
+/** Mobile on-screen diameter vs fluid curve. */
+const MOBILE_BALL_DIAMETER_SCALE = 1.2
+/**
+ * Lite keeps helix depth so balls sit on different planes
+ * (1 = full tube, 0 = flat screen plane).
+ */
+const LITE_DEPTH_KEEP = 1
+/** Cap |depth| as a fraction of ringRadius — visible layering, not a flat pack. */
+const LITE_DEPTH_MAX_RATIO = 1.5
 /** Camera distance — framing is fluid via on-screen diameter, not a zoom cliff. */
 const CAMERA_Z = 8.82
 /** Same control widths as design-tokens/responsive.json. */
@@ -91,6 +100,8 @@ const CHAOS_POP_CHANCE = 0.0014
 const CHAOS_POP_FORCE = 0.012
 /** Lock to seats on boot / resize so separation doesn't grenade the swarm. */
 const SETTLE_MS = 700
+/** Lite intro: place balls this far out (× ringRadius), then spring home. */
+const LITE_SCATTER_RATIO = 2.25
 /** Debounce real window resizes before a full scene reboot. */
 const REBOOT_MS = 320
 
@@ -350,7 +361,7 @@ async function bootScene() {
   camera.position.set(0, 0.12, cameraZ)
 
   const gl = new THREE.WebGLRenderer({
-    antialias: !lite,
+    antialias: true,
     alpha: true,
     powerPreference: 'high-performance',
     // Desktop: keep last frame if rAF throttles (other monitor). Mobile: the
@@ -393,7 +404,8 @@ async function bootScene() {
   }
 
   const texLoader = new THREE.TextureLoader(manager)
-  const hdrUrl = wide ? HDRI_PRESETS[ACTIVE_HDRI] : HDRI_PRESETS.studioWarm
+  // Same studio HDRI on phone + desktop (was studioWarm on narrow).
+  const hdrUrl = HDRI_PRESETS[ACTIVE_HDRI]
   const assetLoads: Promise<THREE.DataTexture | THREE.Texture>[] = [
     new HDRLoader(manager).loadAsync(hdrUrl),
   ]
@@ -494,14 +506,14 @@ async function bootScene() {
 
   const materialPlan: THREE.Material[] = []
   if (lite) {
-    // Mobile: matte + “glass” Standard stand-ins (no Physical transmission).
+    // Mobile: brand green + white only (no ink/black). Standard stand-ins, no transmission.
     materialPlan.push(
       matte(COLORS.green.clone()),
       frosted(COLORS.white.clone()),
-      matte(COLORS.dark.clone()),
-      frosted(COLORS.white.clone()),
+      glossy(COLORS.green.clone()),
+      matte(COLORS.green.clone()),
+      frosted(COLORS.green.clone()),
       matte(COLORS.white.clone()),
-      frosted(COLORS.white.clone()),
     )
   } else {
     for (const color of [COLORS.green, COLORS.dark]) {
@@ -587,33 +599,113 @@ async function bootScene() {
   let ringRadius = 1.2
   let ringTiltPhase = 0
 
-  /** Device tilt (lite) — smoothed offsets added to the baked ring orientation. */
+  /**
+   * Device motion (lite):
+   * 1) Крен/тангаж — absolute beta/gamma vs hand-hold: tip an edge down → balls that way.
+   * 2) Рысканье — alpha rate: spin phone in its plane → rotate the pile.
+   */
+  let gyroYaw = 0
   let gyroPitch = 0
   let gyroRoll = 0
+  let gyroYawT = 0
   let gyroPitchT = 0
   let gyroRollT = 0
-  const GYRO_MAX = 0.45
-  const GYRO_SMOOTH = 0.14
-  const GYRO_BETA_REST = 55
+  let gyroArmed = false
+  let prevAlpha: number | null = null
+  let gyroFromRate = false
+  let gyroRateStamp = 0
+  /** Tip sweep force (крен / тангаж). */
+  const GYRO_DEPTH_FORCE = 0.00039
+  /** In-plane twist (рысканье). */
+  const GYRO_YAW_FORCE = 0.00052
+  const GYRO_SPIN_ORBIT = 0.0028
+  const GYRO_SMOOTH = 0.28
+  const GYRO_RATE_SCALE = 100
+  const GYRO_DELTA_SCALE = 5
+  const GYRO_TARGET_DECAY = 0.82
+  /** Degrees of tip → full ball force. */
+  const GYRO_TIP_ANGLE = 28
+  /** Typical hand-hold beta (portrait, screen toward user). */
+  const GYRO_NEUTRAL_BETA = 68
+  /** Near-flat on a table — tip off, spin only. */
+  const GYRO_FLAT_BETA = 28
+  const GYRO_SWEEP_FRONT = 0.32
+  const GYRO_SWEEP_BACK = 1
+  const LITE_WALL_X = 2.15
+  const LITE_WALL_Y = 2.35
+  const LITE_WALL_BOUNCE = 0.62
+  const LITE_RETURN = 0.000042
+  const LITE_DAMPING = 0.972
+  const LITE_SEP_FORCE = 0.018
+  const LITE_MAX_SPEED = 0.22
+  const LITE_LEASH = 2.2
   let removeGyroListeners: (() => void) | null = null
 
-  if (lite && !reduced && typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
+  if (lite && !reduced && typeof window !== 'undefined') {
+    const unwrapDelta = (d: number) => {
+      if (d > 180) return d - 360
+      if (d < -180) return d + 360
+      return d
+    }
+
     const onOrient = (e: DeviceOrientationEvent) => {
       if (e.beta == null || e.gamma == null) return
-      const pitch = THREE.MathUtils.clamp(
-        (e.beta - GYRO_BETA_REST) / 40,
-        -1,
-        1,
-      )
-      const roll = THREE.MathUtils.clamp(e.gamma / 40, -1, 1)
-      gyroPitchT = pitch * GYRO_MAX
-      gyroRollT = roll * GYRO_MAX
+      gyroArmed = true
+
+      const beta = e.beta
+      const gamma = e.gamma
+      const flat = Math.abs(beta) < GYRO_FLAT_BETA && Math.abs(gamma) < 22
+
+      if (flat) {
+        // On the table: no tip shove — only рысканье (alpha).
+        gyroPitchT = 0
+        gyroRollT = 0
+      } else {
+        // Крен: gamma > 0 → right edge down → balls right (+X).
+        gyroRollT = THREE.MathUtils.clamp(gamma / GYRO_TIP_ANGLE, -1, 1)
+        // Тангаж: beta below neutral → top toward ground → balls up (+Y).
+        // beta above neutral → top toward user → balls down (−Y).
+        gyroPitchT = THREE.MathUtils.clamp(
+          (GYRO_NEUTRAL_BETA - beta) / GYRO_TIP_ANGLE,
+          -1,
+          1,
+        )
+      }
+
+      // Alpha delta as spin fallback when rotationRate is missing/stale.
+      if (e.alpha != null && prevAlpha != null) {
+        const ratesFresh =
+          gyroFromRate && performance.now() - gyroRateStamp < 200
+        if (!ratesFresh) {
+          const dA = unwrapDelta(e.alpha - prevAlpha)
+          if (Math.abs(dA) > 0.35) {
+            gyroYawT = THREE.MathUtils.clamp(dA / GYRO_DELTA_SCALE, -1, 1)
+          }
+        }
+      }
+      prevAlpha = e.alpha
+    }
+
+    const onMotion = (e: DeviceMotionEvent) => {
+      const r = e.rotationRate
+      if (!r || r.alpha == null) return
+      gyroArmed = true
+      gyroFromRate = true
+      gyroRateStamp = performance.now()
+      // Рысканье only — tip comes from orientation, not rates.
+      gyroYawT = THREE.MathUtils.clamp(r.alpha / GYRO_RATE_SCALE, -1, 1)
     }
 
     const startListening = () => {
       window.addEventListener('deviceorientation', onOrient, { passive: true })
+      window.addEventListener('deviceorientationabsolute', onOrient, {
+        passive: true,
+      })
+      window.addEventListener('devicemotion', onMotion, { passive: true })
       removeGyroListeners = () => {
         window.removeEventListener('deviceorientation', onOrient)
+        window.removeEventListener('deviceorientationabsolute', onOrient)
+        window.removeEventListener('devicemotion', onMotion)
         removeGyroListeners = null
       }
     }
@@ -621,19 +713,30 @@ async function bootScene() {
     const DOE = DeviceOrientationEvent as typeof DeviceOrientationEvent & {
       requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
     }
+    const DME = DeviceMotionEvent as typeof DeviceMotionEvent & {
+      requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
+    }
 
-    if (typeof DOE.requestPermission === 'function') {
+    if (isIOS && typeof DOE.requestPermission === 'function') {
       const unlock = () => {
-        window.removeEventListener('pointerdown', unlock)
-        void DOE.requestPermission!()
-          .then((state) => {
-            if (state === 'granted' && gen === bootGen) startListening()
-          })
-          .catch(() => {})
+        window.removeEventListener('pointerdown', unlock, true)
+        window.removeEventListener('touchend', unlock, true)
+        const tasks: Promise<string>[] = [DOE.requestPermission!()]
+        if (typeof DME.requestPermission === 'function') {
+          tasks.push(DME.requestPermission!())
+        }
+        void Promise.allSettled(tasks).then((results) => {
+          const ok = results.some(
+            (r) => r.status === 'fulfilled' && r.value === 'granted',
+          )
+          if (ok && gen === bootGen) startListening()
+        })
       }
-      window.addEventListener('pointerdown', unlock, { passive: true })
+      window.addEventListener('pointerdown', unlock, { capture: true, passive: true })
+      window.addEventListener('touchend', unlock, { capture: true, passive: true })
       removeGyroListeners = () => {
-        window.removeEventListener('pointerdown', unlock)
+        window.removeEventListener('pointerdown', unlock, true)
+        window.removeEventListener('touchend', unlock, true)
         removeGyroListeners = null
       }
     } else {
@@ -662,6 +765,7 @@ async function bootScene() {
   const local = new THREE.Vector3()
   const camRight = new THREE.Vector3()
   const camUp = new THREE.Vector3()
+  const camForward = new THREE.Vector3()
   let lastBallRadius = 0
   let settleLeft = SETTLE_MS
   /** Once true, orbit anchor/radius ignore host size churn (morph / pin). */
@@ -682,6 +786,44 @@ async function bootScene() {
   }
 
   const seatAll = () => {
+    if (lite) {
+      // Scatter outside the ring, then let springs pull home — avoids the
+      // “stuck overlapping → explode” pop when settle ends.
+      camera.updateMatrixWorld(true)
+      camRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+      camUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize()
+      camForward
+        .setFromMatrixColumn(camera.matrixWorld, 2)
+        .normalize()
+        .negate()
+      const n = balls.length
+      const scatterR = Math.max(ringRadius * LITE_SCATTER_RATIO, balls[0]?.radius * 6 || 1)
+      const depthMax = ringRadius * LITE_DEPTH_MAX_RATIO
+      for (let i = 0; i < n; i++) {
+        const ball = balls[i]
+        pointOnOrbit(ball.angle, ball.phase, seat)
+        push.copy(seat).sub(anchor)
+        const sz = THREE.MathUtils.clamp(
+          push.dot(camForward) * LITE_DEPTH_KEEP,
+          -depthMax,
+          depthMax,
+        )
+        const a = (i / n) * Math.PI * 2 + 0.4
+        const r = scatterR * (0.9 + (i % 4) * 0.05)
+        ball.position
+          .copy(anchor)
+          .addScaledVector(camRight, Math.cos(a) * r)
+          .addScaledVector(camUp, Math.sin(a) * r)
+          .addScaledVector(camForward, sz)
+        ball.velocity.set(0, 0, 0)
+        ball.pointerInside = false
+        ball.mesh.position.copy(ball.position)
+      }
+      // Gyro muted during gather; physics runs so they fly inward.
+      settleLeft = SETTLE_MS
+      return
+    }
+
     for (const ball of balls) {
       pointOnOrbit(ball.angle, ball.phase, ball.position)
       ball.velocity.set(0, 0, 0)
@@ -753,7 +895,10 @@ async function bootScene() {
     camera.lookAt(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
 
     const layoutH = lite ? Math.max(readAppScreenPx() * 0.92, h) : h
-    const radius = worldRadiusForPixels(ballDiameterPx, layoutH)
+    const diameterPx = lite
+      ? ballDiameterPx * MOBILE_BALL_DIAMETER_SCALE
+      : ballDiameterPx
+    const radius = worldRadiusForPixels(diameterPx, layoutH)
     ringRadius = radius * ringScale
 
     for (let i = 0; i < balls.length; i++) {
@@ -945,32 +1090,239 @@ async function bootScene() {
 
     if (!reduced) {
       if (lite) {
+        if (!gyroFromRate || performance.now() - gyroRateStamp > 180) {
+          gyroFromRate = false
+          // Tip holds while tilted (absolute). Only spin decays when still.
+          gyroYawT *= GYRO_TARGET_DECAY
+          if (Math.abs(gyroYawT) < 0.02) gyroYawT = 0
+        }
+        gyroYaw += (gyroYawT - gyroYaw) * GYRO_SMOOTH
         gyroPitch += (gyroPitchT - gyroPitch) * GYRO_SMOOTH
         gyroRoll += (gyroRollT - gyroRoll) * GYRO_SMOOTH
       }
       ringTiltPhase += RING_TILT_SPEED * step
       ringEuler.set(
-        ringBaseEuler.x
-          + Math.sin(ringTiltPhase) * 0.22
-          + (lite ? gyroPitch : 0),
-        ringBaseEuler.y
-          + ringTiltPhase * 0.35
-          + (lite ? gyroRoll * 0.55 : 0),
-        ringBaseEuler.z
-          + Math.cos(ringTiltPhase * 0.7) * 0.12
-          + (lite ? gyroRoll * 0.85 : 0),
+        ringBaseEuler.x + Math.sin(ringTiltPhase) * 0.22,
+        ringBaseEuler.y + ringTiltPhase * 0.35,
+        ringBaseEuler.z + Math.cos(ringTiltPhase * 0.7) * 0.12,
         'XYZ',
       )
       ringQuat.setFromEuler(ringEuler)
     }
 
-    // Mobile: baked helix seats only — no physics / pointer / separation.
+    // Mobile: orbit seats + planar motion → collide → walls → spring home.
     if (lite) {
-      for (const ball of balls) {
-        if (!reduced) ball.angle += ORBIT_SPEED * step
-        pointOnOrbit(ball.angle, ball.phase, ball.position)
+      if (!reduced) {
+        camRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+        camUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize()
+        camForward.setFromMatrixColumn(camera.matrixWorld, 2).normalize().negate()
+      }
+      const settling = settleLeft > 0
+      if (settling) settleLeft = Math.max(0, settleLeft - dt)
+      const wallX = ringRadius * LITE_WALL_X
+      const wallY = ringRadius * LITE_WALL_Y
+      const depthMax = ringRadius * LITE_DEPTH_MAX_RATIO
+      const sweepSpan = Math.max(ringRadius * 1.35, balls[0].radius * 5)
+
+      // Крен → ±X, тангаж → ±Y (already mapped to “balls that way”).
+      const depthRight = gyroRoll
+      const depthUp = gyroPitch
+      // Рысканье → rotate in the screen plane.
+      const twist = gyroYaw
+
+      const sweepW = (along: number, force: number) => {
+        if (Math.abs(force) < 0.01) return 1
+        const n = THREE.MathUtils.clamp(along / sweepSpan, -1, 1)
+        const behind = force > 0 ? -n : n
+        const t = behind * 0.5 + 0.5
+        return GYRO_SWEEP_FRONT + (GYRO_SWEEP_BACK - GYRO_SWEEP_FRONT) * t
+      }
+
+      /** Screen XY from helix + depth so balls aren’t coplanar. */
+      const flattenSeat = () => {
+        push.copy(seat).sub(anchor)
+        const sx = push.dot(camRight)
+        const sy = push.dot(camUp)
+        const sz = THREE.MathUtils.clamp(
+          push.dot(camForward) * LITE_DEPTH_KEEP,
+          -depthMax,
+          depthMax,
+        )
+        seat
+          .copy(anchor)
+          .addScaledVector(camRight, sx)
+          .addScaledVector(camUp, sy)
+          .addScaledVector(camForward, sz)
+        return sz
+      }
+
+      for (let i = 0; i < balls.length; i++) {
+        const ball = balls[i]
+        if (!reduced) {
+          ball.angle += ORBIT_SPEED * step
+          // Phone spinning in its plane → seats rotate the same way.
+          if (!settling && gyroArmed && Math.abs(twist) > 0.01) {
+            ball.angle += twist * GYRO_SPIN_ORBIT * step
+          }
+        }
+        pointOnOrbit(ball.angle, ball.phase, seat)
+        const seatDepth = flattenSeat()
+
+        // Reduced-motion: stick to seats. Intro settle: physics gathers from scatter.
+        if (reduced) {
+          ball.position.copy(seat)
+          ball.velocity.set(0, 0, 0)
+          ball.mesh.position.copy(ball.position)
+          continue
+        }
+
+        // Motion stays in the screen plane; depth locked to the seat layer.
+        {
+          const rel = push.copy(ball.position).sub(anchor)
+          const px = rel.dot(camRight)
+          const py = rel.dot(camUp)
+          ball.position
+            .copy(anchor)
+            .addScaledVector(camRight, px)
+            .addScaledVector(camUp, py)
+            .addScaledVector(camForward, seatDepth)
+          const vx = ball.velocity.dot(camRight)
+          const vy = ball.velocity.dot(camUp)
+          ball.velocity
+            .copy(camRight)
+            .multiplyScalar(vx)
+            .addScaledVector(camUp, vy)
+        }
+
+        if (gyroArmed && !settling) {
+          const rel = push.copy(ball.position).sub(anchor)
+          const alongR = rel.dot(camRight)
+          const alongU = rel.dot(camUp)
+
+          if (Math.abs(depthRight) > 0.01 || Math.abs(depthUp) > 0.01) {
+            const wR = sweepW(alongR, depthRight)
+            const wU = sweepW(alongU, depthUp)
+            ball.velocity.addScaledVector(
+              camRight,
+              depthRight * wR * GYRO_DEPTH_FORCE * step,
+            )
+            ball.velocity.addScaledVector(
+              camUp,
+              depthUp * wU * GYRO_DEPTH_FORCE * step,
+            )
+          }
+
+          // Twist phone in its plane → tangential shove around the pile center.
+          if (Math.abs(twist) > 0.01) {
+            const rad = Math.hypot(alongR, alongU)
+            if (rad > 1e-4) {
+              // CCW tangent in screen plane: (-y, x) — matches +alpha (CCW).
+              const tR = -alongU / rad
+              const tU = alongR / rad
+              const radial = THREE.MathUtils.clamp(rad / sweepSpan, 0.25, 1.15)
+              ball.velocity.addScaledVector(
+                camRight,
+                twist * tR * radial * GYRO_YAW_FORCE * step,
+              )
+              ball.velocity.addScaledVector(
+                camUp,
+                twist * tU * radial * GYRO_YAW_FORCE * step,
+              )
+            }
+          }
+        }
+
+        seatPull.copy(seat).sub(ball.position)
+        {
+          const sx = seatPull.dot(camRight)
+          const sy = seatPull.dot(camUp)
+          seatPull.copy(camRight).multiplyScalar(sx).addScaledVector(camUp, sy)
+        }
+        const distToSeat = seatPull.length()
+        let returnForce = LITE_RETURN * (settling ? 2.6 : 1)
+        if (distToSeat > RETURN_SOFT_DIST * ball.radius) returnForce *= 0.32
+        let leashSpring = 0
+        const orbitLeash = ball.radius * LITE_LEASH
+        if (distToSeat > orbitLeash) {
+          leashSpring =
+            ORBIT_LEASH_SPRING * ((distToSeat - orbitLeash) / orbitLeash) * 1.35
+        }
+        ball.velocity.addScaledVector(seatPull, (returnForce + leashSpring) * step)
+
+        for (let j = i + 1; j < balls.length; j++) {
+          const other = balls[j]
+          tmp.copy(ball.position).sub(other.position)
+          const sx = tmp.dot(camRight)
+          const sy = tmp.dot(camUp)
+          tmp.copy(camRight).multiplyScalar(sx).addScaledVector(camUp, sy)
+          const dist = tmp.length()
+          const minDist = ball.radius + other.radius + SEPARATION_PAD
+          if (dist > 0.0001 && dist < minDist) {
+            const overlap = (minDist - dist) / minDist
+            push
+              .copy(tmp)
+              .normalize()
+              .multiplyScalar(overlap * LITE_SEP_FORCE * step)
+            ball.velocity.add(push)
+            other.velocity.sub(push)
+          }
+        }
+
+        ball.velocity.multiplyScalar(LITE_DAMPING)
+        {
+          const vx = ball.velocity.dot(camRight)
+          const vy = ball.velocity.dot(camUp)
+          const speed = Math.hypot(vx, vy)
+          let nx = vx
+          let ny = vy
+          if (speed > LITE_MAX_SPEED) {
+            const s = LITE_MAX_SPEED / speed
+            nx *= s
+            ny *= s
+          }
+          ball.velocity
+            .copy(camRight)
+            .multiplyScalar(nx)
+            .addScaledVector(camUp, ny)
+        }
+        ball.position.addScaledVector(ball.velocity, 1)
+
+        {
+          const rel = push.copy(ball.position).sub(anchor)
+          let px = rel.dot(camRight)
+          let py = rel.dot(camUp)
+          let vx = ball.velocity.dot(camRight)
+          let vy = ball.velocity.dot(camUp)
+          const maxX = Math.max(0.2, wallX - ball.radius)
+          const maxY = Math.max(0.2, wallY - ball.radius)
+          if (px > maxX) {
+            px = maxX
+            if (vx > 0) vx *= -LITE_WALL_BOUNCE
+          } else if (px < -maxX) {
+            px = -maxX
+            if (vx < 0) vx *= -LITE_WALL_BOUNCE
+          }
+          if (py > maxY) {
+            py = maxY
+            if (vy > 0) vy *= -LITE_WALL_BOUNCE
+          } else if (py < -maxY) {
+            py = -maxY
+            if (vy < 0) vy *= -LITE_WALL_BOUNCE
+          }
+          ball.position
+            .copy(anchor)
+            .addScaledVector(camRight, px)
+            .addScaledVector(camUp, py)
+            .addScaledVector(camForward, seatDepth)
+          ball.velocity
+            .copy(camRight)
+            .multiplyScalar(vx)
+            .addScaledVector(camUp, vy)
+        }
+
         ball.mesh.position.copy(ball.position)
       }
+
       renderer.render(scene, camera)
       return
     }

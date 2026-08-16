@@ -6,17 +6,27 @@
  */
 import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { useBrandPreload } from '~/composables/useBrandPreload'
-import { isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
+import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
 
 const SCENE_FADE_MORPH = 0.3
 const SCENE_RESTORE_MORPH = 0.05
 /** Morph-driven stage fade — keyed to min(h,v) arrive progress. */
 const FADE_OUT_START = 0.3
 const FADE_OUT_END = 0.7
-/** Mobile: earlier corridor, still long enough to read as a fade (not a hard cut). */
-const FADE_OUT_START_MOBILE = 0.08
-const FADE_OUT_END_MOBILE = 0.42
-const SCENE_FADE_MORPH_MOBILE = 0.1
+/**
+ * Mobile — copy (h1+desc+slogan) opacity corridor.
+ * Y motion starts at morph 0% (separate from opacity).
+ */
+const FADE_OUT_START_MOBILE = 0.28
+const FADE_OUT_END_MOBILE = 0.62
+/**
+ * Mobile — 3D opacity corridor (+0.40 vs previous scene/copy window).
+ * Was effectively ~30%→62%; now 70%→102%.
+ */
+const SCENE_FADE_START_MOBILE = 0.7
+const SCENE_FADE_END_MOBILE = 1.02
+/** Desktop 3D dismiss threshold (timed fade, not a morph end). */
+const SCENE_FADE_MORPH_MOBILE = SCENE_FADE_START_MOBILE
 /**
  * Swarm/media bleed past the stage box (px).
  * Desktop: cover stacked roam+hover outward (~2× dent + bow).
@@ -26,7 +36,7 @@ const SCENE_BLEED_Y = 168
 const SCENE_BLEED_X = 168
 const SCENE_BLEED_Y_LITE = 56
 const SCENE_BLEED_X_LITE = 56
-/** Copy rides scroll from the first pixel (not the fade window). Full shift over 1vh. */
+/** Copy shift over locked vh — driven by the same linear morph as the surface box. */
 const COPY_PARALLAX_VH = 0.55
 
 const props = defineProps<{
@@ -174,9 +184,11 @@ async function runHeroGlPrewarm() {
 watch(heroGlPrewarm, () => {
   void runHeroGlPrewarm()
 })
-/** Whole hero stack opacity — never unmount; eased by morph. */
-const contentOpacity = ref(1)
-/** Text parallax Y (px). Negative = up. Driven by section scroll, not fade. */
+/** Copy (h1+desc+slogan) opacity — never unmount; eased by morph. */
+const copyOpacity = ref(1)
+/** 3D / media opacity — separate corridor on mobile. */
+const sceneOpacity = ref(1)
+/** Text parallax Y (px). Negative = up. */
 const copyY = ref(0)
 
 let ctx: { revert: () => void } | null = null
@@ -185,27 +197,75 @@ let stRef: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let sceneDismissed = false
 let mediaFadeTween: { kill: () => void } | null = null
 let parallaxRaf = 0
+/** Locked vh for copy parallax — ignore mobile chrome show/hide (innerHeight jumps). */
+let copyParallaxVh = 0
+let copyParallaxWidth = 0
 
 function setFrozen(on: boolean) {
   flowSurfaceMask.freezeSilhouette = on
 }
 
-function opacityForMorph(m: number) {
-  const start = mobileLite.value ? FADE_OUT_START_MOBILE : FADE_OUT_START
-  const end = mobileLite.value ? FADE_OUT_END_MOBILE : FADE_OUT_END
+function copyParallaxBaseVh() {
+  if (typeof window === 'undefined') return 1
+  const w = window.innerWidth
+  const h = Math.max(1, window.innerHeight)
+  if (!copyParallaxVh || w !== copyParallaxWidth) {
+    copyParallaxVh = h
+    copyParallaxWidth = w
+  }
+  return copyParallaxVh
+}
+
+function onCopyParallaxResize() {
+  // Width / orientation change: re-lock. Chrome toolbar only: keep the same vh.
+  if (!isMobileChromeHeightOnlyResize()) {
+    copyParallaxVh = 0
+    copyParallaxWidth = 0
+  }
+  syncSwarmInteractive()
+  updateCopyParallax()
+}
+
+function opacityInRange(m: number, start: number, end: number) {
   if (m <= start) return 1
   if (m >= end) return 0
   return 1 - (m - start) / (end - start)
 }
 
-function sceneFadeMorph() {
-  return mobileLite.value ? SCENE_FADE_MORPH_MOBILE : SCENE_FADE_MORPH
+function opacityForMorph(m: number) {
+  const start = mobileLite.value ? FADE_OUT_START_MOBILE : FADE_OUT_START
+  const end = mobileLite.value ? FADE_OUT_END_MOBILE : FADE_OUT_END
+  return opacityInRange(m, start, end)
 }
 
-/** Parallax from first scroll px of the hero section — independent of morph fade. */
+function sceneOpacityForMorph(m: number) {
+  if (mobileLite.value) {
+    return opacityInRange(m, SCENE_FADE_START_MOBILE, SCENE_FADE_END_MOBILE)
+  }
+  // Desktop: stage shared fade; timed dismiss kicks in at SCENE_FADE_MORPH.
+  return opacityForMorph(m)
+}
+
+function sceneFadeMorph() {
+  return mobileLite.value ? SCENE_FADE_START_MOBILE : SCENE_FADE_MORPH
+}
+
+/**
+ * Parallax from morph 0→1 (same progress the surface box uses).
+ * Locked vh avoids chrome show/hide jumps; no pixel snap (that stair-stepped text+GL).
+ */
 function updateCopyParallax() {
   if (typeof window === 'undefined') return
-  if (pageCanvasOpen.value) return
+  if (pageCanvasOpen.value) {
+    copyY.value = 0
+    return
+  }
+  const vh = copyParallaxBaseVh()
+  if (mobileLite.value) {
+    const t = Math.min(1, Math.max(0, mask.morph))
+    copyY.value = -t * vh * COPY_PARALLAX_VH
+    return
+  }
   const el = props.sectionEl
   if (!el) {
     copyY.value = 0
@@ -213,9 +273,9 @@ function updateCopyParallax() {
   }
   const sectionTop = el.getBoundingClientRect().top + window.scrollY
   const scrolled = Math.max(0, (window.scrollY || 0) - sectionTop)
-  const range = Math.max(1, window.innerHeight)
+  const range = Math.max(1, vh)
   const t = Math.min(1, scrolled / range)
-  copyY.value = -t * window.innerHeight * COPY_PARALLAX_VH
+  copyY.value = -t * vh * COPY_PARALLAX_VH
 }
 
 function onParallaxScroll() {
@@ -227,20 +287,12 @@ function onParallaxScroll() {
 }
 
 async function dismissScene() {
-  if (sceneDismissed || !mediaEl.value) return
+  if (sceneDismissed) return
   sceneDismissed = true
   mediaFadeTween?.kill()
-  await ensureGsap()
-  if (!mediaEl.value) return
-  // Keep WebGL alive through the fade, then freeze — same feel on mobile + desktop.
-  mediaFadeTween = gsapRef!.to(mediaEl.value, {
-    opacity: 0,
-    duration: mobileLite.value ? 0.35 : 0.4,
-    ease: 'power1.out',
-    onComplete: () => {
-      sceneLive.value = false
-    },
-  })
+  mediaFadeTween = null
+  // Opacity is morph-bound; this only freezes the WebGL loop.
+  sceneLive.value = false
 }
 
 function restoreScene() {
@@ -249,17 +301,6 @@ function restoreScene() {
   mediaFadeTween?.kill()
   mediaFadeTween = null
   sceneLive.value = true
-  if (mediaEl.value) {
-    if (gsapRef) {
-      gsapRef.to(mediaEl.value, {
-        opacity: 1,
-        duration: mobileLite.value ? 0.3 : 0.35,
-        ease: 'power1.out',
-      })
-    } else {
-      mediaEl.value.style.opacity = '1'
-    }
-  }
 }
 
 watch(
@@ -267,21 +308,31 @@ watch(
   (m) => {
     // Page Canvas freezes the live page — don't dismiss/restore mid-flight.
     if (pageCanvasOpen.value) return
-    const op = opacityForMorph(m)
-    contentOpacity.value = op
-    const show = op > 0.08
+    const copyOp = opacityForMorph(m)
+    const sceneOp = sceneOpacityForMorph(m)
+    copyOpacity.value = copyOp
+    sceneOpacity.value = sceneOp
+    updateCopyParallax()
     // Freeze only mid-morph — at hero rest edges stay live + cursor dent.
     setFrozen(m > 0.02 && m < 0.98)
 
-    if (!show) {
-      sceneLive.value = false
-      // Mid-page boot / full fade — mark dismissed so restore can run on the way back.
-      if (!sceneDismissed) {
+    if (mobileLite.value) {
+      // Opacity is morph-scrubbed both ways — keep GL alive whenever the fade is visible.
+      // (Old gate restored only at morph <5%, so reverse looked like a hard pop.)
+      if (sceneOp <= 0.08) {
+        sceneLive.value = false
         sceneDismissed = true
-        if (mediaEl.value && !mediaFadeTween) {
-          mediaEl.value.style.opacity = '0'
-        }
+        return
       }
+      sceneDismissed = false
+      sceneLive.value = true
+      return
+    }
+
+    // Desktop: shared copy fade + freeze past SCENE_FADE_MORPH.
+    if (copyOp <= 0.08) {
+      sceneLive.value = false
+      if (!sceneDismissed) sceneDismissed = true
       return
     }
 
@@ -384,7 +435,7 @@ async function setupExitMotion(sectionEl: HTMLElement) {
       ScrollTrigger.create({
         ...exitSt,
         onEnterBack: () => {
-          if (opacityForMorph(mask.morph) > 0.08) sceneLive.value = true
+          if (sceneOpacityForMorph(mask.morph) > 0.08) sceneLive.value = true
         },
       })
     }
@@ -451,7 +502,7 @@ onMounted(() => {
   updateCopyParallax()
   syncSwarmInteractive()
   window.addEventListener('scroll', onParallaxScroll, { passive: true })
-  window.addEventListener('resize', syncSwarmInteractive, { passive: true })
+  window.addEventListener('resize', onCopyParallaxResize, { passive: true })
 
   const fromNav = skipHeroIntro.value
   if (fromNav) skipHeroIntro.value = false
@@ -609,7 +660,7 @@ onUnmounted(() => {
   ctx?.revert()
   if (parallaxRaf) cancelAnimationFrame(parallaxRaf)
   window.removeEventListener('scroll', onParallaxScroll)
-  window.removeEventListener('resize', syncSwarmInteractive)
+  window.removeEventListener('resize', onCopyParallaxResize)
 })
 </script>
 
@@ -621,7 +672,6 @@ onUnmounted(() => {
       left: `${stageLeft}px`,
       width: `${Math.max(1, props.stageWidth)}px`,
       height: `${Math.max(1, props.stageHeight)}px`,
-      opacity: contentOpacity,
     }"
   >
     <div
@@ -629,20 +679,24 @@ onUnmounted(() => {
       class="hero-focus relative size-full min-h-0"
     >
       <div
-        ref="mediaEl"
         class="absolute"
-        :class="[
-          swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
-          introPending ? 'hero-intro-hide' : '',
-        ]"
-        aria-hidden="true"
         :style="{
           top: `-${sceneBleedY}px`,
           left: `-${sceneBleedX}px`,
           width: `calc(100% + ${sceneBleedX * 2}px)`,
           height: `calc(100% + ${sceneBleedY * 2}px)`,
+          opacity: sceneOpacity,
         }"
       >
+        <div
+          ref="mediaEl"
+          class="absolute inset-0"
+          :class="[
+            swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
+            introPending ? 'hero-intro-hide' : '',
+          ]"
+          aria-hidden="true"
+        >
         <ClientOnly>
           <HeroSwarmCanvas
             v-if="swarmMount"
@@ -662,13 +716,17 @@ onUnmounted(() => {
           }"
           aria-hidden="true"
         />
+        </div>
       </div>
 
       <div
         ref="copyEl"
         class="pointer-events-none absolute inset-0 z-10 flex min-h-0 flex-col will-change-transform"
         :class="{ 'hero-intro-hide': introPending }"
-        :style="{ transform: `translate3d(0, ${copyY}px, 0)` }"
+        :style="{
+          opacity: copyOpacity,
+          transform: `translate3d(0, ${copyY}px, 0)`,
+        }"
       >
         <div
           class="hero-copy mx-auto grid h-full w-full min-h-0"

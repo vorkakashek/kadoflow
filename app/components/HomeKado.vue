@@ -3,7 +3,8 @@
  * Home — «Кадо́ — путь цветов.»
  * Grid: empty col 1 & 12 · photo cols 2–6 · text cols 7–11.
  * Body: line-by-line ash→ink fill on scroll (1.5× type).
- * Mobile surface waypoints: stone → term → Kadoflow word → center square.
+ * Mobile surface waypoints: stone → term → Kadoflow word → center square
+ * (square hop starts when Kadoflow hits top 20%).
  */
 const BRAND = 'Kadoflow'
 const BODY_TEXT =

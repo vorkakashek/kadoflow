@@ -8,14 +8,13 @@ import {
 import { isAppleTouchDevice, isCoarsePointer, isNarrowViewport } from '~/utils/mobileViewport'
 
 /**
- * TEMP A/B — mobile without organic clip / grain.
- * Hypothesis: clip-path + path rebuild costs more than the lite swarm.
- * Flip to false to restore production silhouette.
+ * Mobile: surface fill + grain stay on; organic clip-path stays off.
+ * Soft silhouette was the phone FPS killer — rect crop via overflow:hidden instead.
  */
-const EXP_MOBILE_NO_SURFACE_CLIP = true
+const MOBILE_NO_ORGANIC_CLIP = true
 
 /**
- * Flow Surface — rounded-rect panel + clip mask.
+ * Flow Surface — rounded-rect panel + clip mask (desktop).
  * Rest silhouette is geometrically straight faces + corner radii (no barrel bow).
  * A wide signed wave packet travels the perimeter (crest + trough).
  * Near corners the packet/hover fattens the fillet instead of only muting the edge.
@@ -23,8 +22,9 @@ const EXP_MOBILE_NO_SURFACE_CLIP = true
  * (hero only by default; transit + kado stay a rest silhouette).
  * Amplitude eases in/out so the living edge does not pop on segment changes.
  *
- * Silhouette = shared SVG <clipPath> (url(#flow-surface-clip)).
- * Hero visuals mount in the default slot (inside this clip).
+ * Desktop silhouette = shared SVG <clipPath> (url(#flow-surface-clip)).
+ * Mobile (no organic clip) = layout box + overflow hidden (same pose, no path mask).
+ * Hero visuals mount in the default slot (inside this shell).
  */
 const props = withDefaults(
   defineProps<{
@@ -86,7 +86,7 @@ function isTouchUi() {
 }
 
 function skipOrganicClip() {
-  return EXP_MOBILE_NO_SURFACE_CLIP && isTouchUi()
+  return MOBILE_NO_ORGANIC_CLIP && isTouchUi()
 }
 
 let ro: ResizeObserver | null = null
@@ -887,10 +887,10 @@ function syncGrainMotion() {
     window.clearInterval(grainTimer)
     grainTimer = 0
   }
-  if (skipOrganicClip()) return
   const el = grainEl.value
+  if (!el) return
   if (motionQuery?.matches) {
-    if (el) el.style.backgroundPosition = '0 0'
+    el.style.backgroundPosition = '0 0'
     if (raf) {
       cancelAnimationFrame(raf)
       raf = 0
@@ -908,11 +908,6 @@ function syncGrainMotion() {
 
 onMounted(async () => {
   await nextTick()
-  if (skipOrganicClip()) {
-    console.info(
-      '[FlowSurface] EXP_MOBILE_NO_SURFACE_CLIP — organic clip + grain off (FPS A/B)',
-    )
-  }
   animStart = performance.now()
   roamLastNow = animStart
   liveMix = liveEdgeHardOff() || !liveEdgeArmed() ? 0 : 1
@@ -984,18 +979,33 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('mouseout', onDocumentMouseOut)
 })
-const overscanBoxStyle = {
-  top: `-${EDGE_OVERSCAN}px`,
-  left: `-${EDGE_OVERSCAN}px`,
-  width: `calc(100% + ${EDGE_OVERSCAN * 2}px)`,
-  height: `calc(100% + ${EDGE_OVERSCAN * 2}px)`,
-}
-const slotInsetStyle = {
-  top: `${EDGE_OVERSCAN}px`,
-  left: `${EDGE_OVERSCAN}px`,
-  right: `${EDGE_OVERSCAN}px`,
-  bottom: `${EDGE_OVERSCAN}px`,
-}
+const overscanPx = computed(() => (skipOrganicClip() ? 0 : EDGE_OVERSCAN))
+const overscanBoxStyle = computed(() => {
+  const o = overscanPx.value
+  const noClip = skipOrganicClip()
+  return {
+    top: `-${o}px`,
+    left: `-${o}px`,
+    width: `calc(100% + ${o * 2}px)`,
+    height: `calc(100% + ${o * 2}px)`,
+    // No organic mask: same rest corner radius as path silhouette, cheap CSS crop.
+    ...(noClip
+      ? {
+          overflow: 'hidden',
+          borderRadius: `${RADIUS}px`,
+        }
+      : {}),
+  }
+})
+const slotInsetStyle = computed(() => {
+  const o = overscanPx.value
+  return {
+    top: `${o}px`,
+    left: `${o}px`,
+    right: `${o}px`,
+    bottom: `${o}px`,
+  }
+})
 </script>
 
 <template>
@@ -1012,7 +1022,6 @@ const slotInsetStyle = {
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div
-        v-if="!skipOrganicClip()"
         ref="grainEl"
         class="pointer-events-none absolute inset-0 z-[1]"
         aria-hidden="true"
@@ -1043,7 +1052,6 @@ const slotInsetStyle = {
     >
       <div class="absolute inset-0" :class="props.toneClass" />
       <div
-        v-if="!skipOrganicClip()"
         ref="grainEl"
         class="pointer-events-none absolute inset-0 z-[1]"
         aria-hidden="true"
