@@ -21,8 +21,8 @@ export const flowSurfaceMask = reactive({
   /** Named stretch — see FLOW_SURFACE_LIVE. */
   liveId: 'hero' as 'hero' | 'transit' | 'kado',
   pointerInteractive: true,
-  /** Perimeter roam wave — hero only by default. */
-  roamActive: true,
+  /** Perimeter roam wave — off; cursor dent stays via pointerInteractive. */
+  roamActive: false,
   /**
    * When true, path rebuild skips roam/pointer (static silhouette).
    * Set while WebGL+copy are mounted — living clip under canvas kills FPS.
@@ -115,7 +115,7 @@ export function resetFlowSurfaceMaskSession() {
   flowSurfaceMask.liveId = 'hero'
   flowSurfaceMask.freezeSilhouette = false
   flowSurfaceMask.pointerInteractive = true
-  flowSurfaceMask.roamActive = true
+  flowSurfaceMask.roamActive = false
   flowSurfaceMask.path = ''
   flowSurfaceMask.clipPath = ''
   flowSurfaceMask.openTopPath = ''

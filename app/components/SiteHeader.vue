@@ -382,7 +382,9 @@ function syncMenuFloat() {
   if (thumbNav.value) return
   const r = slot.getBoundingClientRect()
   const bh = btn.offsetHeight || r.height
-  /* Center on the invisible grid slot so the chip shares the logo/nav row. */
+  /* Center on the invisible grid slot so the chip shares the logo/nav row.
+     Margin must stay 0 (see .menu-btn--float) so `top` maps to the border box. */
+  btn.style.margin = '0'
   btn.style.top = `${Math.round(r.top + (r.height - bh) / 2)}px`
   btn.style.right = `${Math.round(window.innerWidth - r.right)}px`
 }
@@ -854,7 +856,9 @@ html.page-canvas-lock .menu-btn--float {
   z-index: 114;
   pointer-events: auto;
   display: none;
-  margin-inline: 0;
+  /* Fixed `top` is the margin edge — any leftover chip margin
+     (-8px from .header-chip) lifts the whole control off the header axis. */
+  margin: 0;
 }
 
 @media (min-width: 768px) and (pointer: fine) {

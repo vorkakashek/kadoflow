@@ -182,10 +182,12 @@ function bendAmpFor(w: number, h: number): BendAmp {
   const scale = Math.min(1, Math.max(BEND_SCALE_FLOOR, Math.min(w, h) / BEND_REF_MIN))
   const touch = isTouchUi()
   const mix = touch ? 0 : smootherstep(liveMix)
+  const roamOn = mix > 0 && flowSurfaceMask.roamActive
+  const pointerOn = mix > 0 && flowSurfaceMask.pointerInteractive
   return {
     scale,
-    pointerDent: mix > 0 ? POINTER_DENT * scale * mix : 0,
-    roamDent: mix > 0 ? ROAM_DENT * scale * mix : 0,
+    pointerDent: pointerOn ? POINTER_DENT * scale * mix : 0,
+    roamDent: roamOn ? ROAM_DENT * scale * mix : 0,
     roamSigmaFrac: ROAM_SIGMA_FRAC * Math.max(0.75, scale),
     cornerFadePx: Math.max(CORNER_FADE_PX * 0.9, CORNER_FADE_PX * scale),
     pointerRadius: POINTER_RADIUS * Math.max(0.35, scale),
@@ -728,7 +730,7 @@ function tick(now: number) {
     return
   }
 
-  if (dt > 0 && liveMix > 0) {
+  if (dt > 0 && liveMix > 0 && flowSurfaceMask.roamActive) {
     roamPhase = (roamPhase + dt * ROAM_SPEED) % 1
   }
 

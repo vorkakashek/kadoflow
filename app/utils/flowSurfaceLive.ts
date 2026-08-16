@@ -5,7 +5,7 @@ import { flowSurfaceMask } from '~/composables/useFlowSurfaceMask'
  * Flip `pointer` / `roam` here to arm cursor dent or the perimeter wave
  * on a stretch without hunting through the morph host.
  *
- * - hero: first screen, rest pose
+ * - hero: first screen, rest pose (pointer dent only — no roam wave)
  * - transit: after hero, until the second block settles
  * - kado: second block and further
  */
@@ -17,7 +17,7 @@ export type FlowSurfaceLiveFlags = {
 }
 
 export const FLOW_SURFACE_LIVE: Record<FlowSurfaceLiveId, FlowSurfaceLiveFlags> = {
-  hero: { pointer: true, roam: true },
+  hero: { pointer: true, roam: false },
   transit: { pointer: false, roam: false },
   kado: { pointer: false, roam: false },
 }
