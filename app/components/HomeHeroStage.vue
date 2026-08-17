@@ -8,8 +8,8 @@ import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfac
 import { useBrandPreload } from '~/composables/useBrandPreload'
 import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
 
-const SCENE_FADE_MORPH = 0.3
-const SCENE_RESTORE_MORPH = 0.05
+/** Keep WebGL alive until morph opacity is nearly gone (both platforms). */
+const SCENE_LIVE_OPACITY = 0.08
 /** Morph-driven stage fade — keyed to min(h,v) arrive progress. */
 const FADE_OUT_START = 0.3
 const FADE_OUT_END = 0.7
@@ -25,8 +25,6 @@ const FADE_OUT_END_MOBILE = 0.62
  */
 const SCENE_FADE_START_MOBILE = 0.7
 const SCENE_FADE_END_MOBILE = 1.02
-/** Desktop 3D dismiss threshold (timed fade, not a morph end). */
-const SCENE_FADE_MORPH_MOBILE = SCENE_FADE_START_MOBILE
 /**
  * Swarm/media bleed past the stage box (px).
  * Desktop: cover stacked roam+hover outward (~2× dent + bow).
@@ -194,7 +192,6 @@ const copyY = ref(0)
 let ctx: { revert: () => void } | null = null
 let gsapRef: typeof import('gsap').default | null = null
 let stRef: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
-let sceneDismissed = false
 let mediaFadeTween: { kill: () => void } | null = null
 let parallaxRaf = 0
 /** Locked vh for copy parallax — ignore mobile chrome show/hide (innerHeight jumps). */
@@ -242,12 +239,8 @@ function sceneOpacityForMorph(m: number) {
   if (mobileLite.value) {
     return opacityInRange(m, SCENE_FADE_START_MOBILE, SCENE_FADE_END_MOBILE)
   }
-  // Desktop: stage shared fade; timed dismiss kicks in at SCENE_FADE_MORPH.
+  // Desktop: same corridor as copy (0.3→0.7). GL stays up for the whole fade.
   return opacityForMorph(m)
-}
-
-function sceneFadeMorph() {
-  return mobileLite.value ? SCENE_FADE_START_MOBILE : SCENE_FADE_MORPH
 }
 
 /**
@@ -286,23 +279,6 @@ function onParallaxScroll() {
   })
 }
 
-async function dismissScene() {
-  if (sceneDismissed) return
-  sceneDismissed = true
-  mediaFadeTween?.kill()
-  mediaFadeTween = null
-  // Opacity is morph-bound; this only freezes the WebGL loop.
-  sceneLive.value = false
-}
-
-function restoreScene() {
-  if (mask.morph > SCENE_RESTORE_MORPH) return
-  sceneDismissed = false
-  mediaFadeTween?.kill()
-  mediaFadeTween = null
-  sceneLive.value = true
-}
-
 watch(
   () => mask.morph,
   (m) => {
@@ -316,37 +292,9 @@ watch(
     // Freeze only mid-morph — at hero rest edges stay live + cursor dent.
     setFrozen(m > 0.02 && m < 0.98)
 
-    if (mobileLite.value) {
-      // Opacity is morph-scrubbed both ways — keep GL alive whenever the fade is visible.
-      // (Old gate restored only at morph <5%, so reverse looked like a hard pop.)
-      if (sceneOp <= 0.08) {
-        sceneLive.value = false
-        sceneDismissed = true
-        return
-      }
-      sceneDismissed = false
-      sceneLive.value = true
-      return
-    }
-
-    // Desktop: shared copy fade + freeze past SCENE_FADE_MORPH.
-    if (copyOp <= 0.08) {
-      sceneLive.value = false
-      if (!sceneDismissed) sceneDismissed = true
-      return
-    }
-
-    if (m > sceneFadeMorph()) {
-      void dismissScene()
-      return
-    }
-
-    if (m < SCENE_RESTORE_MORPH) {
-      restoreScene()
-      return
-    }
-
-    if (!sceneDismissed) sceneLive.value = true
+    // Morph-scrubbed both ways — keep GL alive while the fade is visible.
+    // (Desktop used to kill at morph 0.3 → hard pop via hero-swarm--cold.)
+    sceneLive.value = sceneOp > SCENE_LIVE_OPACITY
   },
   { immediate: true },
 )
@@ -374,7 +322,7 @@ async function setupExitMotion(sectionEl: HTMLElement) {
   const mobile = isNarrowViewport() || isCoarsePointer()
   mobileLite.value = mobile
   syncSwarmInteractive()
-  // Mobile: no scroll exit blur — 3D fade is morph-driven (same dismissScene as desktop).
+  // Mobile: no scroll exit blur — 3D fade is morph-driven.
   if (mobile) {
     void ensureGsap()
     return

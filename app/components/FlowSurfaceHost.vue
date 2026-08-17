@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
  * Fixed Flow Surface — one clipped window.
- * Desktop: hero → stone (plan h/v lag).
+ * Desktop: hero → stone scrub, then kado → case-photo scrub (same lag, both
+ * directions via ScrollTrigger onUpdate — no one-shot hop between 2↔3).
+ * Case photo paints inside the surface while parked.
  * Mobile: scrub hero→stone with a light lag (not 1:1), box+morph on one live P
  * so stage glue / copy / GL stay in phase; then hop to term/word and pin.
  * Center stays viewport-fixed.
@@ -54,6 +56,18 @@ const STAGE_RANK: Record<MobileStage, number> = {
 
 const HOP_DURATION = 0.42
 const HOP_EASE = 'power2.inOut'
+/** Case→case box morph while parked (photo stays inside the surface). */
+const CASE_MORPH_DURATION = 0.5
+const CASE_MORPH_EASE = 'power2.inOut'
+/**
+ * Desktop kado→cases: one scrub corridor (same lag as hero→kado).
+ * start = begin leaving the stone; end = fully on the case photo.
+ * Shifted ~15% lower so the transition starts later on scroll down.
+ */
+const CASE_SCRUB_START = 'top 60%'
+const CASE_SCRUB_END = 'top 18%'
+/** Parked / fill fully opaque once lagged progress passes this. */
+const CASE_PARK_P = 0.98
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
 /** Mobile hero→stone scrub lag (seconds) — soft follow, not 1:1. Keep box+morph on same live P. */
@@ -71,6 +85,10 @@ const props = withDefaults(
     wordEl?: HTMLElement | null
     /** Body block — layout / capture; square hop uses wordEl when present. */
     bodyEl?: HTMLElement | null
+    /** Cases section — desktop kado→case scrub trigger. */
+    caseSectionEl?: HTMLElement | null
+    /** Case mockup figure — scrub destination (surface occupies this box). */
+    caseMediaEl?: HTMLElement | null
     plan?: SurfaceMorphPlan
     toneClass?: string
   }>(),
@@ -81,10 +99,60 @@ const props = withDefaults(
     termEl: null,
     wordEl: null,
     bodyEl: null,
+    caseSectionEl: null,
+    caseMediaEl: null,
     plan: () => heroToKadoPlan,
     toneClass: 'bg-stone',
   },
 )
+
+/** Shared with HomeCases — surface owns the case photo once docked. */
+const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
+const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
+  'home-case-surface-media',
+  () => null,
+)
+/** Bumped by HomeCases after a case switch so we morph the parked box. */
+const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
+
+/** Template: hide hero stage / show case fill. */
+const showCaseFill = ref(false)
+const fillFrontEl = ref<HTMLImageElement | null>(null)
+const fillBackEl = ref<HTMLImageElement | null>(null)
+const fillFrontSrc = ref('')
+const fillFrontAlt = ref('')
+const fillBackSrc = ref('')
+const fillBackAlt = ref('')
+let activeFillLayer = 0
+let photoSwitchTl: { kill: () => void } | null = null
+let lastSwitchedSrc = ''
+
+const caseFillOpacity = ref(0)
+const surfaceToneOpacity = computed(() => {
+  if (!showCaseFill.value) return 1
+  return Math.max(0, Math.min(1, 1 - caseFillOpacity.value))
+})
+
+function setCaseSurfaceDocked(on: boolean) {
+  caseSurfaceDocked.value = on
+  showCaseFill.value = on
+  if (on) {
+    const media = caseSurfaceMedia.value
+    if (media) {
+      if (activeFillLayer === 0) {
+        fillFrontSrc.value = media.src
+        fillFrontAlt.value = media.alt
+      } else {
+        fillBackSrc.value = media.src
+        fillBackAlt.value = media.alt
+      }
+      lastSwitchedSrc = media.src
+    }
+    caseFillOpacity.value = 1
+  } else {
+    caseFillOpacity.value = 0
+  }
+}
 
 const frame = ref<HTMLElement | null>(null)
 const shellEl = ref<HTMLElement | null>(null)
@@ -99,15 +167,24 @@ const heroSectionEl = computed(() => {
   return (el.closest('section') as HTMLElement | null) ?? el
 })
 
-let gsapMod: typeof import('gsap') | null = null
-let stMod: typeof import('gsap/ScrollTrigger') | null = null
 let trigger: { kill: () => void; progress: number } | null = null
+let caseTrigger: { kill: () => void; progress: number } | null = null
 let mobileTriggers: { kill: () => void }[] = []
 let hopTween: { kill: () => void } | null = null
 let target = { h: 0, v: 0 }
 let live = { h: 0, v: 0 }
+let fromDoc: SurfaceBox | null = null
+let toDoc: SurfaceBox | null = null
+let lastCaseDoc: SurfaceBox | null = null
 let fromPose: SurfaceBox | null = null
 let toPose: SurfaceBox | null = null
+let desktopTargetS = 0
+let desktopLiveS = 0
+/** True while lagged case progress is parked on the mockup. */
+let caseMediaActive = false
+
+let gsapMod: typeof import('gsap') | null = null
+let stMod: typeof import('gsap/ScrollTrigger') | null = null
 
 /** Mobile corridor state */
 let mobileActive = false
@@ -203,10 +280,9 @@ function boxesNear(a: SurfaceBox, b: SurfaceBox) {
 function captureDesktopPoses() {
   if (!props.fromEl || !props.toEl) return false
 
-  const fromDoc = readDocBox(props.fromEl)
+  fromDoc = readDocBox(props.fromEl)
   // Target pose can be 0×0 before the stone image gives the parent height.
-  let toDoc = readDocBox(props.toEl)
-  if (!toDoc && props.stoneEl) toDoc = readDocBox(props.stoneEl)
+  toDoc = readDocBox(props.toEl) ?? (props.stoneEl ? readDocBox(props.stoneEl) : null)
   if (!fromDoc || !toDoc) return false
 
   const fromSection = sectionOf(props.fromEl)
@@ -217,6 +293,10 @@ function captureDesktopPoses() {
 
   const scrollEnd = scrollYForCenterCenter(toSection)
   toPose = poseAtScrollY(toDoc, scrollEnd)
+
+  if (props.caseMediaEl) {
+    lastCaseDoc = readDocBox(props.caseMediaEl)
+  }
 
   mobileActive = false
   syncStageRest(fromPose)
@@ -332,11 +412,254 @@ function paintBox(box: SurfaceBox, morph: number) {
   flushFlowSurfacePath(next)
 }
 
-function paintDesktop() {
-  if (!fromPose || !toPose) return
-  const box = mixBox(fromPose, toPose, live.h, live.v)
-  // min(h,v): average hit ~0.9 while vertical still mid-flight (surface not under stone yet).
-  paintBox(box, Math.min(live.h, live.v))
+function heroLivePose(): SurfaceBox | null {
+  return readBox(props.fromEl) ?? (fromDoc ? docToViewport(fromDoc) : null)
+}
+
+function caseMediaPose(): SurfaceBox | null {
+  const box = readBox(props.caseMediaEl)
+  if (box) {
+    lastCaseDoc = readDocBox(props.caseMediaEl)
+    return box
+  }
+  return lastCaseDoc ? docToViewport(lastCaseDoc) : null
+}
+
+/** Live kado stone box — tracks element bounding box in viewport. */
+function kadoLivePose(): SurfaceBox | null {
+  return (
+    readBox(props.toEl)
+    ?? readBox(props.stoneEl)
+    ?? (toDoc ? docToViewport(toDoc) : null)
+  )
+}
+
+function computeDesktopTarget(): number {
+  if (caseTrigger && caseTrigger.progress > 0) {
+    return 1 + Math.min(1, Math.max(0, caseTrigger.progress))
+  }
+  if (trigger) {
+    return Math.min(1, Math.max(0, trigger.progress))
+  }
+  return 0
+}
+
+function paintCaseMedia() {
+  const dest = caseMediaPose()
+  if (!dest) return false
+  paintBox(dest, 1)
+  return true
+}
+
+function paintDesktop(s = desktopLiveS) {
+  if (mobileActive) return
+  // Case↔case morph in flight — onUpdate owns paint.
+  if (hopTween) return
+
+  if (s >= 1) {
+    // Kado <-> Cases corridor (s in [1, 2], segment progress t in [0, 1])
+    const t = Math.min(1, Math.max(0, s - 1))
+    const media = caseSurfaceMedia.value
+    if (media) {
+      if (activeFillLayer === 0) {
+        fillFrontSrc.value = media.src
+        fillFrontAlt.value = media.alt
+      } else {
+        fillBackSrc.value = media.src
+        fillBackAlt.value = media.alt
+      }
+      lastSwitchedSrc = media.src
+    }
+
+    const docked = t >= CASE_PARK_P
+    if (docked !== caseMediaActive) {
+      caseMediaActive = docked
+      caseSurfaceDocked.value = docked
+    }
+    // Soft fade in for photo + desaturation of surface tone
+    const fadeT = Math.min(1, Math.max(0, (t - 0.1) / 0.9))
+    showCaseFill.value = t > 0.005
+    caseFillOpacity.value = fadeT
+
+    const from = kadoLivePose()
+    const to = caseMediaPose()
+    if (!from && !to) return
+    if (!to) {
+      paintBox(from!, 1)
+      return
+    }
+    if (!from) {
+      paintBox(to, 1)
+      return
+    }
+    // t===1 → live photo; t===0 → live stone. Same path both ways, no seam.
+    paintBox(lerpBox(from, to, t), 1)
+    return
+  }
+
+  // Hero <-> Kado corridor (s < 1)
+  if (showCaseFill.value || caseSurfaceDocked.value || caseMediaActive) {
+    showCaseFill.value = false
+    caseFillOpacity.value = 0
+    caseMediaActive = false
+    caseSurfaceDocked.value = false
+  }
+
+  const p = Math.min(1, Math.max(0, s))
+  const { h, v } = targetsFromScrollProgress(props.plan, p, parseEase ?? ((_) => (u) => u))
+  live.h = h
+  live.v = v
+
+  const hero = fromPose ?? heroLivePose()
+  const kado = kadoLivePose()
+  if (!hero && !kado) return
+  if (!hero) {
+    paintBox(kado!, 1)
+    return
+  }
+  if (!kado) {
+    paintBox(hero, 0)
+    return
+  }
+
+  const box = mixBox(hero, kado, h, v)
+  const morph = Math.min(h, v)
+  paintBox(box, morph)
+}
+
+/** While parked: morph surface box to the current case media figure (case switch). */
+function morphParkedCaseMedia(animate: boolean) {
+  if (mobileActive || desktopLiveS < (1 + CASE_PARK_P) || !gsapMod || !frame.value) return
+  const dest = caseMediaPose()
+  if (!dest) return
+
+  const from = liveBox ?? dest
+  if (
+    !animate
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    paintBox(dest, 1)
+    return
+  }
+
+  // Don't fight mobile hop / other tweens.
+  if (hopTween) return
+
+  hopFromBox = { ...from }
+  hopProgress = 0
+  const gsap = gsapMod.default
+  const proxy = { t: 0 }
+  let fallbackDest = { ...dest }
+  hopTween = gsap.to(proxy, {
+    t: 1,
+    duration: CASE_MORPH_DURATION,
+    ease: CASE_MORPH_EASE,
+    onUpdate: () => {
+      hopProgress = proxy.t
+      const liveDest = caseMediaPose()
+      if (liveDest) fallbackDest = { ...liveDest }
+      paintBox(lerpBox(hopFromBox!, fallbackDest, hopProgress), 1)
+    },
+    onComplete: () => {
+      hopTween = null
+      hopFromBox = null
+      hopProgress = 0
+      paintBox((caseMediaPose() ?? fallbackDest), 1)
+      caseMediaActive = true
+    },
+  })
+}
+
+/**
+ * Sequential photo wipe on case switch:
+ * 1. Old photo collapses right-to-left: inset(0 0% 0 0) -> inset(0 100% 0 0)
+ * 2. Morph box dimensions (if changed)
+ * 3. New photo expands left-to-right: inset(0 100% 0 0) -> inset(0 0% 0 0)
+ */
+function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) {
+  if (lastSwitchedSrc === media.src) return
+  lastSwitchedSrc = media.src
+
+  if (
+    !animate
+    || !caseMediaActive
+    || !gsapMod
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    photoSwitchTl?.kill()
+    photoSwitchTl = null
+    if (activeFillLayer === 0) {
+      fillFrontSrc.value = media.src
+      fillFrontAlt.value = media.alt
+      if (fillFrontEl.value) {
+        gsapMod?.default.set(fillFrontEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
+      }
+      if (fillBackEl.value) {
+        gsapMod?.default.set(fillBackEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
+      }
+    } else {
+      fillBackSrc.value = media.src
+      fillBackAlt.value = media.alt
+      if (fillBackEl.value) {
+        gsapMod?.default.set(fillBackEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
+      }
+      if (fillFrontEl.value) {
+        gsapMod?.default.set(fillFrontEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
+      }
+    }
+    morphParkedCaseMedia(false)
+    return
+  }
+
+  const gsap = gsapMod.default
+  photoSwitchTl?.kill()
+
+  const curEl = activeFillLayer === 0 ? fillFrontEl.value : fillBackEl.value
+  const nextEl = activeFillLayer === 0 ? fillBackEl.value : fillFrontEl.value
+
+  if (activeFillLayer === 0) {
+    fillBackSrc.value = media.src
+    fillBackAlt.value = media.alt
+  } else {
+    fillFrontSrc.value = media.src
+    fillFrontAlt.value = media.alt
+  }
+
+  if (!curEl || !nextEl) {
+    morphParkedCaseMedia(true)
+    return
+  }
+
+  // Next layer starts collapsed on left (inset(0 100% 0 0))
+  gsap.set(nextEl, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 1 })
+
+  const tl = gsap.timeline({
+    onComplete: () => {
+      activeFillLayer = activeFillLayer === 0 ? 1 : 0
+      gsap.set(curEl, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
+      photoSwitchTl = null
+    },
+  })
+  photoSwitchTl = tl
+
+  // Step 1: Old photo collapses right-to-left
+  tl.to(curEl, {
+    clipPath: 'inset(0 100% 0 0)',
+    duration: 0.5,
+    ease: 'power2.in',
+  }, 0)
+
+  // Step 2: At 0.5s (old photo fully gone): morph box to new mockup dimensions
+  tl.call(() => {
+    morphParkedCaseMedia(true)
+  }, undefined, 0.5)
+
+  // Step 3: New photo expands left-to-right
+  tl.to(nextEl, {
+    clipPath: 'inset(0 0% 0 0)',
+    duration: 0.75,
+    ease: 'power2.out',
+  }, 0.5)
 }
 
 function scrubProgressAt(scrollY: number) {
@@ -756,19 +1079,8 @@ function resyncAfterLayout() {
       })
     }
   } else if (trigger) {
-    setTargetsFromProgress(trigger.progress)
-    live.h = target.h
-    live.v = target.v
     paintDesktop()
     ensureTick()
-    if (trigger.progress < 0.02) {
-      live.h = 0
-      live.v = 0
-      target.h = 0
-      target.v = 0
-      paintDesktop()
-    }
-    // Soft desktop resync: no ScrollTrigger.refresh — poses are enough.
   }
 }
 
@@ -801,18 +1113,6 @@ function reconcileFromScroll() {
   requestStage(next, next !== 'scrub')
 }
 
-function setTargetsFromProgress(progress: number) {
-  const p = Number.isFinite(progress) ? progress : 0
-  if (!parseEase) {
-    target.h = p
-    target.v = p
-    return
-  }
-  const next = targetsFromScrollProgress(props.plan, p, parseEase)
-  target.h = Number.isFinite(next.h) ? next.h : 0
-  target.v = Number.isFinite(next.v) ? next.v : 0
-}
-
 function tick(now: number) {
   raf = 0
   if (!lastTs) lastTs = now
@@ -834,36 +1134,31 @@ function tick(now: number) {
     return
   }
 
+  const sTarget = computeDesktopTarget()
   const snapMorph = useMobileCorridor()
   if (snapMorph) {
-    live.h = target.h
-    live.v = target.v
-    paintDesktop()
+    desktopLiveS = sTarget
+    paintDesktop(sTarget)
     return
   }
 
-  if (!Number.isFinite(target.h) || !Number.isFinite(target.v)) {
-    target.h = 0
-    target.v = 0
-    live.h = 0
-    live.v = 0
-    paintDesktop()
+  if (!Number.isFinite(sTarget)) {
+    desktopLiveS = 0
+    paintDesktop(0)
     return
   }
 
-  const lag = Math.max(0.05, props.plan.lag)
+  const lag = Math.max(0.06, props.plan.lag)
   const k = 1 - Math.exp(-dt / lag)
-  live.h += (target.h - live.h) * k
-  live.v += (target.v - live.v) * k
+  desktopLiveS += (sTarget - desktopLiveS) * k
 
-  if (nearTarget()) {
-    live.h = target.h
-    live.v = target.v
+  if (Math.abs(sTarget - desktopLiveS) < 0.0008) {
+    desktopLiveS = sTarget
   }
 
-  paintDesktop()
+  paintDesktop(desktopLiveS)
 
-  if (!nearTarget()) {
+  if (Math.abs(sTarget - desktopLiveS) >= 0.0008) {
     raf = requestAnimationFrame(tick)
   }
 }
@@ -878,6 +1173,12 @@ function ensureTick() {
 function killMorph() {
   trigger?.kill()
   trigger = null
+  caseTrigger?.kill()
+  caseTrigger = null
+  desktopTargetS = 0
+  desktopLiveS = 0
+  caseMediaActive = false
+  setCaseSurfaceDocked(false)
   for (const t of mobileTriggers) t.kill()
   mobileTriggers = []
   killHopTween()
@@ -896,6 +1197,8 @@ function killMorph() {
 let lastFromEl: HTMLElement | null = null
 let lastToEl: HTMLElement | null = null
 let lastPlan: SurfaceMorphPlan | null = null
+let lastCaseSectionEl: HTMLElement | null = null
+let lastCaseMediaEl: HTMLElement | null = null
 
 /** Prevent re-entrant buildMorph ↔ ScrollTrigger.refresh softlocks (SPA return to `/`). */
 let morphGen = 0
@@ -1124,6 +1427,8 @@ function buildMorph() {
       lastFromEl = props.fromEl ?? null
       lastToEl = props.toEl ?? null
       lastPlan = props.plan ?? null
+      lastCaseSectionEl = props.caseSectionEl ?? null
+      lastCaseMediaEl = props.caseMediaEl ?? null
       return
     }
 
@@ -1136,49 +1441,54 @@ function buildMorph() {
       start: 'top top',
       end: 'center center',
       invalidateOnRefresh: true,
-      onUpdate: (self) => {
-        setTargetsFromProgress(self.progress)
+      onUpdate: () => {
         ensureTick()
       },
-      onRefresh: (self) => {
+      onRefresh: () => {
         if (morphBooting) return
         capturePoses()
-        setTargetsFromProgress(self.progress)
         ensureTick()
       },
     })
 
-    setTargetsFromProgress(trigger.progress)
-    live.h = target.h
-    live.v = target.v
-    paintDesktop()
-    ensureTick()
-    // First screen before deferred ST refresh.
-    if (trigger.progress < 0.02) {
-      live.h = 0
-      live.v = 0
-      target.h = 0
-      target.v = 0
-      paintDesktop()
+    if (props.caseSectionEl && props.caseMediaEl) {
+      // ONE scrub both ways — same lag as hero→kado. No hop / no second undock ST.
+      caseTrigger = ScrollTrigger.create({
+        trigger: props.caseSectionEl,
+        start: CASE_SCRUB_START,
+        end: CASE_SCRUB_END,
+        invalidateOnRefresh: true,
+        onUpdate: () => {
+          ensureTick()
+        },
+        onRefresh: () => {
+          if (morphBooting) return
+          ensureTick()
+        },
+      })
+    } else {
+      caseTrigger = null
     }
+
+    const s = computeDesktopTarget()
+    desktopTargetS = s
+    desktopLiveS = s
+    paintDesktop(s)
+    ensureTick()
+
     scheduleDeferredRefresh(ScrollTrigger, () => {
       if (gen !== morphGen || !trigger) return
-      setTargetsFromProgress(trigger.progress)
-      live.h = target.h
-      live.v = target.v
-      paintDesktop()
-      if (trigger.progress < 0.02) {
-        live.h = 0
-        live.v = 0
-        target.h = 0
-        target.v = 0
-        paintDesktop()
-      }
+      const curS = computeDesktopTarget()
+      desktopTargetS = curS
+      desktopLiveS = curS
+      paintDesktop(curS)
     })
     scheduleLayoutResync()
     lastFromEl = props.fromEl ?? null
     lastToEl = props.toEl ?? null
     lastPlan = props.plan ?? null
+    lastCaseSectionEl = props.caseSectionEl ?? null
+    lastCaseMediaEl = props.caseMediaEl ?? null
   } finally {
     if (gen === morphGen) {
       beginMorphQuiet(1800)
@@ -1205,6 +1515,11 @@ function onResize() {
   ensureTick()
 }
 
+function onCaseMediaScroll() {
+  if (mobileActive || hopTween) return
+  paintDesktop()
+}
+
 onMounted(async () => {
   resetFlowSurfaceMaskSession()
   gsapMod = await import('gsap')
@@ -1219,6 +1534,7 @@ onMounted(async () => {
   // Don't buildMorph here alone — props watch also drives corridor; gate duplicates.
   if (props.fromEl && props.toEl) buildMorph()
   window.addEventListener('resize', onResize, { passive: true })
+  window.addEventListener('scroll', onCaseMediaScroll, { passive: true })
 })
 
 onUnmounted(() => {
@@ -1227,6 +1543,8 @@ onUnmounted(() => {
   lastFromEl = null
   lastToEl = null
   lastPlan = null
+  lastCaseSectionEl = null
+  lastCaseMediaEl = null
   fontsResyncBound = false
   captureFailCount = 0
   if (morphWatchTimer) window.clearTimeout(morphWatchTimer)
@@ -1235,6 +1553,7 @@ onUnmounted(() => {
   registerFlowSurfaceLiveBoxNudge(null)
   killMorph()
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('scroll', onCaseMediaScroll)
 })
 
 watch(clipPathEl, (el) => {
@@ -1249,6 +1568,8 @@ watch(
       props.stoneEl,
       props.termEl,
       props.bodyEl,
+      props.caseSectionEl,
+      props.caseMediaEl,
       props.plan,
     ] as const,
   () => {
@@ -1264,9 +1585,12 @@ watch(
         && from === lastFromEl
         && to === lastToEl
         && plan === lastPlan
+        && props.caseSectionEl === lastCaseSectionEl
+        && props.caseMediaEl === lastCaseMediaEl
       if (sameCorridor) {
         // Stone/term/body often arrive a tick later — soft resync, not kill+rebuild.
         resyncAfterLayout()
+        ensureTick()
         return
       }
       fromPose = null
@@ -1286,13 +1610,41 @@ watch(
     if (doc) lastWordDoc = doc
   },
 )
+
+watch(caseMediaMorphNonce, () => {
+  if (!caseMediaActive) return
+  if (caseSurfaceMedia.value) {
+    switchCasePhoto(caseSurfaceMedia.value, true)
+  }
+})
+
+watch(
+  caseSurfaceMedia,
+  (media) => {
+    if (!media) return
+    if (caseMediaActive) {
+      switchCasePhoto(media, true)
+    } else {
+      if (activeFillLayer === 0) {
+        fillFrontSrc.value = media.src
+        fillFrontAlt.value = media.alt
+      } else {
+        fillBackSrc.value = media.src
+        fillBackAlt.value = media.alt
+      }
+      lastSwitchedSrc = media.src
+    }
+    if (caseMediaActive || showCaseFill.value) caseFillOpacity.value = 1
+  },
+  { deep: true },
+)
 </script>
 
 <template>
   <div
     ref="shellEl"
     data-flow-surface-host
-    class="pointer-events-none fixed inset-0 z-[1]"
+    class="pointer-events-none fixed inset-0 z-[5]"
   >
     <svg
       width="0"
@@ -1318,6 +1670,7 @@ watch(
           mode="window"
           class="inset-0 size-full"
           :tone-class="toneClass"
+          :tone-opacity="surfaceToneOpacity"
         >
           <HomeHeroStage
             v-if="stageRest.w > 2"
@@ -1327,8 +1680,59 @@ watch(
             :stage-height="stageRest.h"
             :section-el="heroSectionEl"
           />
+          <div
+            class="case-surface-fill"
+            :class="{ 'case-surface-fill--on': showCaseFill }"
+            :aria-hidden="(!showCaseFill).toString()"
+          >
+            <img
+              v-if="fillFrontSrc"
+              ref="fillFrontEl"
+              class="case-surface-fill__img"
+              :src="fillFrontSrc"
+              :alt="fillFrontAlt"
+              :style="{ opacity: caseFillOpacity }"
+              decoding="async"
+            >
+            <img
+              v-if="fillBackSrc"
+              ref="fillBackEl"
+              class="case-surface-fill__img"
+              :src="fillBackSrc"
+              :alt="fillBackAlt"
+              :style="{ opacity: caseFillOpacity }"
+              decoding="async"
+            >
+          </div>
         </FlowSurface>
       </div>
     </Teleport>
   </div>
 </template>
+
+<style>
+.case-surface-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.case-surface-fill--on {
+  opacity: 1;
+}
+
+.case-surface-fill__img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  clip-path: inset(0 0 0 0);
+  will-change: clip-path;
+}
+</style>

@@ -30,7 +30,10 @@ const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
 const fabEl = ref<HTMLElement | null>(null)
 const logoEl = ref<HTMLElement | null>(null)
+const logoImgEl = ref<HTMLImageElement | null>(null)
 const navEl = ref<HTMLElement | null>(null)
+/** Logo inverted over dark cases band. */
+const logoOnDark = ref(false)
 const menuBtnEl = ref<HTMLElement | null>(null)
 const menuSlotEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
@@ -116,8 +119,77 @@ const ANIM_EASE = 'power3.inOut'
 const COLLAPSE_MIN_WIDTH = 768
 let collapseTimer = 0
 let gsapMod: typeof import('gsap').default | null = null
+let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
+let logoCasesSt: { kill: () => void; isActive: boolean } | null = null
+let logoToneTries = 0
 let fabFitTl: { kill: () => void } | null = null
 let fabFitResolve: (() => void) | null = null
+
+/**
+ * White logo while the mark overlaps the cases band:
+ * start — logo bottom hits cases top; end — logo mid hits cases bottom.
+ */
+async function setupLogoCasesTone() {
+  logoCasesSt?.kill()
+  logoCasesSt = null
+
+  if (route.path !== '/') {
+    logoOnDark.value = false
+    logoToneTries = 0
+    return
+  }
+
+  await nextTick()
+  const cases = document.getElementById('cases')
+  const logo = logoImgEl.value
+  if (!logo) return
+  if (!cases) {
+    if (logoToneTries < 24) {
+      logoToneTries += 1
+      requestAnimationFrame(() => {
+        void setupLogoCasesTone()
+      })
+    }
+    return
+  }
+  logoToneTries = 0
+
+  if (!gsapMod) gsapMod = (await import('gsap')).default
+  if (!stMod) {
+    const mod = await import('gsap/ScrollTrigger')
+    stMod = mod.ScrollTrigger
+    gsapMod.registerPlugin(stMod)
+  }
+
+  logoCasesSt = stMod.create({
+    trigger: cases,
+    start: () => {
+      const r = logo.getBoundingClientRect()
+      return `top ${Math.round(r.bottom)}px`
+    },
+    end: () => {
+      const r = logo.getBoundingClientRect()
+      return `bottom ${Math.round(r.top + r.height * 0.5)}px`
+    },
+    invalidateOnRefresh: true,
+    onToggle: (self) => {
+      logoOnDark.value = self.isActive
+    },
+    onRefresh: (self) => {
+      logoOnDark.value = self.isActive
+    },
+  })
+  logoOnDark.value = logoCasesSt.isActive
+}
+
+function refreshLogoCasesTone() {
+  if (!logoCasesSt || !stMod) return
+  try {
+    stMod.refresh()
+  } catch {
+    /* ignore */
+  }
+}
 
 async function gsap() {
   if (!gsapMod) gsapMod = (await import('gsap')).default
@@ -261,6 +333,7 @@ async function morph(animate: boolean) {
     if (gsapMod) gsapMod.killTweensOf(bar)
     applyBox(bar, width, m.height, m.paddingTop, m.paddingBottom, m.sidePad)
     syncMenuFloat()
+    refreshLogoCasesTone()
     return
   }
 
@@ -277,7 +350,10 @@ async function morph(animate: boolean) {
     overwrite: true,
     force3D: false,
     onUpdate: syncMenuFloat,
-    onComplete: syncMenuFloat,
+    onComplete: () => {
+      syncMenuFloat()
+      refreshLogoCasesTone()
+    },
   })
 }
 
@@ -443,6 +519,7 @@ function onResize() {
   refreshTokens()
   void morph(false)
   syncMenuFloat()
+  refreshLogoCasesTone()
 }
 
 /**
@@ -480,6 +557,7 @@ onMounted(() => {
     void fitFabLabel(fabLabelOn.value, true)
     fitDeskChipWord()
     syncMenuFloat()
+    void setupLogoCasesTone()
   })
   void document.fonts?.ready.then(() => {
     fitDeskChipWord()
@@ -491,6 +569,11 @@ onMounted(() => {
   window.addEventListener('resize', syncThumbNav, { passive: true })
   window.visualViewport?.addEventListener('resize', syncFabViewport)
   window.visualViewport?.addEventListener('scroll', syncFabViewport)
+
+  watch(headerCollapsed, () => {
+    // Logo Y shifts with the bar morph — recalc cases overlap.
+    requestAnimationFrame(refreshLogoCasesTone)
+  })
 
   watch(
     canvasForced,
@@ -511,6 +594,7 @@ onMounted(() => {
   watch(
     () => route.path,
     () => {
+      void setupLogoCasesTone()
       if (canvasForced.value) {
         pendingExpand = false
         scrolled.value = false
@@ -590,6 +674,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (collapseTimer) window.clearTimeout(collapseTimer)
+  logoCasesSt?.kill()
+  logoCasesSt = null
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('resize', syncThumbNav)
@@ -637,9 +723,11 @@ onUnmounted(() => {
           @pointerenter="preloadHomeSceneAssets"
         >
           <img
+            ref="logoImgEl"
             src="/brand/logo-ru-mini.svg"
             alt="Kadoflow"
             class="header-logo"
+            :class="{ 'header-logo--on-dark': logoOnDark }"
             width="206"
             height="40"
             decoding="sync"
@@ -823,6 +911,11 @@ html.page-canvas-lock .menu-btn--float {
   height: var(--layout-header-content);
   /* Beat global `img { max-width: 100% }` so the mark doesn’t shrink in a grid col */
   max-width: none;
+  transition: filter 0.35s var(--motion-ease, ease);
+}
+
+.header-logo--on-dark {
+  filter: brightness(0) invert(1);
 }
 
 @media (max-width: 767px) {
@@ -838,6 +931,16 @@ html.page-canvas-lock .menu-btn--float {
   border-radius: 8px;
   background-color: transparent;
   transition: background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+/* Desktop nav pill: no horizontal pad — links sit on the grid edge. */
+@media (min-width: 768px) {
+  .header-nav.header-chip {
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 
 /* Nav group shares one pill surface (not per-link chips). */

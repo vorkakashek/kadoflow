@@ -40,6 +40,7 @@ export type SurfaceMorphPlan = {
  */
 export const heroToKadoPlan: SurfaceMorphPlan = {
   id: 'hero-to-kado',
+  /** ~delay before the box catches the scroll target (seconds, exp time-constant). */
   lag: 0.1,
   stages: [
     { group: 'horizontal', duration: 1, at: 0, ease: 'power2.inOut' },

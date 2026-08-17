@@ -30,11 +30,13 @@ const props = withDefaults(
   defineProps<{
     mode?: 'window' | 'panel'
     toneClass?: string
+    toneOpacity?: number
     paintFill?: boolean
   }>(),
   {
     mode: 'panel',
     toneClass: 'bg-stone',
+    toneOpacity: 1,
     paintFill: true,
   },
 )
@@ -1040,7 +1042,11 @@ const slotInsetStyle = computed(() => {
       class="absolute"
       :style="overscanBoxStyle"
     >
-      <div class="absolute inset-0" :class="props.toneClass" />
+      <div
+        class="absolute inset-0"
+        :class="props.toneClass"
+        :style="{ opacity: props.toneOpacity }"
+      />
       <div
         ref="grainEl"
         class="pointer-events-none absolute inset-0 z-[1]"
@@ -1050,7 +1056,7 @@ const slotInsetStyle = computed(() => {
           backgroundRepeat: 'repeat',
           backgroundSize: `${grainTilePx}px ${grainTilePx}px`,
           backgroundPosition: '0 0',
-          opacity: GRAIN_OPACITY,
+          opacity: GRAIN_OPACITY * props.toneOpacity,
           mixBlendMode: 'overlay',
           willChange: 'background-position',
         }"
@@ -1070,7 +1076,11 @@ const slotInsetStyle = computed(() => {
       class="absolute"
       :style="overscanBoxStyle"
     >
-      <div class="absolute inset-0" :class="props.toneClass" />
+      <div
+        class="absolute inset-0"
+        :class="props.toneClass"
+        :style="{ opacity: props.toneOpacity }"
+      />
       <div
         ref="grainEl"
         class="pointer-events-none absolute inset-0 z-[1]"
@@ -1080,7 +1090,7 @@ const slotInsetStyle = computed(() => {
           backgroundRepeat: 'repeat',
           backgroundSize: `${grainTilePx}px ${grainTilePx}px`,
           backgroundPosition: '0 0',
-          opacity: GRAIN_OPACITY,
+          opacity: GRAIN_OPACITY * props.toneOpacity,
           mixBlendMode: 'overlay',
           willChange: 'background-position',
         }"

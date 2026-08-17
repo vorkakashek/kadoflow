@@ -1,0 +1,16 @@
+---
+description: Deferred — micro-haptics on interactive taps (after surface 2↔3 is fixed)
+alwaysApply: true
+---
+
+# Deferred: tap haptics on buttons/links
+
+**Do not implement until** desktop Flow Surface between Kado (block 2) and Cases (block 3) is soft-scrub only and feels correct.
+
+Then add short Android `navigator.vibrate` on interactive taps:
+
+- Shared helper (reuse/extend `app/utils/swarmHaptics.ts` or a sibling `tapHaptics.ts`)
+- Android only; skip Apple / desktop; respect `prefers-reduced-motion`
+- Pulse ~8–15ms; arm once on first user gesture (Chrome sticky activation)
+- Wire to buttons and links (CTA / nav — confirm scope with user)
+- Event-driven only (pointerdown), never per-frame

@@ -12,6 +12,13 @@ import {
   isMobileChromeHeightOnlyResize,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
+import {
+  swarmHapticArm,
+  swarmHapticContact,
+  swarmHapticPairKey,
+  swarmHapticPrune,
+  swarmHapticReset,
+} from '~/utils/swarmHaptics'
 import { flowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { useBrandPreload } from '~/composables/useBrandPreload'
 
@@ -852,6 +859,8 @@ async function bootScene() {
   let settleLeft = SETTLE_MS
   /** Once true, orbit anchor/radius ignore host size churn (morph / pin). */
   let orbitLocked = false
+  /** Pairs overlapping this frame — for haptic edge triggers. */
+  const hapticAlive = new Set<number>()
 
   const pointOnOrbit = (angle: number, phase: number, out: THREE.Vector3) => {
     // Torus helix: major angle around the bagel, minor angle winds the tube.
@@ -903,6 +912,7 @@ async function bootScene() {
       }
       // Gyro muted during gather; physics runs so they fly inward.
       settleLeft = SETTLE_MS
+      swarmHapticReset()
       return
     }
 
@@ -913,6 +923,7 @@ async function bootScene() {
       ball.mesh.position.copy(ball.position)
     }
     settleLeft = SETTLE_MS
+    swarmHapticReset()
   }
 
   const worldRadiusForPixels = (diameterPx: number, layoutH: number) => {
@@ -1052,6 +1063,8 @@ async function bootScene() {
     bumpPointerIdle()
   }
   const onPointerDown = (event: PointerEvent) => {
+    // Chrome: vibrate() needs sticky user activation — arm on any press.
+    swarmHapticArm()
     if (event.pointerType !== 'mouse') return
     const rect = host.getBoundingClientRect()
     if (
@@ -1114,6 +1127,15 @@ async function bootScene() {
         window.clearTimeout(pointerIdleTimer)
         pointerIdleTimer = 0
       }
+    }
+  } else if (lite && !isIOS) {
+    // Mobile Android: no cursor knocks, but Chrome still needs a gesture to arm vibrate.
+    const arm = () => swarmHapticArm()
+    document.addEventListener('pointerdown', arm, { passive: true })
+    document.addEventListener('touchstart', arm, { passive: true })
+    removePointerListeners = () => {
+      document.removeEventListener('pointerdown', arm)
+      document.removeEventListener('touchstart', arm)
     }
   }
 
@@ -1204,6 +1226,7 @@ async function bootScene() {
     if (lite) {
       const settling = settleLeft > 0
       if (settling) settleLeft = Math.max(0, settleLeft - dt)
+      hapticAlive.clear()
 
       if (!reduced) {
         camera.up.set(0, 1, 0)
@@ -1355,6 +1378,11 @@ async function bootScene() {
               .multiplyScalar(overlap * LITE_SEP_FORCE * step)
             ball.velocity.add(push)
             other.velocity.sub(push)
+            if (!settling && !reduced) {
+              const key = swarmHapticPairKey(i, j)
+              hapticAlive.add(key)
+              swarmHapticContact(key, overlap)
+            }
           }
         }
 
@@ -1413,6 +1441,7 @@ async function bootScene() {
         ball.mesh.position.copy(ball.position)
       }
 
+      swarmHapticPrune(hapticAlive)
       renderer.render(scene, camera)
       return
     }
@@ -1420,6 +1449,7 @@ async function bootScene() {
     const softBound = balls[0].radius * SOFT_BOUND_SCALE
     const settling = settleLeft > 0
     if (settling) settleLeft = Math.max(0, settleLeft - dt)
+    hapticAlive.clear()
     const cursorMoving =
       !settling && pointerActive && pointerSpeedPx >= CURSOR_SPEED_MIN_PX
 
@@ -1547,6 +1577,11 @@ async function bootScene() {
             .multiplyScalar(overlap * SEPARATION_FORCE * step)
           ball.velocity.add(push)
           other.velocity.sub(push)
+          if (!settling && !reduced) {
+            const key = swarmHapticPairKey(i, j)
+            hapticAlive.add(key)
+            swarmHapticContact(key, overlap)
+          }
         }
       }
 
@@ -1566,6 +1601,8 @@ async function bootScene() {
 
       ball.mesh.position.copy(ball.position)
     }
+
+    swarmHapticPrune(hapticAlive)
 
     // Decay swipe speed so a stopped cursor ends the stroke
     pointerSpeedPx *= 0.88

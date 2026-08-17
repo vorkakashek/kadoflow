@@ -274,7 +274,8 @@ onUnmounted(() => {
     class="kado pointer-events-auto relative z-10 w-full"
     :style="{
       paddingInline: 'var(--layout-margin-content)',
-      paddingBlock: 'var(--space-section)',
+      paddingTop: 'var(--space-section)',
+      paddingBottom: 'var(--space-block)',
     }"
   >
     <div

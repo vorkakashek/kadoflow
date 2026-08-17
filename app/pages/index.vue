@@ -4,6 +4,7 @@ import { preloadGsapBundle } from '~/utils/preloadHomeMotion'
 
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
+const cases = useTemplateRef('cases')
 
 const fromEl = computed(() => hero.value?.surfaceSlot ?? null)
 const toEl = computed(() => kado.value?.surfaceTarget ?? null)
@@ -11,6 +12,8 @@ const stoneEl = computed(() => kado.value?.stoneEl ?? null)
 const termEl = computed(() => kado.value?.termTarget ?? null)
 const wordEl = computed(() => kado.value?.kadoflowWord ?? null)
 const bodyEl = computed(() => kado.value?.bodyFocusEl ?? null)
+const caseSectionEl = computed(() => cases.value?.rootEl ?? null)
+const caseMediaEl = computed(() => cases.value?.mediaEl ?? null)
 
 /**
  * Yield one frame so router paint commits, then mount the surface.
@@ -27,7 +30,19 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="bg-sand text-ink">
+  <!--
+    Stacking (same page context — do NOT teleport cases bg to body):
+    z-1  cases bg host  → under surface
+    z-5  FlowSurfaceHost
+    z-10 main content
+    Body z-4 portals sit above .pc-live-stack (z-1) and bury everything.
+  -->
+  <div class="relative isolate bg-sand text-ink">
+    <div
+      id="home-cases-bg-host"
+      class="pointer-events-none absolute inset-0 z-[1] overflow-x-clip"
+      aria-hidden="true"
+    />
     <FlowSurfaceHost
       v-if="mountSurface"
       :from-el="fromEl"
@@ -36,13 +51,14 @@ onMounted(() => {
       :term-el="termEl"
       :word-el="wordEl"
       :body-el="bodyEl"
+      :case-section-el="caseSectionEl"
+      :case-media-el="caseMediaEl"
       :plan="heroToKadoPlan"
     />
     <main class="pointer-events-none relative z-10">
       <HomeHero ref="hero" />
       <HomeKado ref="kado" />
-      <!-- Temporary scroll room for morph / parallax tests -->
-      <div class="h-[120svh]" aria-hidden="true" />
+      <HomeCases ref="cases" />
     </main>
   </div>
 </template>
