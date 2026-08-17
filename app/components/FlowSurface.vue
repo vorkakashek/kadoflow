@@ -174,6 +174,8 @@ type BendAmp = {
 let animStart = 0
 /** Continuous roam phase in revolutions [0,1) — advanced with clamped dt (no wall-clock jumps). */
 let roamPhase = 0
+/** False until we park the packet mid-edge (phase 0 sits on the TL wrap → fat TL). */
+let roamPhaseSeeded = false
 let roamLastNow = 0
 /** Cap frame dt so background tab / hitch can't teleport the wave. */
 const ROAM_DT_MAX = 1 / 28
@@ -343,8 +345,12 @@ function cornerLiveAmount(
   amp: BendAmp,
 ) {
   if (amp.roamDent <= 0 && amp.pointerDent <= 0) return 0
-  const roam = roamEnvelope(sCorner, t, perimeterPx, amp)
-  const hover = pointerStrengthAt(cx, cy, amp)
+  // Envelope must not run when roam is off — phase 0 sits on the TL wrap and
+  // was fattening that fillet whenever pointer dent alone was armed.
+  const roam =
+    amp.roamDent > 0 ? roamEnvelope(sCorner, t, perimeterPx, amp) : 0
+  const hover =
+    amp.pointerDent > 0 ? pointerStrengthAt(cx, cy, amp) : 0
   return Math.min(1, Math.max(roam, hover))
 }
 
@@ -521,6 +527,10 @@ function buildPath(w: number, h: number, topBleed = 0, t = 0, live = true) {
   if (!live) {
     amp.roamDent = 0
     amp.pointerDent = 0
+  }
+  if (live && amp.roamDent > 0 && !roamPhaseSeeded) {
+    seedRoamPhase(w, h)
+    t = roamPhase
   }
   const o = EDGE_OVERSCAN
   const rBase = Math.min(RADIUS * Math.max(0.55, amp.scale), w / 2, h / 2)
@@ -731,7 +741,17 @@ function flattenLiveEdge() {
   smoothCornerR.primed = false
   roamLastNow = 0
   liveMix = 0
+  roamPhaseSeeded = false
   publish()
+}
+
+/** Park the auto-wave mid-top so rest corners stay equal (s=0 hugs the TL fillet). */
+function seedRoamPhase(w: number, h: number) {
+  const scale = Math.min(1, Math.max(BEND_SCALE_FLOOR, Math.min(w, h) / BEND_REF_MIN))
+  const rBase = Math.min(RADIUS * Math.max(0.55, scale), w / 2, h / 2)
+  const spans = edgeSpans(w, h, rBase, 0)
+  roamPhase = (spans.top * 0.5) / Math.max(spans.total, 1)
+  roamPhaseSeeded = true
 }
 
 function tick(now: number) {

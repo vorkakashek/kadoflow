@@ -12,6 +12,7 @@ const {
   toggleCanvas,
   fabLabelOn,
   registerFabFit,
+  pageIrisLive,
 } = usePageCanvas()
 const route = useRoute()
 const links = headerLinks
@@ -23,6 +24,8 @@ const canvasForced = computed(() => canvasSurface.value || canvasOpen.value)
 const headerCollapsed = computed(
   () => scrolled.value && !canvasForced.value,
 )
+/** Expand with morph after PageIris finishes (stay compact under the sand). */
+let pendingExpand = false
 const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
 const fabEl = ref<HTMLElement | null>(null)
@@ -283,12 +286,44 @@ function resetHeaderWide(animate: boolean) {
     window.clearTimeout(collapseTimer)
     collapseTimer = 0
   }
+  pendingExpand = false
   scrolled.value = false
   fabLabelOn.value = true
   window.scrollTo(0, 0)
   lastFabScrollY = 0
   void fitFabLabel(true, true)
   void morph(animate)
+}
+
+function onScroll() {
+  syncMenuFloat()
+  syncFabLabel()
+  if (canvasLocksScroll()) return
+
+  const past = window.scrollY > 8
+
+  if (!past) {
+    if (collapseTimer) {
+      window.clearTimeout(collapseTimer)
+      collapseTimer = 0
+    }
+    if (scrolled.value) {
+      scrolled.value = false
+      void morph(true)
+    }
+    return
+  }
+
+  if (scrolled.value || collapseTimer) return
+
+  collapseTimer = window.setTimeout(() => {
+    collapseTimer = 0
+    if (canvasLocksScroll()) return
+    if (window.scrollY > 8) {
+      scrolled.value = true
+      void morph(true)
+    }
+  }, COLLAPSE_DELAY_MS)
 }
 
 function syncFabLabel() {
@@ -400,37 +435,6 @@ function fitDeskChipWord() {
   word.style.width = `${Math.ceil(sizer.scrollWidth)}px`
 }
 
-function onScroll() {
-  syncMenuFloat()
-  syncFabLabel()
-  if (canvasLocksScroll()) return
-
-  const past = window.scrollY > 8
-
-  if (!past) {
-    if (collapseTimer) {
-      window.clearTimeout(collapseTimer)
-      collapseTimer = 0
-    }
-    if (scrolled.value) {
-      scrolled.value = false
-      void morph(true)
-    }
-    return
-  }
-
-  if (scrolled.value || collapseTimer) return
-
-  collapseTimer = window.setTimeout(() => {
-    collapseTimer = 0
-    if (canvasLocksScroll()) return
-    if (window.scrollY > 8) {
-      scrolled.value = true
-      void morph(true)
-    }
-  }, COLLAPSE_DELAY_MS)
-}
-
 function onResize() {
   if (isMobileChromeHeightOnlyResize()) {
     syncMenuFloat()
@@ -508,12 +512,33 @@ onMounted(() => {
     () => route.path,
     () => {
       if (canvasForced.value) {
+        pendingExpand = false
         scrolled.value = false
         return
       }
-      resetHeaderWide(false)
+      const wasCollapsed = scrolled.value && canCollapseHeader()
+      if (wasCollapsed && pageIrisLive.value) {
+        // Stay compact under the sand; expand with morph after the iris opens.
+        if (collapseTimer) {
+          window.clearTimeout(collapseTimer)
+          collapseTimer = 0
+        }
+        window.scrollTo(0, 0)
+        lastFabScrollY = 0
+        fabLabelOn.value = true
+        void fitFabLabel(true, true)
+        pendingExpand = true
+        return
+      }
+      resetHeaderWide(wasCollapsed)
     },
   )
+
+  watch(pageIrisLive, (live, was) => {
+    if (was && !live && pendingExpand) {
+      resetHeaderWide(true)
+    }
+  })
 
   const preload = useBrandPreload()
   introPending.value = !preload.revealed.value
@@ -764,6 +789,15 @@ html.page-canvas-surface .site-header {
 
 html.page-iris-lock:not(.page-canvas-surface) .site-header {
   z-index: 113;
+}
+
+/* Sand iris + chip fill clash — keep nav chrome clear while the hop covers. */
+html.page-iris-lock .header-chip,
+html.page-iris-lock .header-chip--scrolled {
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: none;
 }
 
 /* Instant while the close overlay still covers — a 0.32s fade after zoom

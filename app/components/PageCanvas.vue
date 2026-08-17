@@ -1420,6 +1420,12 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
+/* Desktop: eyebrow shares the close-chip vertical band (synced via --pc-close-h). */
+.page-canvas:not(.page-canvas--thumb) .page-canvas__chrome-top {
+  align-items: center;
+  min-height: calc(var(--pc-inset-top) + var(--pc-close-h));
+}
+
 .page-canvas__chrome-lead {
   display: flex;
   flex-direction: column;
