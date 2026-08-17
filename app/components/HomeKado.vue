@@ -46,6 +46,7 @@ useViewportFocusRefs([stoneEl, topFocusEl], {
 })
 
 let fillCtx: { revert: () => void } | null = null
+let levitateCtx: { revert: () => void } | null = null
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -234,6 +235,88 @@ async function ensureLineFill() {
   await setupLineFill(true)
 }
 
+async function setupStoneLevitation() {
+  levitateCtx?.revert()
+  levitateCtx = null
+
+  if (typeof window === 'undefined') return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const el = stoneEl.value
+  if (!el) return
+
+  const gsap = (await import('gsap')).default
+
+  levitateCtx = gsap.context(() => {
+    // Multi-harmonic buoyancy: each axis has its own phase & coprime period
+    // with smooth sine.inOut easing for physical, weightless floating.
+
+    // 1. Vertical float (main breathing bob)
+    gsap.fromTo(
+      el,
+      { y: 8 },
+      {
+        y: -14,
+        duration: 3.4,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+      },
+    )
+
+    // 2. Horizontal drift (smooth lateral sway)
+    gsap.fromTo(
+      el,
+      { x: -7 },
+      {
+        x: 8,
+        duration: 4.7,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+      },
+    )
+
+    // 3. Subtle 2D roll / tilt around center of gravity
+    gsap.fromTo(
+      el,
+      { rotation: -1.6 },
+      {
+        rotation: 2.2,
+        duration: 5.3,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+      },
+    )
+
+    // 4. Subtle 3D pitch (tilt front/back)
+    gsap.fromTo(
+      el,
+      { rotationX: -2.5 },
+      {
+        rotationX: 3.2,
+        duration: 4.1,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+      },
+    )
+
+    // 5. Subtle 3D yaw (gentle turn towards camera light)
+    gsap.fromTo(
+      el,
+      { rotationY: -3 },
+      {
+        rotationY: 3.5,
+        duration: 5.9,
+        ease: 'sine.inOut',
+        yoyo: true,
+        repeat: -1,
+      },
+    )
+  }, el)
+}
+
 watch(
   () => pageCanvasOpen.value || pageCanvasBusy.value || surfaceOn.value,
   async (active) => {
@@ -241,6 +324,7 @@ watch(
     await nextTick()
     requestAnimationFrame(() => {
       void ensureLineFill()
+      void setupStoneLevitation()
     })
   },
 )
@@ -249,6 +333,7 @@ onMounted(async () => {
   fillMountedAt = performance.now()
   await nextTick()
   await ensureLineFill()
+  void setupStoneLevitation()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
   if (bodyFocusEl.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -265,6 +350,8 @@ onUnmounted(() => {
   if (rebuildTimer) window.clearTimeout(rebuildTimer)
   resizeObserver?.disconnect()
   fillCtx?.revert()
+  levitateCtx?.revert()
+  levitateCtx = null
 })
 </script>
 
@@ -288,7 +375,7 @@ onUnmounted(() => {
       }"
     >
       <div class="relative col-span-12 flex justify-center md:col-span-5 md:col-start-2">
-        <div class="relative w-fit max-w-full">
+        <div class="kado-stone-wrap relative w-fit max-w-full">
           <div
             ref="surfaceTarget"
             class="kado-surface-target pointer-events-none absolute left-1/2 top-[10%] -z-10 -translate-x-1/2"
@@ -298,7 +385,7 @@ onUnmounted(() => {
             ref="stoneEl"
             src="/home/rock.png"
             alt="Камень"
-            class="kado-focus relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
+            class="kado-focus kado-stone relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
             width="854"
             height="1634"
             loading="lazy"
@@ -368,9 +455,17 @@ onUnmounted(() => {
   }
 }
 
+.kado-stone-wrap {
+  perspective: 1200px;
+}
+
+.kado-stone {
+  transform-origin: 50% 62%;
+  will-change: transform, filter, opacity;
+}
+
 .kado-focus {
   will-change: filter, opacity;
-  transform: translateZ(0);
 }
 
 .kado-term {

@@ -17,10 +17,12 @@ import {
   poseAtScrollY,
   readBox,
   readDocBox,
+  resolveCorridorSegment,
   scrollYForCenterCenter,
   scrollYForCenterTop,
   scrollYForTopAt,
   targetsFromScrollProgress,
+  updateContinuousProgress,
   viewportCenterSquare,
   type SurfaceBox,
   type SurfaceMorphPlan,
@@ -67,7 +69,7 @@ const CASE_MORPH_EASE = 'power2.inOut'
 const CASE_SCRUB_START = 'top 60%'
 const CASE_SCRUB_END = 'top 18%'
 /** Parked / fill fully opaque once lagged progress passes this. */
-const CASE_PARK_P = 0.98
+const CASE_PARK_P = 0.85
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
 /** Mobile hero→stone scrub lag (seconds) — soft follow, not 1:1. Keep box+morph on same live P. */
@@ -115,13 +117,16 @@ const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
 /** Bumped by HomeCases after a case switch so we morph the parked box. */
 const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
 
+const BLANK_IMAGE =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
 /** Template: hide hero stage / show case fill. */
 const showCaseFill = ref(false)
 const fillFrontEl = ref<HTMLImageElement | null>(null)
 const fillBackEl = ref<HTMLImageElement | null>(null)
-const fillFrontSrc = ref('')
+const fillFrontSrc = ref(BLANK_IMAGE)
 const fillFrontAlt = ref('')
-const fillBackSrc = ref('')
+const fillBackSrc = ref(BLANK_IMAGE)
 const fillBackAlt = ref('')
 let activeFillLayer = 0
 let photoSwitchTl: { kill: () => void } | null = null
@@ -451,53 +456,7 @@ function paintCaseMedia() {
   return true
 }
 
-function paintDesktop(s = desktopLiveS) {
-  if (mobileActive) return
-  // Case↔case morph in flight — onUpdate owns paint.
-  if (hopTween) return
-
-  if (s >= 1) {
-    // Kado <-> Cases corridor (s in [1, 2], segment progress t in [0, 1])
-    const t = Math.min(1, Math.max(0, s - 1))
-    const media = caseSurfaceMedia.value
-    if (media) {
-      if (activeFillLayer === 0) {
-        fillFrontSrc.value = media.src
-        fillFrontAlt.value = media.alt
-      } else {
-        fillBackSrc.value = media.src
-        fillBackAlt.value = media.alt
-      }
-      lastSwitchedSrc = media.src
-    }
-
-    const docked = t >= CASE_PARK_P
-    if (docked !== caseMediaActive) {
-      caseMediaActive = docked
-      caseSurfaceDocked.value = docked
-    }
-    // Soft fade in for photo + desaturation of surface tone
-    const fadeT = Math.min(1, Math.max(0, (t - 0.1) / 0.9))
-    showCaseFill.value = t > 0.005
-    caseFillOpacity.value = fadeT
-
-    const from = kadoLivePose()
-    const to = caseMediaPose()
-    if (!from && !to) return
-    if (!to) {
-      paintBox(from!, 1)
-      return
-    }
-    if (!from) {
-      paintBox(to, 1)
-      return
-    }
-    // t===1 → live photo; t===0 → live stone. Same path both ways, no seam.
-    paintBox(lerpBox(from, to, t), 1)
-    return
-  }
-
-  // Hero <-> Kado corridor (s < 1)
+function paintHeroToKadoSegment(t: number) {
   if (showCaseFill.value || caseSurfaceDocked.value || caseMediaActive) {
     showCaseFill.value = false
     caseFillOpacity.value = 0
@@ -505,8 +464,7 @@ function paintDesktop(s = desktopLiveS) {
     caseSurfaceDocked.value = false
   }
 
-  const p = Math.min(1, Math.max(0, s))
-  const { h, v } = targetsFromScrollProgress(props.plan, p, parseEase ?? ((_) => (u) => u))
+  const { h, v } = targetsFromScrollProgress(props.plan, t, parseEase ?? ((_) => (u) => u))
   live.h = h
   live.v = v
 
@@ -525,6 +483,57 @@ function paintDesktop(s = desktopLiveS) {
   const box = mixBox(hero, kado, h, v)
   const morph = Math.min(h, v)
   paintBox(box, morph)
+}
+
+function paintKadoToCasesSegment(t: number) {
+  const media = caseSurfaceMedia.value
+  if (media && !photoSwitchTl) {
+    if (activeFillLayer === 0) {
+      fillFrontSrc.value = media.src
+      fillFrontAlt.value = media.alt
+    } else {
+      fillBackSrc.value = media.src
+      fillBackAlt.value = media.alt
+    }
+    lastSwitchedSrc = media.src
+  }
+
+  const docked = t >= CASE_PARK_P
+  if (docked !== caseMediaActive) {
+    caseMediaActive = docked
+    caseSurfaceDocked.value = docked
+  }
+  // Soft fade in for photo + desaturation of surface tone
+  const fadeT = Math.min(1, Math.max(0, (t - 0.1) / 0.9))
+  showCaseFill.value = t > 0.005
+  caseFillOpacity.value = fadeT
+
+  const from = kadoLivePose()
+  const to = caseMediaPose()
+  if (!from && !to) return
+  if (!to) {
+    paintBox(from!, 1)
+    return
+  }
+  if (!from) {
+    paintBox(to, 1)
+    return
+  }
+  // t===1 -> live photo; t===0 -> live stone. Same path both ways, no seam.
+  paintBox(lerpBox(from, to, t), 1)
+}
+
+function paintDesktop(s = desktopLiveS) {
+  if (mobileActive) return
+  // Case<->case morph in flight — onUpdate owns paint.
+  if (hopTween) return
+
+  const { segmentIndex, localT } = resolveCorridorSegment(s, 2)
+  if (segmentIndex === 1) {
+    paintKadoToCasesSegment(localT)
+  } else {
+    paintHeroToKadoSegment(localT)
+  }
 }
 
 /** While parked: morph surface box to the current case media figure (case switch). */
@@ -580,9 +589,11 @@ function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) 
   if (lastSwitchedSrc === media.src) return
   lastSwitchedSrc = media.src
 
+  const isVisibleInCases = showCaseFill.value || desktopLiveS >= 0.85 || caseMediaActive
+
   if (
     !animate
-    || !caseMediaActive
+    || !isVisibleInCases
     || !gsapMod
     || window.matchMedia('(prefers-reduced-motion: reduce)').matches
   ) {
@@ -591,20 +602,20 @@ function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) 
     if (activeFillLayer === 0) {
       fillFrontSrc.value = media.src
       fillFrontAlt.value = media.alt
-      if (fillFrontEl.value) {
-        gsapMod?.default.set(fillFrontEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
+      if (fillFrontEl.value && gsapMod) {
+        gsapMod.default.set(fillFrontEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
       }
-      if (fillBackEl.value) {
-        gsapMod?.default.set(fillBackEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
+      if (fillBackEl.value && gsapMod) {
+        gsapMod.default.set(fillBackEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
       }
     } else {
       fillBackSrc.value = media.src
       fillBackAlt.value = media.alt
-      if (fillBackEl.value) {
-        gsapMod?.default.set(fillBackEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
+      if (fillBackEl.value && gsapMod) {
+        gsapMod.default.set(fillBackEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
       }
-      if (fillFrontEl.value) {
-        gsapMod?.default.set(fillFrontEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
+      if (fillFrontEl.value && gsapMod) {
+        gsapMod.default.set(fillFrontEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
       }
     }
     morphParkedCaseMedia(false)
@@ -1148,13 +1159,11 @@ function tick(now: number) {
     return
   }
 
-  const lag = Math.max(0.06, props.plan.lag)
-  const k = 1 - Math.exp(-dt / lag)
-  desktopLiveS += (sTarget - desktopLiveS) * k
-
-  if (Math.abs(sTarget - desktopLiveS) < 0.0008) {
-    desktopLiveS = sTarget
-  }
+  desktopLiveS = updateContinuousProgress(desktopLiveS, sTarget, dt, {
+    lag: props.plan.lag,
+    maxVelocity: 4.0, // Max 4.0 segments/sec — keeps smooth sweep across waypoints on fast flings
+    epsilon: 0.0008,
+  })
 
   paintDesktop(desktopLiveS)
 
@@ -1612,7 +1621,6 @@ watch(
 )
 
 watch(caseMediaMorphNonce, () => {
-  if (!caseMediaActive) return
   if (caseSurfaceMedia.value) {
     switchCasePhoto(caseSurfaceMedia.value, true)
   }
@@ -1622,7 +1630,8 @@ watch(
   caseSurfaceMedia,
   (media) => {
     if (!media) return
-    if (caseMediaActive) {
+    const isVisibleInCases = showCaseFill.value || desktopLiveS >= 0.85 || caseMediaActive
+    if (isVisibleInCases) {
       switchCasePhoto(media, true)
     } else {
       if (activeFillLayer === 0) {
@@ -1686,7 +1695,6 @@ watch(
             :aria-hidden="(!showCaseFill).toString()"
           >
             <img
-              v-if="fillFrontSrc"
               ref="fillFrontEl"
               class="case-surface-fill__img"
               :src="fillFrontSrc"
@@ -1695,7 +1703,6 @@ watch(
               decoding="async"
             >
             <img
-              v-if="fillBackSrc"
               ref="fillBackEl"
               class="case-surface-fill__img"
               :src="fillBackSrc"

@@ -246,7 +246,69 @@ export function scaleAbsolutePathD(d: string, sx: number, sy: number): string {
   return transformAbsolutePathD(d, (x, y) => [x * sx, y * sy])
 }
 
-function transformAbsolutePathD(
+/**
+ * Continuous waypoint corridor engine types & math.
+ * Allows arbitrary N-stage routes (Hero -> Kado -> Cases -> Future blocks...).
+ */
+export type CorridorWaypoint = {
+  id: string
+  pose: () => SurfaceBox | null
+}
+
+export type ContinuousLagOptions = {
+  lag: number
+  /** Max units/sec (e.g. 3.0 segments/sec) — guarantees sweeping through waypoints on fast fling */
+  maxVelocity?: number
+  epsilon?: number
+}
+
+/**
+ * Velocity-clamped exponential approach.
+ * Ensures silky-smooth follow at normal speed + guaranteed continuous sweep (no teleport) on ultra-fast flings.
+ */
+export function updateContinuousProgress(
+  live: number,
+  target: number,
+  dt: number,
+  options: ContinuousLagOptions,
+): number {
+  const lag = Math.max(0.01, options.lag)
+  const eps = options.epsilon ?? 0.0008
+  const delta = target - live
+  if (Math.abs(delta) < eps) return target
+
+  // Exponential step
+  let step = delta * (1 - Math.exp(-dt / lag))
+
+  // Clamp velocity if configured
+  if (options.maxVelocity && options.maxVelocity > 0) {
+    const maxStep = options.maxVelocity * dt
+    step = Math.max(-maxStep, Math.min(maxStep, step))
+  }
+
+  const next = live + step
+  if (Math.abs(target - next) < eps) return target
+  return next
+}
+
+/**
+ * Map continuous progress S in [0, N] to segment index k and local progress t in [0, 1].
+ */
+export function resolveCorridorSegment(s: number, maxSegments: number): {
+  segmentIndex: number
+  localT: number
+} {
+  const count = Math.max(1, maxSegments)
+  const clamped = Math.max(0, Math.min(count, s))
+  if (clamped >= count) {
+    return { segmentIndex: count - 1, localT: 1 }
+  }
+  const index = Math.floor(clamped)
+  const localT = clamped - index
+  return { segmentIndex: index, localT }
+}
+
+export function transformAbsolutePathD(
   d: string,
   map: (x: number, y: number) => [number, number],
 ): string {

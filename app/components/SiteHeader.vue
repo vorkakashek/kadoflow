@@ -31,9 +31,10 @@ const barEl = ref<HTMLElement | null>(null)
 const fabEl = ref<HTMLElement | null>(null)
 const logoEl = ref<HTMLElement | null>(null)
 const logoImgEl = ref<HTMLImageElement | null>(null)
+const isOverCases = ref(false)
+const caseInverse = useState('home-case-inverse', () => false)
+const logoInverted = computed(() => isOverCases.value && caseInverse.value)
 const navEl = ref<HTMLElement | null>(null)
-/** Logo inverted over dark cases band. */
-const logoOnDark = ref(false)
 const menuBtnEl = ref<HTMLElement | null>(null)
 const menuSlotEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
@@ -120,21 +121,17 @@ const COLLAPSE_MIN_WIDTH = 768
 let collapseTimer = 0
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
-let logoCasesSt: { kill: () => void; isActive: boolean } | null = null
+let logoCasesSt: { kill: () => void } | null = null
 let logoToneTries = 0
 let fabFitTl: { kill: () => void } | null = null
 let fabFitResolve: (() => void) | null = null
 
-/**
- * White logo while the mark overlaps the cases band:
- * start — logo bottom hits cases top; end — logo mid hits cases bottom.
- */
-async function setupLogoCasesTone() {
+async function setupLogoCasesTrigger() {
   logoCasesSt?.kill()
   logoCasesSt = null
 
   if (route.path !== '/') {
-    logoOnDark.value = false
+    isOverCases.value = false
     logoToneTries = 0
     return
   }
@@ -147,7 +144,7 @@ async function setupLogoCasesTone() {
     if (logoToneTries < 24) {
       logoToneTries += 1
       requestAnimationFrame(() => {
-        void setupLogoCasesTone()
+        void setupLogoCasesTrigger()
       })
     }
     return
@@ -173,22 +170,13 @@ async function setupLogoCasesTone() {
     },
     invalidateOnRefresh: true,
     onToggle: (self) => {
-      logoOnDark.value = self.isActive
+      isOverCases.value = self.isActive
     },
     onRefresh: (self) => {
-      logoOnDark.value = self.isActive
+      isOverCases.value = self.isActive
     },
   })
-  logoOnDark.value = logoCasesSt.isActive
-}
-
-function refreshLogoCasesTone() {
-  if (!logoCasesSt || !stMod) return
-  try {
-    stMod.refresh()
-  } catch {
-    /* ignore */
-  }
+  isOverCases.value = logoCasesSt.isActive
 }
 
 async function gsap() {
@@ -333,7 +321,6 @@ async function morph(animate: boolean) {
     if (gsapMod) gsapMod.killTweensOf(bar)
     applyBox(bar, width, m.height, m.paddingTop, m.paddingBottom, m.sidePad)
     syncMenuFloat()
-    refreshLogoCasesTone()
     return
   }
 
@@ -352,7 +339,6 @@ async function morph(animate: boolean) {
     onUpdate: syncMenuFloat,
     onComplete: () => {
       syncMenuFloat()
-      refreshLogoCasesTone()
     },
   })
 }
@@ -557,7 +543,7 @@ onMounted(() => {
     void fitFabLabel(fabLabelOn.value, true)
     fitDeskChipWord()
     syncMenuFloat()
-    void setupLogoCasesTone()
+    void setupLogoCasesTrigger()
   })
   void document.fonts?.ready.then(() => {
     fitDeskChipWord()
@@ -569,11 +555,6 @@ onMounted(() => {
   window.addEventListener('resize', syncThumbNav, { passive: true })
   window.visualViewport?.addEventListener('resize', syncFabViewport)
   window.visualViewport?.addEventListener('scroll', syncFabViewport)
-
-  watch(headerCollapsed, () => {
-    // Logo Y shifts with the bar morph — recalc cases overlap.
-    requestAnimationFrame(refreshLogoCasesTone)
-  })
 
   watch(
     canvasForced,
@@ -594,7 +575,7 @@ onMounted(() => {
   watch(
     () => route.path,
     () => {
-      void setupLogoCasesTone()
+      void setupLogoCasesTrigger()
       if (canvasForced.value) {
         pendingExpand = false
         scrolled.value = false
@@ -727,7 +708,7 @@ onUnmounted(() => {
             src="/brand/logo-ru-mini.svg"
             alt="Kadoflow"
             class="header-logo"
-            :class="{ 'header-logo--on-dark': logoOnDark }"
+            :class="{ 'header-logo--inverted': logoInverted }"
             width="206"
             height="40"
             decoding="sync"
@@ -914,7 +895,7 @@ html.page-canvas-lock .menu-btn--float {
   transition: filter 0.35s var(--motion-ease, ease);
 }
 
-.header-logo--on-dark {
+.header-logo--inverted {
   filter: brightness(0) invert(1);
 }
 

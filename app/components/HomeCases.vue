@@ -20,13 +20,16 @@ import {
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 
+const BLANK_IMAGE =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
 const rootEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
 const mediaImgFrontEl = ref<HTMLImageElement | null>(null)
 const mediaImgBackEl = ref<HTMLImageElement | null>(null)
-const mobileFrontSrc = ref(homeCases[0]?.media.src ?? '')
+const mobileFrontSrc = ref(homeCases[0]?.media.src ?? BLANK_IMAGE)
 const mobileFrontAlt = ref(homeCases[0]?.media.alt ?? '')
-const mobileBackSrc = ref('')
+const mobileBackSrc = ref(BLANK_IMAGE)
 const mobileBackAlt = ref('')
 let mobileActiveLayer = 0
 
@@ -49,6 +52,7 @@ const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
   () => null,
 )
 const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
+const caseInverse = useState('home-case-inverse', () => !!homeCases[0]?.inverse)
 
 const activeCase = computed(
   () => homeCases.find((c) => c.id === activeId.value) ?? homeCases[0],
@@ -115,7 +119,10 @@ function publishSurfaceMedia(item: HomeCase | undefined) {
 
 watch(
   activeCase,
-  (item) => publishSurfaceMedia(item),
+  (item) => {
+    publishSurfaceMedia(item)
+    caseInverse.value = !!item?.inverse
+  },
   { immediate: true },
 )
 
