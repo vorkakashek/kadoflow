@@ -914,13 +914,13 @@ html.page-canvas-lock .menu-btn--float {
   transition: background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
-/* Desktop nav pill: no horizontal pad — links sit on the grid edge. */
+/* Desktop nav pill: small inline chrome so hover fills sit inside the group. */
 @media (min-width: 768px) {
   .header-nav.header-chip {
-    padding-left: 0;
-    padding-right: 0;
-    margin-left: 0;
-    margin-right: 0;
+    padding-left: 4px;
+    padding-right: 4px;
+    margin-left: -4px;
+    margin-right: -4px;
   }
 }
 

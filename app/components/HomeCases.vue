@@ -46,6 +46,7 @@ const mobileCases = ref(false)
 
 const activeId = ref(homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
+const hasSwitched = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
 const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
   'home-case-surface-media',
@@ -78,17 +79,14 @@ function onRailBtnPointerEnter(item: HomeCase, e: PointerEvent) {
   }
 }
 
-function onRailBtnClick(item: HomeCase) {
+function onRailBtnClick(item: HomeCase, e: PointerEvent | MouseEvent) {
+  const el = e.currentTarget
+  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
   // Touch / mobile only: switch case on tap/click
   // On desktop with fine pointer / mouse: ignore click (already switched on hover, avoids glitch)
   if (mobileCases.value || isCoarsePointer() || !hasFinePointer()) {
     void selectCase(item)
   }
-}
-
-function onChipPointer(e: PointerEvent) {
-  const el = e.currentTarget
-  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
 }
 
 function prefersReduce() {
@@ -553,6 +551,33 @@ let switchGen = 0
 let targetCaseId = homeCases[0]?.id ?? 'audience'
 let bgTl: { kill: () => void } | null = null
 let mediaPhotoTl: { kill: () => void } | null = null
+let heightTl: { kill: () => void } | null = null
+
+function tweenSectionHeight(
+  gsap: typeof import('gsap').default,
+  el: HTMLElement,
+  fromH: number,
+  toH: number,
+) {
+  if (Math.abs(toH - fromH) < 2) {
+    gsap.set(el, { clearProps: 'height' })
+    return
+  }
+
+  heightTl?.kill()
+  gsap.set(el, { height: fromH })
+  heightTl = gsap.to(el, {
+    height: toH,
+    duration: 0.55,
+    ease: 'power2.inOut',
+    onUpdate: syncBgPortal,
+    onComplete: () => {
+      gsap.set(el, { clearProps: 'height' })
+      heightTl = null
+      syncBgPortal()
+    },
+  })
+}
 
 function transitionBackground(next: HomeCase, gsap: typeof import('gsap').default) {
   const a = bgFrontEl.value
@@ -614,6 +639,7 @@ function transitionBackground(next: HomeCase, gsap: typeof import('gsap').defaul
 async function selectCase(item: HomeCase) {
   if (targetCaseId === item.id) return
   targetCaseId = item.id
+  hasSwitched.value = true
 
   const gsap = await ensureGsap()
 
@@ -634,6 +660,8 @@ async function selectCase(item: HomeCase) {
   switchTl = null
   mediaPhotoTl?.kill()
   mediaPhotoTl = null
+  heightTl?.kill()
+  heightTl = null
 
   // 1. Background transition starts immediately upon click
   transitionBackground(item, gsap)
@@ -677,9 +705,18 @@ async function selectCase(item: HomeCase) {
   if (gen !== switchGen) return
 
   // 5. Update case ID & DOM
+  const root = rootEl.value
+  const fromH = root?.offsetHeight ?? 0
+  if (root && fromH) gsap.set(root, { height: fromH })
   activeId.value = item.id
   await nextTick()
   if (gen !== switchGen) return
+  if (root && fromH) {
+    root.style.height = 'auto'
+    const toH = root.offsetHeight
+    gsap.set(root, { height: fromH })
+    tweenSectionHeight(gsap, root, fromH, toH)
+  }
   syncBgPortal()
 
   // 6. Animate new copy in
@@ -732,6 +769,8 @@ onBeforeUnmount(() => {
   bgTl = null
   mediaPhotoTl?.kill()
   mediaPhotoTl = null
+  heightTl?.kill()
+  heightTl = null
   enterTl?.kill()
   enterTl = null
   parallaxCtx?.revert()
@@ -798,12 +837,15 @@ onBeforeUnmount(() => {
           >
             <button
               type="button"
-              class="cases-rail__btn chip-scale-host"
-              :class="{ 'cases-rail__btn--active': item.id === activeId }"
+              class="cases-rail__btn"
+              :class="{
+                'cases-rail__btn--active': item.id === activeId,
+                'cases-rail__btn--flash': item.id === activeId && hasSwitched,
+              }"
               :aria-pressed="item.id === activeId"
               :aria-busy="switching"
               @pointerenter="onRailBtnPointerEnter(item, $event)"
-              @click="onRailBtnClick(item)"
+              @click="onRailBtnClick(item, $event)"
             >
               <span class="chip-scale-bg" aria-hidden="true">
                 <span class="chip-scale-bg__fill" />
@@ -906,9 +948,20 @@ onBeforeUnmount(() => {
 .home-cases {
   color: var(--palette-ink);
   /* One viewport + fluid header chrome so the fixed nav doesn’t eat the stage. */
+  --cases-stage-h: calc(
+    100svh + var(--layout-surface-top)
+    - (var(--layout-surface-top) + var(--space-section))
+    - var(--space-section)
+  );
+  --cases-stage-h: calc(
+    100dvh + var(--layout-surface-top)
+    - (var(--layout-surface-top) + var(--space-section))
+    - var(--space-section)
+  );
   min-height: calc(100svh + var(--layout-surface-top));
   min-height: calc(100dvh + var(--layout-surface-top));
   background: transparent;
+  overflow-anchor: none;
 }
 
 .home-cases--inverse {
@@ -943,7 +996,9 @@ onBeforeUnmount(() => {
 
 @media (min-width: 768px) {
   .cases-rail {
-    align-self: stretch;
+    /* Viewport-stage height, not the growing content row — rail stays put. */
+    align-self: start;
+    height: var(--cases-stage-h);
   }
 
   .cases-rail__list {
@@ -965,46 +1020,101 @@ onBeforeUnmount(() => {
   max-width: 100%;
   min-height: 2.75rem;
   padding: 0.65rem 1.15rem;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 14%, transparent);
+  background-color: color-mix(in srgb, currentColor 12%, transparent);
   color: inherit;
   font: inherit;
   font-size: var(--type-nav);
   letter-spacing: -0.02em;
   line-height: 1.2;
   cursor: pointer;
+  opacity: 0.65;
+  isolation: isolate;
+  overflow: hidden;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   transition:
-    background-color 0.28s var(--motion-ease, ease),
-    color 0.28s var(--motion-ease, ease),
-    backdrop-filter 0.28s var(--motion-ease, ease);
+    background-color 0.35s var(--motion-ease, ease),
+    border-color 0.35s var(--motion-ease, ease),
+    color 0.35s var(--motion-ease, ease),
+    opacity 0.35s var(--motion-ease, ease),
+    backdrop-filter 0.35s var(--motion-ease, ease);
+}
+
+.cases-rail__btn .chip-scale-bg {
+  transform: scale(0);
+  transform-origin: var(--chip-bg-x, 50%) var(--chip-bg-y, 50%);
+  transition: none;
+}
+
+.cases-rail__btn .chip-scale-bg__fill {
+  background-color: #ffffff;
+}
+
+.cases-rail__btn:hover:not(.cases-rail__btn--active) {
+  opacity: 0.85;
 }
 
 .cases-rail__label {
   position: relative;
   z-index: 1;
+  transition: color 0.35s var(--motion-ease, ease);
 }
 
 .cases-rail__btn--active {
-  background: var(--palette-milk, #f5f1e8);
-  color: var(--palette-ink);
+  background-color: transparent;
+  border-color: currentColor;
+  color: inherit;
+  opacity: 1;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
-.cases-rail__btn--active .chip-scale-bg {
+.cases-rail__btn--active:not(.cases-rail__btn--flash) .chip-scale-bg {
   display: none;
 }
 
-.home-cases:not(.home-cases--inverse) .cases-rail__btn--active {
-  background: var(--palette-ink);
-  color: var(--palette-milk, #f5f1e8);
+.cases-rail__btn--flash .chip-scale-bg {
+  animation: case-rail-scale-fade 0.58s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
-.home-cases--inverse .cases-rail__btn .chip-scale-bg__fill {
-  background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
+.cases-rail__btn--flash .cases-rail__label {
+  animation: case-rail-label-contrast 0.58s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes case-rail-scale-fade {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  42% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes case-rail-label-contrast {
+  0% {
+    color: #0a0a0a;
+  }
+  42% {
+    color: #0a0a0a;
+  }
+  100% {
+    color: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cases-rail__btn--flash .chip-scale-bg,
+  .cases-rail__btn--flash .cases-rail__label {
+    animation: none;
+  }
 }
 
 .cases-stage {
@@ -1021,16 +1131,7 @@ onBeforeUnmount(() => {
     column-gap: var(--layout-gutter);
     row-gap: 0;
     /* Section min-height − cases-inner fluid padding. */
-    min-height: calc(
-      100svh + var(--layout-surface-top)
-      - (var(--layout-surface-top) + var(--space-section))
-      - var(--space-section)
-    );
-    min-height: calc(
-      100dvh + var(--layout-surface-top)
-      - (var(--layout-surface-top) + var(--space-section))
-      - var(--space-section)
-    );
+    min-height: var(--cases-stage-h);
     align-items: end;
   }
 }
