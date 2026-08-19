@@ -658,7 +658,6 @@ onUnmounted(() => {
             swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
             introPending ? 'hero-intro-hide' : '',
           ]"
-          aria-hidden="true"
         >
         <ClientOnly>
           <HeroSwarmCanvas
@@ -666,6 +665,8 @@ onUnmounted(() => {
             class="size-full"
             :class="{ 'hero-swarm--cold': !swarmVisible }"
             :active="swarmActive"
+            :overlay-inset-x="sceneBleedX"
+            :overlay-inset-y="sceneBleedY"
             @lit="onSwarmLit"
           />
         </ClientOnly>

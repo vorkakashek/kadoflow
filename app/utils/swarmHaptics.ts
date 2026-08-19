@@ -56,15 +56,32 @@ export function swarmHapticReset(): void {
  * Arm Vibration API inside a user gesture (pointerdown / touchstart).
  * Without this, Chrome blocks later rAF `vibrate()` calls.
  */
-export function swarmHapticArm(): void {
-  if (armed || !canVibrate()) return
-  armed = true
+export function swarmHapticArm(): boolean {
+  if (armed) return true
+  if (!canVibrate()) return false
   try {
     // Cancel-any + marks activation for this document.
-    navigator.vibrate(0)
+    armed = navigator.vibrate(0)
+    return armed
   } catch {
-    /* ignore */
+    return false
   }
+}
+
+/** Explicit Android enable action with a short physical confirmation pulse. */
+export function swarmHapticConfirm(): boolean {
+  if (!canVibrate()) return false
+  try {
+    const accepted = navigator.vibrate(18)
+    if (accepted) armed = true
+    return accepted
+  } catch {
+    return false
+  }
+}
+
+export function swarmHapticIsArmed(): boolean {
+  return armed && canVibrate()
 }
 
 /**

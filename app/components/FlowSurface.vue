@@ -96,6 +96,7 @@ let raf = 0
 let grainTimer = 0
 let motionQuery: MediaQueryList | null = null
 let pointer: { x: number; y: number } | null = null
+let pendingPointer: { clientX: number; clientY: number } | null = null
 /** side: -1 inside (concave), +1 outside (convex) */
 let softPointer: { x: number; y: number; str: number; side: number } = {
   x: 0,
@@ -735,12 +736,13 @@ function edgeLiveNeeded() {
   if (liveEdgeHardOff()) return false
   if (flowSurfaceMask.roamActive) return true
   if (flowSurfaceMask.pointerInteractive) {
-    return pointer !== null || softPointer.str > 0.001
+    return pendingPointer !== null || pointer !== null || softPointer.str > 0.001
   }
   return liveMix > 0.001 || softPointer.str > 0.001
 }
 
 function flattenLiveEdge() {
+  pendingPointer = null
   pointer = null
   softPointer.str = 0
   softPointer.side = 0
@@ -760,6 +762,23 @@ function seedRoamPhase(w: number, h: number) {
   roamPhaseSeeded = true
 }
 
+function flushPointerInput() {
+  const next = pendingPointer
+  pendingPointer = null
+  const el = root.value
+  if (!next || !flowSurfaceMask.pointerInteractive || !el) return
+
+  const rect = el.getBoundingClientRect()
+  const x = next.clientX - rect.left
+  const y = next.clientY - rect.top
+  const pad = bendAmpFor(rect.width, rect.height).pointerRadius
+  if (x < -pad || y < -pad || x > rect.width + pad || y > rect.height + pad) {
+    pointer = null
+    return
+  }
+  pointer = { x, y }
+}
+
 function tick(now: number) {
   raf = 0
 
@@ -767,6 +786,8 @@ function tick(now: number) {
     flattenLiveEdge()
     return
   }
+
+  flushPointerInput()
 
   if (!roamLastNow) roamLastNow = now
   let dt = (now - roamLastNow) / 1000
@@ -844,6 +865,7 @@ function measure() {
 
 function onPointer(e: PointerEvent) {
   if (!flowSurfaceMask.pointerInteractive || e.pointerType !== 'mouse' || !root.value) {
+    pendingPointer = null
     pointer = null
     return
   }
@@ -857,19 +879,12 @@ function onPointer(e: PointerEvent) {
     clearPointerHover()
     return
   }
-  const rect = root.value.getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const y = e.clientY - rect.top
-  const pad = bendAmpFor(rect.width, rect.height).pointerRadius
-  if (x < -pad || y < -pad || x > rect.width + pad || y > rect.height + pad) {
-    pointer = null
-    return
-  }
-  pointer = { x, y }
+  pendingPointer = { clientX: e.clientX, clientY: e.clientY }
   ensureLoop()
 }
 
 function clearPointerHover() {
+  pendingPointer = null
   pointer = null
   softPointer.str = 0
   softPointer.side = 0

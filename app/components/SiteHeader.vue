@@ -432,6 +432,10 @@ async function fitFabLabel(on: boolean, instant = false) {
   const g = await gsap()
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const labelW = Math.ceil(label.scrollWidth)
+  document.documentElement.style.setProperty(
+    '--menu-fab-expanded-width',
+    `${labelW + 68}px`,
+  )
   fabFitTl?.kill()
   fabFitTl = null
   const prev = fabFitResolve
@@ -674,6 +678,7 @@ onUnmounted(() => {
   if (barEl.value && gsapMod) gsapMod.killTweensOf(barEl.value)
   fabFitTl?.kill()
   registerFabFit(null)
+  document.documentElement.style.removeProperty('--menu-fab-expanded-width')
   tokenProbe?.remove()
   tokenProbe = null
   tokenCache = null

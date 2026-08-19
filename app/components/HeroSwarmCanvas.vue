@@ -14,7 +14,9 @@ import {
 } from '~/utils/mobileViewport'
 import {
   swarmHapticArm,
+  swarmHapticConfirm,
   swarmHapticContact,
+  swarmHapticIsArmed,
   swarmHapticPairKey,
   swarmHapticPrune,
   swarmHapticReset,
@@ -37,6 +39,8 @@ const BALL_COUNT_TABLET = 16
 const BALL_COUNT_MOBILE = 12
 /** Mobile on-screen diameter vs fluid curve. */
 const MOBILE_BALL_DIAMETER_SCALE = 1.2
+/** Tighter mobile orbit so the 12-ball strand reads as a cluster. */
+const MOBILE_ROUTE_SCALE = 0.84
 /**
  * iOS gyro on — attach only after first paint, never with capture-phase
  * unlock listeners during boot (that path blanked the hero on Safari).
@@ -116,6 +120,9 @@ const SETTLE_MS = 700
 const LITE_SCATTER_RATIO = 2.25
 /** Debounce real window resizes before a full scene reboot. */
 const REBOOT_MS = 320
+const MOTION_INTRO_COOKIE = 'kado_motion_intro'
+const MOTION_INTRO_MAX_AGE = 60 * 60 * 24 * 7
+const DESKTOP_MOTION_EASE_MS = 520
 
 function lerpStops(x: number, stops: number[], values: number[]) {
   if (x <= stops[0]) return values[0]
@@ -155,6 +162,7 @@ function swarmLayout(w: number, h: number) {
 type Ball = {
   mesh: THREE.Mesh
   position: THREE.Vector3
+  seat: THREE.Vector3
   velocity: THREE.Vector3
   angle: number
   radius: number
@@ -173,21 +181,109 @@ const props = withDefaults(
   defineProps<{
     /** When false, rAF + draws stop (keeps GPU assets warm for return). */
     active?: boolean
+    /** Canvas extends past the visible hero; keep overlay chrome inside that edge. */
+    overlayInsetX?: number
+    overlayInsetY?: number
   }>(),
-  { active: true },
+  { active: true, overlayInsetX: 0, overlayInsetY: 0 },
 )
+
+const motionOverlayStyle = computed<Record<string, string>>(() => ({
+  '--motion-scene-inset-x': `${Math.max(0, props.overlayInsetX)}px`,
+  '--motion-scene-inset-y': `${Math.max(0, props.overlayInsetY)}px`,
+}))
 
 const emit = defineEmits<{
   lit: []
 }>()
 
 const canvasHost = ref<HTMLElement | null>(null)
-/** iOS: show until DeviceOrientation permission is granted. */
-const motionUnlockVisible = ref(false)
+const isAndroidClient = ref(false)
+const isIosClient = ref(false)
+const isDesktopMotionClient = ref(false)
+const isMobileMotionClient = computed(
+  () => isAndroidClient.value || isIosClient.value,
+)
+const motionEnabled = ref(false)
+const motionIntroVisible = ref(false)
+const motionEnableRequested = ref(false)
+const gyroPermissionReady = ref(false)
+const motionControlVisible = computed(
+  () => isMobileMotionClient.value && !motionIntroVisible.value,
+)
+const motionControlActive = computed(
+  () => motionEnabled.value && gyroPermissionReady.value,
+)
+const motionControlAtRest = ref(true)
+const androidHapticConfirmed = ref(false)
+const desktopSceneEnabled = ref(true)
+const desktopMotionNotice = ref('')
+const desktopMotionNoticeVisible = ref(false)
+const motionIntroText = computed(() =>
+  isAndroidClient.value
+    ? 'Тапните, чтобы включить гироскоп и вибрацию'
+    : 'Тапните, чтобы включить гироскоп',
+)
 let gyroUnlockFn: (() => void) | null = null
+let removeMotionControlScroll: (() => void) | null = null
+let desktopMotionNoticeTimer = 0
 
-function onMotionUnlockTap() {
+function hasMotionIntroCookie() {
+  return document.cookie
+    .split(';')
+    .some((part) => part.trim().startsWith(`${MOTION_INTRO_COOKIE}=`))
+}
+
+function rememberMotionIntro() {
+  document.cookie = `${MOTION_INTRO_COOKIE}=1; Max-Age=${MOTION_INTRO_MAX_AGE}; Path=/; SameSite=Lax`
+}
+
+function finishMotionIntro() {
+  rememberMotionIntro()
+  motionIntroVisible.value = false
+}
+
+function onMotionIntroTap() {
+  motionEnableRequested.value = true
+  motionEnabled.value = true
+  swarmHapticReset()
+  if (isAndroidClient.value) {
+    androidHapticConfirmed.value = swarmHapticConfirm()
+    finishMotionIntro()
+    return
+  }
   gyroUnlockFn?.()
+}
+
+function onMotionControlTap() {
+  if (motionControlActive.value) {
+    motionEnabled.value = false
+    motionEnableRequested.value = false
+    swarmHapticReset()
+    return
+  }
+  motionEnableRequested.value = true
+  motionEnabled.value = true
+  swarmHapticReset()
+  if (isAndroidClient.value) {
+    androidHapticConfirmed.value = swarmHapticArm()
+  }
+  if (!gyroPermissionReady.value) gyroUnlockFn?.()
+}
+
+function onHapticControlTap() {
+  if (swarmHapticConfirm()) androidHapticConfirmed.value = true
+}
+
+function onDesktopMotionControlTap() {
+  desktopSceneEnabled.value = !desktopSceneEnabled.value
+  desktopMotionNotice.value = desktopSceneEnabled.value ? 'вкл' : 'выкл'
+  desktopMotionNoticeVisible.value = true
+  window.clearTimeout(desktopMotionNoticeTimer)
+  desktopMotionNoticeTimer = window.setTimeout(() => {
+    desktopMotionNoticeVisible.value = false
+  }, 1500)
+  if (desktopSceneEnabled.value && props.active) startLoop()
 }
 
 let renderer: THREE.WebGLRenderer | null = null
@@ -315,10 +411,31 @@ function prepDataMap(tex: THREE.Texture, repeat = 2.4) {
 }
 
 onMounted(() => {
+  isIosClient.value = isAppleTouchDevice()
+  isAndroidClient.value = /Android/i.test(navigator.userAgent)
+  androidHapticConfirmed.value = isAndroidClient.value && swarmHapticIsArmed()
+  isDesktopMotionClient.value = window.matchMedia(
+    `(min-width: ${DESKTOP_MIN_WIDTH}px) and (pointer: fine)`,
+  ).matches
+  const introSeen = hasMotionIntroCookie()
+  motionIntroVisible.value = isMobileMotionClient.value && !introSeen
+  motionEnabled.value = isMobileMotionClient.value && !motionIntroVisible.value
+  motionEnableRequested.value = motionEnabled.value
+  const syncMotionControlRest = () => {
+    motionControlAtRest.value = window.scrollY <= 2
+  }
+  syncMotionControlRest()
+  window.addEventListener('scroll', syncMotionControlRest, { passive: true })
+  removeMotionControlScroll = () => {
+    window.removeEventListener('scroll', syncMotionControlRest)
+  }
   lastLayoutKey = layoutKey()
   void bootScene()
   const onWinResize = () => {
     if (isMobileChromeHeightOnlyResize()) return
+    isDesktopMotionClient.value = window.matchMedia(
+      `(min-width: ${DESKTOP_MIN_WIDTH}px) and (pointer: fine)`,
+    ).matches
     window.clearTimeout(resizeTimer)
     resizeTimer = window.setTimeout(() => {
       const key = layoutKey()
@@ -338,6 +455,9 @@ onUnmounted(() => {
   bootGen += 1
   removeWindowResize?.()
   removeWindowResize = null
+  removeMotionControlScroll?.()
+  removeMotionControlScroll = null
+  window.clearTimeout(desktopMotionNoticeTimer)
   disposeScene()
 })
 
@@ -369,7 +489,7 @@ async function bootScene() {
     : lite
       ? BALL_COUNT_MOBILE
       : BALL_COUNT_TABLET
-  const sphereSegments = wide && !isCoarse ? 64 : lite ? 20 : 32
+  const sphereSegments = wide && !isCoarse ? 48 : lite ? 20 : 32
   const pixelRatioCap = wide && !isCoarse ? 2 : lite ? 1 : 1.25
   const cameraZ = layout.cameraZ
   const ballDiameterPx = layout.diameterPx
@@ -438,7 +558,7 @@ async function bootScene() {
   renderer = gl
   host.appendChild(gl.domElement)
 
-  const hemi = new THREE.HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.28)
+  const hemi = new THREE.HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.22)
   scene.add(hemi)
 
   const key = new THREE.DirectionalLight(0xf5f8fc, lite ? 0.62 : 0.55)
@@ -455,8 +575,8 @@ async function bootScene() {
     scene.add(rim)
   }
 
-  const matte = (color: THREE.Color) =>
-    lite
+  const matte = (color: THREE.Color) => {
+    const material = lite
       ? new THREE.MeshStandardMaterial({
           color,
           roughness: 0.86,
@@ -475,6 +595,9 @@ async function bootScene() {
           envMapIntensity: 0.7,
           specularIntensity: 0.5,
         })
+    material.userData.swarmFinish = 'matte'
+    return material
+  }
 
   /** Desktop: real glass. Lite: bright Standard stand-in — no transmission fill cost. */
   const frosted = (color: THREE.Color) =>
@@ -534,10 +657,15 @@ async function bootScene() {
       matte(COLORS.white.clone()),
     )
   } else {
-    for (const color of [COLORS.green, COLORS.dark]) {
-      materialPlan.push(matte(color.clone()), glossy(color.clone()))
-    }
+    // Desktop: roughly one third real frosted glass. Keep both opaque brand
+    // finishes, but replace part of the repeating green/ink mass with glass.
     materialPlan.push(
+      matte(COLORS.green.clone()),
+      glossy(COLORS.green.clone()),
+      frosted(COLORS.green.clone()),
+      matte(COLORS.dark.clone()),
+      glossy(COLORS.dark.clone()),
+      frosted(COLORS.white.clone()),
       matte(COLORS.white.clone()),
       frosted(COLORS.white.clone()),
       glossy(COLORS.white.clone()),
@@ -555,6 +683,7 @@ async function bootScene() {
     balls.push({
       mesh,
       position: new THREE.Vector3(),
+      seat: new THREE.Vector3(),
       velocity: new THREE.Vector3(),
       angle: (i / ballCount) * Math.PI * 2,
       radius: 0.35,
@@ -600,7 +729,7 @@ async function bootScene() {
       microRough = prepDataMap(assets[2], 2.6)
       for (const ball of balls) {
         const mat = ball.mesh.material as THREE.MeshPhysicalMaterial
-        if (typeof mat.transmission === 'number' && mat.transmission > 0) continue
+        if (mat.userData.swarmFinish !== 'matte') continue
         if (microRough) mat.roughnessMap = microRough
         if (microNormal) {
           mat.normalMap = microNormal
@@ -621,53 +750,93 @@ async function bootScene() {
   const anchor = new THREE.Vector3(1.55, 0.05, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */
   const ringBaseEuler = new THREE.Euler(-0.62, 0.78, 0.18, 'XYZ')
-  const ringQuat = new THREE.Quaternion().setFromEuler(ringBaseEuler)
-  const ringEuler = ringBaseEuler.clone()
+  // Match the phase-zero drift formula immediately; otherwise the first tick
+  // adds +0.12rad around Z and visibly changes the route after first paint.
+  const ringEuler = new THREE.Euler(
+    ringBaseEuler.x,
+    ringBaseEuler.y,
+    ringBaseEuler.z + 0.12,
+    'XYZ',
+  )
+  const ringQuat = new THREE.Quaternion().setFromEuler(ringEuler)
   let ringRadius = 1.2
   let ringTiltPhase = 0
 
   /**
    * Device motion (lite):
-   * — Tip (any edge lower): balls slide toward the lowered side (gravity / beta·gamma).
-   * — Spin in the phone’s plane: the pile twists a little, then springs home.
+   * — Tip (any edge lower): accelerate balls in that screen-space direction.
+   * — Ignore alpha / rotation rate: Euler coupling during a tip must not add physics.
    */
-  let gyroYaw = 0
   let gyroPitch = 0
   let gyroRoll = 0
-  let gyroYawT = 0
   let gyroPitchT = 0
   let gyroRollT = 0
   let gyroArmed = false
-  let prevAlpha: number | null = null
-  let gyroFromRate = false
-  let gyroRateStamp = 0
   let tipFromGrav = false
   let tipGravStamp = 0
-  /** Tip → balls toward lowered edge. */
-  const GYRO_DEPTH_FORCE = 0.00072
-  /** In-plane spin → tangential shove on the pile. */
-  const GYRO_YAW_FORCE = 0.00088
-  /** Brief orbit kick while spinning (rad/ms at full signal). */
-  const GYRO_SPIN_ORBIT = 0.0042
-  const GYRO_SMOOTH = 0.32
-  const GYRO_RATE_SCALE = 100
-  const GYRO_DELTA_SCALE = 5
-  const GYRO_TARGET_DECAY = 0.82
+  const gravityNeutral = { roll: 0, pitch: 0, samples: 0 }
+  const orientNeutral = { roll: 0, pitch: 0, samples: 0 }
+  /** Screen-space acceleration at full tilt; depth response varies per ball. */
+  const GYRO_ACCEL = 0.0011
+  /** Ignore hand tremor, then ease the remaining sensor range back to 0…1. */
+  const GYRO_DEAD_ZONE = 0.075
+  /** Time-based low-pass: stable feel at both 60 and 30 fps. */
+  const GYRO_SMOOTH_MS = 180
+  /** Visible camera travel on a vertical cylinder centred on the swarm. */
+  const GYRO_CAMERA_ARC = 1.2
+  const GYRO_CAMERA_LIFT = 0.56
+  /** Near/far layers travel at different rates, creating controlled contacts. */
+  const GYRO_DEPTH_RESPONSE = 0.32
+  /** Average the initial handheld pose; it becomes neutral instead of table-flat. */
+  const GYRO_CALIBRATION_SAMPLES = 24
   /** Orient fallback: degrees of tip → full force (flat-relative). */
   const GYRO_TIP_ANGLE = 22
-  const GYRO_SWEEP_FRONT = 0.32
-  const GYRO_SWEEP_BACK = 1
   const lookTarget = new THREE.Vector3()
   const LITE_WALL_X = 2.15
   const LITE_WALL_Y = 2.35
   const LITE_WALL_BOUNCE = 0.62
-  const LITE_RETURN = 0.000042
+  const LITE_RETURN = 0.00006
   const LITE_DAMPING = 0.972
   const LITE_SEP_FORCE = 0.018
   const LITE_MAX_SPEED = 0.22
   const LITE_LEASH = 2.2
   let removeGyroListeners: (() => void) | null = null
   let gyroAttachScheduled = false
+
+  const filterGyroTip = (value: number) => {
+    const magnitude = Math.abs(value)
+    if (magnitude <= GYRO_DEAD_ZONE) return 0
+    return (
+      Math.sign(value) *
+      THREE.MathUtils.clamp(
+        (magnitude - GYRO_DEAD_ZONE) / (1 - GYRO_DEAD_ZONE),
+        0,
+        1,
+      )
+    )
+  }
+
+  const updateGyroTip = (
+    rawRoll: number,
+    rawPitch: number,
+    neutral: { roll: number; pitch: number; samples: number },
+  ) => {
+    if (neutral.samples < GYRO_CALIBRATION_SAMPLES) {
+      neutral.samples += 1
+      const weight = 1 / neutral.samples
+      neutral.roll += (rawRoll - neutral.roll) * weight
+      neutral.pitch += (rawPitch - neutral.pitch) * weight
+      gyroRollT = 0
+      gyroPitchT = 0
+      return
+    }
+    gyroRollT = filterGyroTip(
+      THREE.MathUtils.clamp(rawRoll - neutral.roll, -1, 1),
+    )
+    gyroPitchT = filterGyroTip(
+      THREE.MathUtils.clamp(rawPitch - neutral.pitch, -1, 1),
+    )
+  }
 
   /** Wire unlock ASAP so the first tap can open the iOS permission sheet. */
   const attachGyroSensors = () => {
@@ -676,72 +845,47 @@ async function bootScene() {
     if (removeGyroListeners) return
 
     try {
-      const unwrapDelta = (d: number) => {
-        if (d > 180) return d - 360
-        if (d < -180) return d + 360
-        return d
-      }
-
       const onOrient = (e: DeviceOrientationEvent) => {
         if (e.beta == null || e.gamma == null) return
         gyroArmed = true
-        motionUnlockVisible.value = false
 
         const gravFresh =
           tipFromGrav && performance.now() - tipGravStamp < 250
         if (!gravFresh) {
-          gyroRollT = THREE.MathUtils.clamp(e.gamma / GYRO_TIP_ANGLE, -1, 1)
-          gyroPitchT = THREE.MathUtils.clamp(-e.beta / GYRO_TIP_ANGLE, -1, 1)
+          updateGyroTip(
+            e.gamma / GYRO_TIP_ANGLE,
+            -e.beta / GYRO_TIP_ANGLE,
+            orientNeutral,
+          )
         }
 
-        if (e.alpha != null && prevAlpha != null) {
-          const ratesFresh =
-            gyroFromRate && performance.now() - gyroRateStamp < 200
-          if (!ratesFresh) {
-            const dA = unwrapDelta(e.alpha - prevAlpha)
-            if (Math.abs(dA) > 0.35) {
-              gyroYawT = THREE.MathUtils.clamp(dA / GYRO_DELTA_SCALE, -1, 1)
-            }
-          }
-        }
-        prevAlpha = e.alpha
       }
 
       const onMotion = (e: DeviceMotionEvent) => {
         gyroArmed = true
-        motionUnlockVisible.value = false
 
         const g = e.accelerationIncludingGravity
         if (g && g.x != null && g.y != null) {
           const gx = g.x / 9.81
           const gy = g.y / 9.81
-          if (Math.hypot(gx, gy) < 0.08) {
-            gyroRollT = 0
-            gyroPitchT = 0
-          } else {
-            gyroRollT = THREE.MathUtils.clamp(gx, -1, 1)
-            gyroPitchT = THREE.MathUtils.clamp(gy, -1, 1)
-          }
+          updateGyroTip(gx, gy, gravityNeutral)
           tipFromGrav = true
           tipGravStamp = performance.now()
-        }
-
-        const r = e.rotationRate
-        if (r && r.alpha != null) {
-          gyroFromRate = true
-          gyroRateStamp = performance.now()
-          gyroYawT = THREE.MathUtils.clamp(r.alpha / GYRO_RATE_SCALE, -1, 1)
         }
       }
 
       const startListening = () => {
         window.addEventListener('deviceorientation', onOrient, { passive: true })
         window.addEventListener('devicemotion', onMotion, { passive: true })
-        motionUnlockVisible.value = false
+        gyroPermissionReady.value = true
         gyroUnlockFn = null
+        if (motionEnableRequested.value && motionIntroVisible.value) {
+          finishMotionIntro()
+        }
         removeGyroListeners = () => {
           window.removeEventListener('deviceorientation', onOrient)
           window.removeEventListener('devicemotion', onMotion)
+          gyroPermissionReady.value = false
           removeGyroListeners = null
         }
       }
@@ -759,14 +903,11 @@ async function bootScene() {
       if (needsIosPerm) {
         // iOS: sensors need a secure context + a user gesture calling requestPermission.
         if (!window.isSecureContext) {
-          motionUnlockVisible.value = false
           return
         }
 
         let unlocking = false
         const detachUnlock = () => {
-          document.removeEventListener('pointerdown', unlock)
-          document.removeEventListener('touchend', unlock)
           gyroUnlockFn = null
         }
 
@@ -803,14 +944,10 @@ async function bootScene() {
           })
         }
 
-        // Bubble only (capture-during-boot blanked the hero on Safari).
-        document.addEventListener('pointerdown', unlock, { passive: true })
-        document.addEventListener('touchend', unlock, { passive: true })
         gyroUnlockFn = unlock
-        motionUnlockVisible.value = true
         removeGyroListeners = () => {
           detachUnlock()
-          motionUnlockVisible.value = false
+          gyroPermissionReady.value = false
           removeGyroListeners = null
         }
       } else {
@@ -819,7 +956,7 @@ async function bootScene() {
     } catch {
       removeGyroListeners?.()
       removeGyroListeners = null
-      motionUnlockVisible.value = false
+      gyroPermissionReady.value = false
     }
   }
 
@@ -860,6 +997,15 @@ async function bootScene() {
   let orbitLocked = false
   /** Pairs overlapping this frame — for haptic edge triggers. */
   const hapticAlive = new Set<number>()
+  const wallHaptic = (ballIndex: number, wallIndex: number, impact: number) => {
+    if (!motionEnabled.value) return
+    const key = swarmHapticPairKey(ballIndex, balls.length + wallIndex)
+    hapticAlive.add(key)
+    swarmHapticContact(
+      key,
+      THREE.MathUtils.clamp(impact / Math.max(LITE_MAX_SPEED, 0.001), 0, 1),
+    )
+  }
 
   const pointOnOrbit = (angle: number, phase: number, out: THREE.Vector3) => {
     // Torus helix: major angle around the bagel, minor angle winds the tube.
@@ -892,6 +1038,7 @@ async function bootScene() {
       for (let i = 0; i < n; i++) {
         const ball = balls[i]
         pointOnOrbit(ball.angle, ball.phase, seat)
+        ball.seat.copy(seat)
         push.copy(seat).sub(anchor)
         const sz = THREE.MathUtils.clamp(
           push.dot(camForward) * LITE_DEPTH_KEEP,
@@ -917,6 +1064,7 @@ async function bootScene() {
 
     for (const ball of balls) {
       pointOnOrbit(ball.angle, ball.phase, ball.position)
+      ball.seat.copy(ball.position)
       ball.velocity.set(0, 0, 0)
       ball.pointerInside = false
       ball.mesh.position.copy(ball.position)
@@ -992,7 +1140,7 @@ async function bootScene() {
       ? ballDiameterPx * MOBILE_BALL_DIAMETER_SCALE
       : ballDiameterPx
     const radius = worldRadiusForPixels(diameterPx, layoutH)
-    ringRadius = radius * ringScale
+    ringRadius = radius * ringScale * (lite ? MOBILE_ROUTE_SCALE : 1)
 
     for (let i = 0; i < balls.length; i++) {
       const ball = balls[i]
@@ -1037,6 +1185,13 @@ async function bootScene() {
   const onPointerMove = (event: PointerEvent) => {
     if (event.pointerType !== 'mouse') return
     if (
+      !desktopSceneEnabled.value
+      || (event.target as Element | null)?.closest('.motion-control')
+    ) {
+      if (pointerActive) onPointerLeave()
+      return
+    }
+    if (
       event.clientX < 0
       || event.clientY < 0
       || event.clientX > window.innerWidth
@@ -1065,6 +1220,10 @@ async function bootScene() {
     // Chrome: vibrate() needs sticky user activation — arm on any press.
     swarmHapticArm()
     if (event.pointerType !== 'mouse') return
+    if (
+      !desktopSceneEnabled.value
+      || (event.target as Element | null)?.closest('.motion-control')
+    ) return
     const rect = host.getBoundingClientRect()
     if (
       event.clientX < rect.left
@@ -1127,15 +1286,6 @@ async function bootScene() {
         pointerIdleTimer = 0
       }
     }
-  } else if (lite && !isIOS) {
-    // Mobile Android: no cursor knocks, but Chrome still needs a gesture to arm vibrate.
-    const arm = () => swarmHapticArm()
-    document.addEventListener('pointerdown', arm, { passive: true })
-    document.addEventListener('touchstart', arm, { passive: true })
-    removePointerListeners = () => {
-      document.removeEventListener('pointerdown', arm)
-      document.removeEventListener('touchstart', arm)
-    }
   }
 
   // Loop while the tab is visible — including other window / other monitor.
@@ -1183,6 +1333,8 @@ async function bootScene() {
   // No scroll stopLoop — that froze/restarted the GL layer every finger move (flicker).
   // Scene lifetime is owned by sceneLive / opacity fade only.
 
+  let desktopMotionScale = desktopSceneEnabled.value ? 1 : 0
+
   const tick = (now: number) => {
     if (!loopRunning) return
     animationId = requestAnimationFrame(tick)
@@ -1190,16 +1342,24 @@ async function bootScene() {
 
     const dt = Math.min(32, now - lastFrame)
     lastFrame = now
-    const step = reduced ? 0 : dt
+    if (!lite && !reduced) {
+      const target = desktopSceneEnabled.value ? 1 : 0
+      const blend = 1 - Math.exp(-dt / DESKTOP_MOTION_EASE_MS)
+      desktopMotionScale += (target - desktopMotionScale) * blend
+      if (Math.abs(target - desktopMotionScale) < 0.001) {
+        desktopMotionScale = target
+      }
+      if (!desktopSceneEnabled.value && pointerActive) {
+        pointerActive = false
+        pointerSampled = false
+        pointerSpeedPx = 0
+        pointerVel.set(0, 0, 0)
+      }
+    }
+    const step = reduced ? 0 : dt * (lite ? 1 : desktopMotionScale)
 
     if (!reduced) {
       if (lite) {
-        if (!gyroFromRate || performance.now() - gyroRateStamp > 180) {
-          gyroFromRate = false
-          // Spin fades when the phone stops turning in-plane.
-          gyroYawT *= GYRO_TARGET_DECAY
-          if (Math.abs(gyroYawT) < 0.02) gyroYawT = 0
-        }
         // Tip holds from gravity/orient while an edge is lowered — no decay here.
         if (
           tipFromGrav &&
@@ -1207,9 +1367,9 @@ async function bootScene() {
         ) {
           tipFromGrav = false
         }
-        gyroYaw += (gyroYawT - gyroYaw) * GYRO_SMOOTH
-        gyroPitch += (gyroPitchT - gyroPitch) * GYRO_SMOOTH
-        gyroRoll += (gyroRollT - gyroRoll) * GYRO_SMOOTH
+        const gyroBlend = 1 - Math.exp(-dt / GYRO_SMOOTH_MS)
+        gyroPitch += (gyroPitchT - gyroPitch) * gyroBlend
+        gyroRoll += (gyroRollT - gyroRoll) * gyroBlend
       }
       ringTiltPhase += RING_TILT_SPEED * step
       ringEuler.set(
@@ -1227,7 +1387,18 @@ async function bootScene() {
       if (settling) settleLeft = Math.max(0, settleLeft - dt)
       hapticAlive.clear()
 
+      // Device gravity X arrives opposite to the visual lean on tested phones.
+      const motionActive = motionEnabled.value && gyroPermissionReady.value
+      const tipRight = motionActive ? -gyroRoll : 0
+      const tipUp = motionActive ? gyroPitch : 0
+
       if (!reduced) {
+        const cameraArc = tipRight * GYRO_CAMERA_ARC
+        camera.position.set(
+          lookTarget.x + Math.sin(cameraArc) * cameraZ,
+          0.12 + tipUp * ringRadius * GYRO_CAMERA_LIFT,
+          lookTarget.z + Math.cos(cameraArc) * cameraZ,
+        )
         camera.up.set(0, 1, 0)
         camera.lookAt(lookTarget)
         camera.updateMatrixWorld(true)
@@ -1238,20 +1409,6 @@ async function bootScene() {
       const wallX = ringRadius * LITE_WALL_X
       const wallY = ringRadius * LITE_WALL_Y
       const depthMax = ringRadius * LITE_DEPTH_MAX_RATIO
-      const sweepSpan = Math.max(ringRadius * 1.35, balls[0].radius * 5)
-
-      // Tip → toward lowered edge. Spin → twist the pile (then springs home).
-      const depthRight = gyroRoll
-      const depthUp = gyroPitch
-      const twist = gyroYaw
-
-      const sweepW = (along: number, force: number) => {
-        if (Math.abs(force) < 0.01) return 1
-        const n = THREE.MathUtils.clamp(along / sweepSpan, -1, 1)
-        const behind = force > 0 ? -n : n
-        const t = behind * 0.5 + 0.5
-        return GYRO_SWEEP_FRONT + (GYRO_SWEEP_BACK - GYRO_SWEEP_FRONT) * t
-      }
 
       /** Screen XY from helix + depth so balls aren’t coplanar. */
       const flattenSeat = () => {
@@ -1273,12 +1430,7 @@ async function bootScene() {
 
       for (let i = 0; i < balls.length; i++) {
         const ball = balls[i]
-        if (!reduced) {
-          ball.angle += ORBIT_SPEED * step
-          if (!settling && gyroArmed && Math.abs(twist) > 0.01) {
-            ball.angle += twist * GYRO_SPIN_ORBIT * step
-          }
-        }
+        if (!reduced) ball.angle += ORBIT_SPEED * step
         pointOnOrbit(ball.angle, ball.phase, seat)
         const seatDepth = flattenSeat()
 
@@ -1309,39 +1461,19 @@ async function bootScene() {
         }
 
         if (gyroArmed && !settling) {
-          const rel = push.copy(ball.position).sub(anchor)
-          const alongR = rel.dot(camRight)
-          const alongU = rel.dot(camUp)
-
-          if (Math.abs(depthRight) > 0.01 || Math.abs(depthUp) > 0.01) {
-            const wR = sweepW(alongR, depthRight)
-            const wU = sweepW(alongU, depthUp)
-            ball.velocity.addScaledVector(
+          const depthResponse =
+            1 +
+            THREE.MathUtils.clamp(-seatDepth / Math.max(depthMax, 0.001), -1, 1) *
+              GYRO_DEPTH_RESPONSE
+          ball.velocity
+            .addScaledVector(
               camRight,
-              depthRight * wR * GYRO_DEPTH_FORCE * step,
+              tipRight * depthResponse * GYRO_ACCEL * step,
             )
-            ball.velocity.addScaledVector(
+            .addScaledVector(
               camUp,
-              depthUp * wU * GYRO_DEPTH_FORCE * step,
+              tipUp * depthResponse * GYRO_ACCEL * step,
             )
-          }
-
-          if (Math.abs(twist) > 0.01) {
-            const rad = Math.hypot(alongR, alongU)
-            if (rad > 1e-4) {
-              const tR = -alongU / rad
-              const tU = alongR / rad
-              const radial = THREE.MathUtils.clamp(rad / sweepSpan, 0.25, 1.15)
-              ball.velocity.addScaledVector(
-                camRight,
-                twist * tR * radial * GYRO_YAW_FORCE * step,
-              )
-              ball.velocity.addScaledVector(
-                camUp,
-                twist * tU * radial * GYRO_YAW_FORCE * step,
-              )
-            }
-          }
         }
 
         seatPull.copy(seat).sub(ball.position)
@@ -1377,7 +1509,7 @@ async function bootScene() {
               .multiplyScalar(overlap * LITE_SEP_FORCE * step)
             ball.velocity.add(push)
             other.velocity.sub(push)
-            if (!settling && !reduced) {
+            if (!settling && !reduced && motionEnabled.value) {
               const key = swarmHapticPairKey(i, j)
               hapticAlive.add(key)
               swarmHapticContact(key, overlap)
@@ -1414,17 +1546,29 @@ async function bootScene() {
           const maxY = Math.max(0.2, wallY - ball.radius)
           if (px > maxX) {
             px = maxX
-            if (vx > 0) vx *= -LITE_WALL_BOUNCE
+            if (vx > 0) {
+              if (!settling) wallHaptic(i, 0, vx)
+              vx *= -LITE_WALL_BOUNCE
+            }
           } else if (px < -maxX) {
             px = -maxX
-            if (vx < 0) vx *= -LITE_WALL_BOUNCE
+            if (vx < 0) {
+              if (!settling) wallHaptic(i, 1, -vx)
+              vx *= -LITE_WALL_BOUNCE
+            }
           }
           if (py > maxY) {
             py = maxY
-            if (vy > 0) vy *= -LITE_WALL_BOUNCE
+            if (vy > 0) {
+              if (!settling) wallHaptic(i, 2, vy)
+              vy *= -LITE_WALL_BOUNCE
+            }
           } else if (py < -maxY) {
             py = -maxY
-            if (vy < 0) vy *= -LITE_WALL_BOUNCE
+            if (vy < 0) {
+              if (!settling) wallHaptic(i, 3, -vy)
+              vy *= -LITE_WALL_BOUNCE
+            }
           }
           ball.position
             .copy(anchor)
@@ -1461,6 +1605,14 @@ async function bootScene() {
 
       if (!reduced) ball.angle += ORBIT_SPEED * step
       pointOnOrbit(ball.angle, ball.phase, seat)
+
+      if (!settling) {
+        // Inherit the seat's exact world-space travel first. Physics then owns
+        // only the offset, so releasing boot lock cannot alter the route itself.
+        push.copy(seat).sub(ball.seat)
+        ball.position.add(push)
+      }
+      ball.seat.copy(seat)
 
       // Boot / post-resize: stick to seats until layout + radius are stable.
       if (settling) {
@@ -1608,6 +1760,7 @@ async function bootScene() {
     pointerVel.multiplyScalar(0.88)
 
     renderer.render(scene, camera)
+    if (!desktopSceneEnabled.value && desktopMotionScale <= 0.001) stopLoop()
   }
 
   runFrame = tick
@@ -1636,22 +1789,186 @@ async function bootScene() {
 </script>
 
 <template>
-  <div class="hero-swarm-root size-full">
+  <div
+    class="hero-swarm-root size-full"
+    :class="{
+      'hero-swarm-root--desktop-paused': isDesktopMotionClient && !desktopSceneEnabled,
+    }"
+    :style="motionOverlayStyle"
+  >
     <div
       ref="canvasHost"
       class="hero-swarm size-full touch-pan-y"
       aria-hidden="true"
     />
-    <Teleport to="body">
-      <button
-        v-if="motionUnlockVisible"
-        type="button"
-        class="motion-unlock"
-        @pointerdown.prevent="onMotionUnlockTap"
+
+    <button
+      v-if="isAndroidClient && !motionIntroVisible && !androidHapticConfirmed"
+      type="button"
+      class="motion-control motion-control--haptic"
+      :class="{ 'motion-control--scroll-hidden': !motionControlAtRest }"
+      aria-label="Включить вибрацию"
+      @click="onHapticControlTap"
+    >
+      <svg
+        class="motion-control__icon motion-control__icon--haptic"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 256 256"
+        aria-hidden="true"
       >
-        Включить гироскоп
-      </button>
-    </Teleport>
+        <rect width="256" height="256" fill="none" />
+        <rect
+          x="40"
+          y="80"
+          width="176"
+          height="96"
+          rx="16"
+          transform="translate(256) rotate(90)"
+          fill="none"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="16"
+        />
+        <line
+          x1="208"
+          y1="88"
+          x2="208"
+          y2="168"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="16"
+        />
+        <line
+          x1="240"
+          y1="104"
+          x2="240"
+          y2="152"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="16"
+        />
+        <line
+          x1="48"
+          y1="88"
+          x2="48"
+          y2="168"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="16"
+        />
+        <line
+          x1="16"
+          y1="104"
+          x2="16"
+          y2="152"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="16"
+        />
+      </svg>
+    </button>
+
+    <button
+      v-if="motionControlVisible"
+      type="button"
+      class="motion-control"
+      :class="{
+        'motion-control--active': motionControlActive,
+        'motion-control--scroll-hidden': !motionControlAtRest,
+      }"
+      :aria-label="motionControlActive ? 'Выключить гироскоп' : 'Включить гироскоп'"
+      :aria-pressed="motionControlActive"
+      @click="onMotionControlTap"
+    >
+      <svg
+        class="motion-control__icon"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 256 256"
+        aria-hidden="true"
+      >
+        <rect width="256" height="256" fill="none" />
+        <rect
+          x="24"
+          y="64"
+          width="208"
+          height="128"
+          rx="16"
+          transform="translate(256) rotate(90)"
+          fill="none"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="16"
+        />
+        <circle cx="128" cy="60" r="12" fill="currentColor" />
+      </svg>
+    </button>
+
+    <button
+      v-else-if="isDesktopMotionClient"
+      type="button"
+      class="motion-control"
+      :class="{
+        'motion-control--active': desktopSceneEnabled,
+        'motion-control--scroll-hidden': !motionControlAtRest,
+      }"
+      :aria-label="desktopSceneEnabled ? 'Выключить движение сцены' : 'Включить движение сцены'"
+      :aria-pressed="desktopSceneEnabled"
+      @click="onDesktopMotionControlTap"
+    >
+      <span
+        class="motion-control__notice"
+        :class="{ 'motion-control__notice--visible': desktopMotionNoticeVisible }"
+        aria-hidden="true"
+      >{{ desktopMotionNotice }}</span>
+      <svg
+        v-if="desktopSceneEnabled"
+        class="motion-control__icon motion-control__icon--desktop"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 256 256"
+        aria-hidden="true"
+      >
+        <rect width="256" height="256" fill="none" />
+        <path
+          fill="currentColor"
+          d="M200,32H160a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z"
+        />
+      </svg>
+      <svg
+        v-else
+        class="motion-control__icon motion-control__icon--desktop"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 256 256"
+        aria-hidden="true"
+      >
+        <rect width="256" height="256" fill="none" />
+        <path
+          fill="currentColor"
+          d="M239.96875,128a15.9,15.9,0,0,1-7.65625,13.65625L88.34375,229.64062A15.9978,15.9978,0,0,1,64,215.99219V40.00781A15.99781,15.99781,0,0,1,88.34375,26.35937L232.3125,114.34375A15.9,15.9,0,0,1,239.96875,128Z"
+        />
+      </svg>
+    </button>
+
+    <button
+      v-if="motionIntroVisible"
+      type="button"
+      class="motion-intro"
+      @click="onMotionIntroTap"
+    >
+      <span class="motion-intro__content">
+        <img
+          class="motion-intro__icon"
+          src="/svg/phone-tilt-css.svg"
+          alt=""
+        >
+        <span class="motion-intro__text">{{ motionIntroText }}</span>
+      </span>
+    </button>
   </div>
 </template>
 
@@ -1677,29 +1994,191 @@ async function bootScene() {
   cursor: grabbing;
 }
 
+.hero-swarm-root--desktop-paused .hero-swarm,
+.hero-swarm-root--desktop-paused .hero-swarm:active {
+  cursor: default;
+  pointer-events: none;
+}
+
 .hero-swarm :deep(canvas) {
   display: block;
   width: 100%;
   height: 100%;
 }
-</style>
 
-<style>
-/* Teleported — must not be scoped (lives on body). */
-.motion-unlock {
-  position: fixed;
-  left: 50%;
-  bottom: max(1.25rem, env(safe-area-inset-bottom));
-  z-index: 80;
-  transform: translateX(-50%);
-  padding: 0.7rem 1.15rem;
+.motion-control {
+  position: absolute;
+  top: auto;
+  right: calc(var(--motion-scene-inset-x, 0px) + 1.25rem + env(safe-area-inset-right));
+  bottom: calc(var(--motion-scene-inset-y, 0px) + 1.25rem + env(safe-area-inset-bottom));
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0.25rem;
   border: 0;
-  border-radius: 999px;
-  background: rgba(20, 18, 16, 0.88);
-  color: #f4efe8;
-  font: 500 0.875rem/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0.01em;
+  border-radius: 0.85rem;
+  color: #fff;
+  background: rgba(23, 25, 21, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.motion-control--scroll-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .motion-control {
+    backdrop-filter: blur(9px) saturate(1.08);
+    -webkit-backdrop-filter: blur(9px) saturate(1.08);
+  }
+}
+
+.motion-control__icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(30deg) scale(1.04);
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.motion-control--active .motion-control__icon {
+  transform: rotate(0deg) scale(1.04);
+}
+
+.motion-control__icon--desktop,
+.motion-control--active .motion-control__icon--desktop {
+  width: 1.5rem;
+  height: 1.5rem;
+  transform: none;
+}
+
+.motion-control__notice {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  color: var(--palette-ink);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  opacity: 0;
+  pointer-events: none;
+  text-shadow: none;
+  transform: translate(-50%, 0.2rem);
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.motion-control__notice--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (max-width: 767.98px), (pointer: coarse) {
+  .motion-control {
+    --mobile-motion-control-right: calc(
+      var(--motion-scene-inset-x, 0px)
+      + var(--layout-margin)
+      + var(--safe-right, 0px)
+      + var(--menu-fab-expanded-width, 108px)
+      + 8px
+    );
+    top: auto;
+    right: var(--mobile-motion-control-right);
+    width: 42.5px;
+    height: 42.5px;
+    padding: 0;
+    border-radius: 9999px;
+    color: var(--palette-ink);
+    background-color: color-mix(in srgb, var(--palette-sand) 80%, transparent);
+    box-shadow: none;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    bottom: calc(
+      var(--motion-scene-inset-y, 0px)
+      + var(--layout-margin)
+      + var(--safe-bottom, 0px)
+    );
+    left: auto;
+  }
+
+  .motion-control__icon {
+    width: 26px;
+    height: 26px;
+    transform: rotate(0deg) scale(1.04);
+  }
+
+  .motion-control--active .motion-control__icon {
+    transform: rotate(30deg) scale(1.04);
+  }
+
+  .motion-control--haptic {
+    right: calc(var(--mobile-motion-control-right) + 42.5px + 8px);
+  }
+
+  .motion-control__icon--haptic,
+  .motion-control--active .motion-control__icon--haptic {
+    width: 2rem;
+    height: 2rem;
+    transform: none;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-control {
+    transition: none;
+  }
+
+  .motion-control__icon,
+  .motion-control__notice {
+    transition: none;
+  }
+}
+
+.motion-intro {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom));
+  border: 0;
+  background: rgba(23, 25, 21, 0.64);
+  color: #f5f1e8;
+  pointer-events: auto;
+  touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+
+.motion-intro__content {
+  display: flex;
+  width: min(19rem, 82vw);
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.motion-intro__icon {
+  display: block;
+  width: auto;
+  height: clamp(7.5rem, 30vw, 10.5rem);
+}
+
+.motion-intro__text {
+  max-width: 18rem;
+  font: 400 clamp(1rem, 4.2vw, 1.2rem)/1.35 "Outfit", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  text-align: center;
+  text-wrap: balance;
+}
+
 </style>
