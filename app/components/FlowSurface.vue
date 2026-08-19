@@ -733,7 +733,11 @@ function publish(box?: { top: number; left: number; width: number; height: numbe
 
 function edgeLiveNeeded() {
   if (liveEdgeHardOff()) return false
-  return liveEdgeArmed() || liveMix > 0.001
+  if (flowSurfaceMask.roamActive) return true
+  if (flowSurfaceMask.pointerInteractive) {
+    return pointer !== null || softPointer.str > 0.001
+  }
+  return liveMix > 0.001 || softPointer.str > 0.001
 }
 
 function flattenLiveEdge() {
@@ -811,7 +815,7 @@ function tick(now: number) {
   }
 
   publish()
-  raf = requestAnimationFrame(tick)
+  if (edgeLiveNeeded()) raf = requestAnimationFrame(tick)
 }
 
 function ensureLoop() {
@@ -917,6 +921,10 @@ function syncGrainMotion() {
       cancelAnimationFrame(raf)
       raf = 0
     }
+    return
+  }
+  if (isTouchUi()) {
+    el.style.backgroundPosition = '0 0'
     return
   }
   // Mid-morph: freeze grain — don't fight scroll/morph compositing.

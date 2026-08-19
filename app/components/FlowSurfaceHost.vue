@@ -1526,7 +1526,7 @@ function onResize() {
 
 function onCaseMediaScroll() {
   if (mobileActive || hopTween) return
-  paintDesktop()
+  ensureTick()
 }
 
 onMounted(async () => {

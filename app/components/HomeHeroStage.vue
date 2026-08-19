@@ -771,7 +771,7 @@ onUnmounted(() => {
 
 .hero-title {
   font-size: var(--type-hero);
-  font-weight: 700;
+  font-weight: 600;
   font-synthesis: none;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -783,7 +783,7 @@ onUnmounted(() => {
 
 .hero-slogan {
   font-size: calc(var(--type-slogan) * 0.72);
-  font-weight: 500;
+  font-weight: 400;
   font-synthesis: none;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -791,7 +791,7 @@ onUnmounted(() => {
 
 .hero-desc {
   font-size: var(--type-slogan);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }

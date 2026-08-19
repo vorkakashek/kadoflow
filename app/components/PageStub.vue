@@ -59,7 +59,7 @@ useSeoMeta({
 .page-stub__title {
   margin: 0;
   font-size: var(--type-display);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.05;
 }

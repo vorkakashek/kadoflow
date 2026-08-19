@@ -502,14 +502,14 @@ onUnmounted(() => {
 
 .kado-title {
   font-size: var(--type-slogan);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.15;
 }
 
 .kado-phonetic {
   font-size: var(--type-nav);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.01em;
   line-height: 1.3;
   opacity: 0.72;
@@ -518,7 +518,7 @@ onUnmounted(() => {
 .kado-deck {
   margin-top: 12px;
   font-size: var(--type-lead);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.35;
 }
@@ -529,7 +529,7 @@ onUnmounted(() => {
 
 .kado-body {
   font-size: calc(var(--type-slogan) * 1.5);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.25;
   overflow: visible;

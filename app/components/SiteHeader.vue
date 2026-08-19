@@ -179,6 +179,15 @@ async function setupLogoCasesTrigger() {
   isOverCases.value = logoCasesSt.isActive
 }
 
+function refreshLogoCasesTone() {
+  if (!logoCasesSt || !stMod) return
+  try {
+    stMod.refresh()
+  } catch {
+    /* The header remains usable if ScrollTrigger is already being torn down. */
+  }
+}
+
 async function gsap() {
   if (!gsapMod) gsapMod = (await import('gsap')).default
   return gsapMod
@@ -1157,7 +1166,7 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
 .site-nav {
   /* Between nav and lead — lead was too large for the chip row */
   font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.25;
 }

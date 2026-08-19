@@ -1532,14 +1532,14 @@ onUnmounted(() => {
   align-items: center;
   padding: 10px 1.1rem;
   font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.25;
 }
 
 .page-canvas--thumb .page-canvas__mail {
   font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.25;
 }
@@ -1702,7 +1702,7 @@ onUnmounted(() => {
 
 .pc-link__label {
   font-size: clamp(1.85rem, 4vw, 3.35rem);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.03em;
   line-height: 1.05;
   color: color-mix(in srgb, var(--palette-ink) 42%, var(--palette-ash));
@@ -1823,4 +1823,3 @@ onUnmounted(() => {
 }
 
 </style>
-

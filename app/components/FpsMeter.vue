@@ -5,11 +5,14 @@
 const visible = ref(true)
 const fps = ref(0)
 const frameMs = ref(0)
+const READOUT_INTERVAL_MS = 250
 
 let raf = 0
 let frames = 0
 let lastSecond = 0
 let lastFrame = 0
+let lastReadout = 0
+let latestFrameMs = 0
 
 onMounted(() => {
   const params = new URLSearchParams(window.location.search)
@@ -20,14 +23,22 @@ onMounted(() => {
 
   lastSecond = performance.now()
   lastFrame = lastSecond
+  lastReadout = lastSecond
 
   const loop = (now: number) => {
     raf = requestAnimationFrame(loop)
     frames += 1
-    frameMs.value = Math.round(now - lastFrame)
+    latestFrameMs = Math.round(now - lastFrame)
     lastFrame = now
-    if (now - lastSecond >= 1000) {
-      fps.value = frames
+
+    if (now - lastReadout >= READOUT_INTERVAL_MS) {
+      frameMs.value = latestFrameMs
+      lastReadout = now
+    }
+
+    const elapsed = now - lastSecond
+    if (elapsed >= 1000) {
+      fps.value = Math.round((frames * 1000) / elapsed)
       frames = 0
       lastSecond = now
     }
@@ -61,7 +72,7 @@ onUnmounted(() => {
   color: var(--palette-milk, #f5f1e8);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.02em;
   line-height: 1.2;
   tabular-nums: true;
@@ -70,7 +81,7 @@ onUnmounted(() => {
 
 .fps-meter__sub {
   margin-left: 4px;
-  font-weight: 500;
+  font-weight: 400;
   opacity: 0.72;
 }
 </style>

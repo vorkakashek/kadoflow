@@ -383,10 +383,9 @@ async function bootScene() {
     antialias: true,
     alpha: true,
     powerPreference: 'high-performance',
-    // Desktop: keep last frame if rAF throttles (other monitor). Mobile: the
-    // extra copy-back is a known Android Chrome 90Hz→60Hz lock, and Page Canvas
-    // no longer snapshots this buffer.
-    preserveDrawingBuffer: !lite,
+    // Page Canvas no longer snapshots this buffer. Keeping it discardable avoids
+    // the copy-back cost; the existing stone cover masks frames during GL wake-up.
+    preserveDrawingBuffer: false,
   })
   gl.setClearColor(0x000000, 0)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
@@ -1698,7 +1697,7 @@ async function bootScene() {
   border-radius: 999px;
   background: rgba(20, 18, 16, 0.88);
   color: #f4efe8;
-  font: 600 0.875rem/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font: 500 0.875rem/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0.01em;
   pointer-events: auto;
   -webkit-tap-highlight-color: transparent;

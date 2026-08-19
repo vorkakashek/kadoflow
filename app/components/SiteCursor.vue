@@ -37,6 +37,9 @@ const hot = ref(false)
 const away = ref(true)
 const textOver = ref(false)
 const chipFade = ref(false)
+let moveRaf = 0
+let pointerX = 0
+let pointerY = 0
 
 function canUse() {
   return window.matchMedia('(hover: hover) and (pointer: fine)').matches
@@ -69,16 +72,27 @@ function probe(x: number, y: number) {
   hot.value = !overText && !overChip && !!node.closest(HOT_SEL)
 }
 
+function flushMove() {
+  moveRaf = 0
+  away.value = false
+  applyPos(pointerX, pointerY)
+  probe(pointerX, pointerY)
+}
+
 function onMove(e: PointerEvent) {
   if (e.pointerType === 'touch') return
-  away.value = false
-  applyPos(e.clientX, e.clientY)
-  probe(e.clientX, e.clientY)
+  pointerX = e.clientX
+  pointerY = e.clientY
+  if (!moveRaf) moveRaf = requestAnimationFrame(flushMove)
 }
 
 function onDocLeave(e: PointerEvent) {
   const next = e.relatedTarget
   if (next instanceof Node && document.documentElement.contains(next)) return
+  if (moveRaf) {
+    cancelAnimationFrame(moveRaf)
+    moveRaf = 0
+  }
   away.value = true
   hot.value = false
   chipFade.value = false
@@ -93,6 +107,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (moveRaf) cancelAnimationFrame(moveRaf)
   window.removeEventListener('pointermove', onMove)
   document.documentElement.removeEventListener('pointerleave', onDocLeave)
   document.documentElement.classList.remove('has-site-cursor', 'has-site-cursor-text')

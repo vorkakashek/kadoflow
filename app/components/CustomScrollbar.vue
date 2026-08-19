@@ -97,14 +97,13 @@ function syncFromScroll() {
   ensureLerp()
 }
 
-function flash() {
-  if (!needed.value && !metrics().maxScroll) return
+function flash(measureFirst = true) {
+  if (measureFirst) metrics()
+  if (!needed.value) return
   if (document.documentElement.classList.contains('preload-lock')) {
     visible.value = false
     return
   }
-  metrics()
-  if (!needed.value) return
   visible.value = true
   window.clearTimeout(hideTimer)
   if (!dragging) {
@@ -116,7 +115,7 @@ function flash() {
 
 function onScroll() {
   syncFromScroll()
-  flash()
+  flash(false)
 }
 
 function scrollToThumbY(y: number) {

@@ -812,7 +812,7 @@ onUnmounted(() => {
   display: flex;
   align-items: stretch;
   font-family: var(--font-sans);
-  font-weight: 700;
+  font-weight: 600;
   font-size: clamp(3.5rem, 11vw, 6.5rem);
   line-height: 1;
   letter-spacing: -0.04em;

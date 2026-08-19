@@ -753,7 +753,6 @@ onMounted(async () => {
   await setupEnterMotion()
   window.addEventListener('resize', syncBgPortal, { passive: true })
   window.addEventListener('resize', refreshMobileCases, { passive: true })
-  window.addEventListener('scroll', syncBgPortal, { passive: true })
 
   if (rootEl.value && typeof ResizeObserver !== 'undefined') {
     bgPortalRo?.disconnect()
@@ -781,7 +780,6 @@ onBeforeUnmount(() => {
   bgPortalRo = null
   window.removeEventListener('resize', syncBgPortal)
   window.removeEventListener('resize', refreshMobileCases)
-  window.removeEventListener('scroll', syncBgPortal)
 })
 </script>
 
@@ -1069,6 +1067,13 @@ onBeforeUnmount(() => {
   opacity: 1;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .cases-rail__btn {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .cases-rail__btn--active:not(.cases-rail__btn--flash) .chip-scale-bg {
