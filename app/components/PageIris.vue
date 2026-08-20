@@ -31,6 +31,7 @@ const {
 } = usePageCanvas()
 const rootEl = ref<HTMLElement | null>(null)
 const live = ref(false)
+const { active: caseDetailTransitionActive } = useCaseDetailTransition()
 
 let originEl: Element | null = null
 let originGeom: IrisGeom | null = null
@@ -75,6 +76,7 @@ function shouldSkip(
   if (to.fullPath === from.fullPath) return true
   if (to.path === from.path) return true
   if (reducedMotion()) return true
+  if (caseDetailTransitionActive.value) return true
   if (surfaceOn.value) return true
   if (document.documentElement.classList.contains('page-canvas-surface')) return true
   if (document.documentElement.classList.contains('preload-lock')) return true

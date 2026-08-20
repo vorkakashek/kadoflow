@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { isMobileChromeHeightOnlyResize, isThumbNav } from '~/utils/mobileViewport'
 import { headerLinks } from '~/utils/siteNav'
+import { homeCases } from '~/utils/homeCases'
 import { setChipBgOrigin } from '~/utils/chipHoverBg'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
 import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
@@ -32,8 +33,47 @@ const fabEl = ref<HTMLElement | null>(null)
 const logoEl = ref<HTMLElement | null>(null)
 const logoImgEl = ref<HTMLImageElement | null>(null)
 const isOverCases = ref(false)
+const mobileHeader = ref(false)
+const mobileLogoCasesProgress = ref(0)
 const caseInverse = useState('home-case-inverse', () => false)
-const logoInverted = computed(() => isOverCases.value && caseInverse.value)
+const { closeCaseDetail, active: caseDetailTransitionActive } = useCaseDetailTransition()
+const detailCase = computed(() => {
+  const match = /^\/projects\/([^/]+)$/.exec(route.path)
+  return match ? homeCases.find((item) => item.id === match[1]) : undefined
+})
+const detailInverse = computed(() => !!detailCase.value?.inverse)
+
+function onCaseDetailBack(event: MouseEvent) {
+  const item = detailCase.value
+  if (!item) return
+  event.preventDefault()
+  closeCaseDetail({ src: item.media.src, alt: item.media.alt, wash: item.wash })
+}
+const detailHeaderStyle = computed(() =>
+  detailCase.value
+      ? {
+        '--case-header-color': detailInverse.value
+          ? 'var(--palette-milk, #f5f1e8)'
+          : 'var(--palette-ink, #0a0a0a)',
+        '--case-header-hover-color': detailInverse.value
+          ? 'var(--palette-ink, #0a0a0a)'
+          : 'var(--palette-milk, #f5f1e8)',
+      }
+    : undefined,
+)
+const fabStyle = computed(() => ({
+  ...(detailHeaderStyle.value ?? {}),
+  bottom: `calc(${fabBottomExtra.value}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
+}))
+const logoInverted = computed(
+  () => detailInverse.value
+    || (!mobileHeader.value && isOverCases.value && caseInverse.value),
+)
+const mobileLogoStyle = computed(() =>
+  mobileHeader.value && route.path === '/'
+    ? { opacity: String(1 - mobileLogoCasesProgress.value) }
+    : undefined,
+)
 const navEl = ref<HTMLElement | null>(null)
 const menuBtnEl = ref<HTMLElement | null>(null)
 const menuSlotEl = ref<HTMLElement | null>(null)
@@ -41,7 +81,10 @@ const menuSlotEl = ref<HTMLElement | null>(null)
 const fabBottomExtra = ref(0)
 const thumbNav = ref(false)
 const introPending = ref(true)
-if (import.meta.client) thumbNav.value = isThumbNav()
+if (import.meta.client) {
+  thumbNav.value = isThumbNav()
+  mobileHeader.value = window.matchMedia('(max-width: 767px)').matches
+}
 
 let lastFabScrollY = 0
 const FAB_LABEL_DIR_PX = 8
@@ -123,8 +166,22 @@ let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let logoCasesSt: { kill: () => void } | null = null
 let logoToneTries = 0
+let logoToneSyncRaf = 0
 let fabFitTl: { kill: () => void } | null = null
 let fabFitResolve: (() => void) | null = null
+
+function syncMobileLogoCasesProgress(cases: HTMLElement, logo: HTMLElement) {
+  if (!mobileHeader.value || route.path !== '/') {
+    mobileLogoCasesProgress.value = 0
+    return
+  }
+  const caseBox = cases.getBoundingClientRect()
+  const logoBox = logo.getBoundingClientRect()
+  const distance = Math.max(1, logoBox.height)
+  const enter = Math.min(1, Math.max(0, (logoBox.bottom - caseBox.top) / distance))
+  const exit = Math.min(1, Math.max(0, (caseBox.bottom - logoBox.top) / distance))
+  mobileLogoCasesProgress.value = Math.min(enter, exit)
+}
 
 async function setupLogoCasesTrigger() {
   logoCasesSt?.kill()
@@ -132,6 +189,7 @@ async function setupLogoCasesTrigger() {
 
   if (route.path !== '/') {
     isOverCases.value = false
+    mobileLogoCasesProgress.value = 0
     logoToneTries = 0
     return
   }
@@ -166,17 +224,23 @@ async function setupLogoCasesTrigger() {
     },
     end: () => {
       const r = logo.getBoundingClientRect()
-      return `bottom ${Math.round(r.top + r.height * 0.5)}px`
+      return `bottom ${Math.round(r.top)}px`
     },
     invalidateOnRefresh: true,
     onToggle: (self) => {
       isOverCases.value = self.isActive
+      syncMobileLogoCasesProgress(cases, logo)
+    },
+    onUpdate: () => {
+      syncMobileLogoCasesProgress(cases, logo)
     },
     onRefresh: (self) => {
       isOverCases.value = self.isActive
+      syncMobileLogoCasesProgress(cases, logo)
     },
   })
   isOverCases.value = logoCasesSt.isActive
+  scheduleLogoCasesToneSync(true)
 }
 
 function refreshLogoCasesTone() {
@@ -186,6 +250,28 @@ function refreshLogoCasesTone() {
   } catch {
     /* The header remains usable if ScrollTrigger is already being torn down. */
   }
+}
+
+/**
+ * Browser scroll restoration can finish after the header and its trigger mount.
+ * Re-read the trigger on the next painted frames so a direct load into Cases
+ * receives the same logo tone as a normal scroll into the section.
+ */
+function scheduleLogoCasesToneSync(refresh = false) {
+  if (logoToneSyncRaf) cancelAnimationFrame(logoToneSyncRaf)
+  logoToneSyncRaf = requestAnimationFrame(() => {
+    logoToneSyncRaf = requestAnimationFrame(() => {
+      logoToneSyncRaf = 0
+      if (refresh) refreshLogoCasesTone()
+      if (!logoCasesSt || !stMod) return
+      stMod.update()
+      isOverCases.value = logoCasesSt.isActive
+    })
+  })
+}
+
+function onPageShow() {
+  scheduleLogoCasesToneSync(true)
 }
 
 async function gsap() {
@@ -542,6 +628,7 @@ function syncFabViewport() {
 
 function syncThumbNav() {
   thumbNav.value = isThumbNav()
+  mobileHeader.value = window.matchMedia('(max-width: 767px)').matches
 }
 
 onMounted(() => {
@@ -562,8 +649,10 @@ onMounted(() => {
     fitDeskChipWord()
     if (thumbNav.value) void fitFabLabel(fabLabelOn.value, true)
     syncMenuFloat()
+    scheduleLogoCasesToneSync(true)
   })
   window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('pageshow', onPageShow)
   window.addEventListener('resize', onResize, { passive: true })
   window.addEventListener('resize', syncThumbNav, { passive: true })
   window.visualViewport?.addEventListener('resize', syncFabViewport)
@@ -668,9 +757,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (collapseTimer) window.clearTimeout(collapseTimer)
+  if (logoToneSyncRaf) cancelAnimationFrame(logoToneSyncRaf)
+  logoToneSyncRaf = 0
   logoCasesSt?.kill()
   logoCasesSt = null
   window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('pageshow', onPageShow)
   window.removeEventListener('resize', onResize)
   window.removeEventListener('resize', syncThumbNav)
   window.visualViewport?.removeEventListener('resize', syncFabViewport)
@@ -688,6 +780,12 @@ onUnmounted(() => {
 <template>
   <header
     class="pointer-events-none fixed inset-x-0 top-0 z-[113] site-header"
+    :class="{
+      'site-header--case': detailCase,
+      'site-header--case-inverse': detailInverse,
+      'site-header--case-transitioning': caseDetailTransitionActive,
+    }"
+    :style="detailHeaderStyle"
     :inert="canvasSurface"
   >
     <!--
@@ -713,6 +811,7 @@ onUnmounted(() => {
           ref="logoEl"
           to="/"
           class="header-logo-link pointer-events-auto col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
+          :class="{ 'header-logo-link--cases-fading': mobileLogoCasesProgress > 0.01 }"
           aria-label="Kadoflow — на главную"
           :tabindex="canvasSurface ? -1 : 0"
           @pointerenter="preloadHomeSceneAssets"
@@ -723,12 +822,35 @@ onUnmounted(() => {
             alt="Kadoflow"
             class="header-logo"
             :class="{ 'header-logo--inverted': logoInverted }"
+            :style="mobileLogoStyle"
             width="206"
             height="40"
             decoding="sync"
             fetchpriority="high"
           >
         </NuxtLink>
+
+        <button
+          v-if="detailCase"
+          type="button"
+          class="case-header-back pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
+          aria-label="Назад на главную"
+          @click="onCaseDetailBack"
+        >
+          <span class="case-header-back__frame" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M27 16H5" />
+              <path d="m12 9-7 7 7 7" />
+            </svg>
+          </span>
+          <span class="case-header-back__label">назад</span>
+          <span class="case-header-back__frame case-header-back__frame--after" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M27 16H5" />
+              <path d="m12 9-7 7 7 7" />
+            </svg>
+          </span>
+        </button>
 
         <nav
           ref="navEl"
@@ -780,7 +902,10 @@ onUnmounted(() => {
         'header-chip--scrolled': headerCollapsed,
         'header-intro-hide': introPending,
         'menu-chip-busy': menuBusy,
+        'menu-btn--case': detailCase,
+        'menu-btn--case-transitioning': caseDetailTransitionActive,
       }"
+      :style="detailHeaderStyle"
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
       :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
@@ -819,11 +944,11 @@ onUnmounted(() => {
       :class="{
         'menu-fab--compact': !fabLabelOn,
         'menu-chip-busy': menuBusy,
+        'menu-fab--case': detailCase,
+        'menu-fab--case-transitioning': caseDetailTransitionActive,
       }"
       :tabindex="0"
-      :style="{
-        bottom: `calc(${fabBottomExtra}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
-      }"
+      :style="fabStyle"
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
       :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
@@ -865,6 +990,68 @@ onUnmounted(() => {
   transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
 }
 
+.site-header--case {
+  color: var(--case-header-color);
+}
+
+/* The logo may remain as a stable anchor, but route-reactive controls stay
+   hidden under the case image instead of repainting during the route swap. */
+.site-header--case-transitioning .header-nav,
+.site-header--case-transitioning .case-header-back,
+.menu-btn--case-transitioning,
+.menu-fab--case-transitioning {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.header-nav,
+.case-header-back,
+.menu-btn--float,
+.menu-fab {
+  transition: opacity 0.28s var(--motion-ease, ease);
+}
+
+.site-header--case .header-nav,
+.site-header--case .nav-link,
+.site-header--case .header-desk-menu,
+.site-header--case .menu-fab {
+  color: var(--case-header-color) !important;
+}
+
+.site-header--case .chip-scale-bg__fill {
+  background-color: var(--case-header-color);
+}
+
+.menu-btn--case .chip-scale-bg__fill,
+.menu-fab--case .chip-scale-bg__fill {
+  background-color: var(--case-header-color);
+}
+
+.menu-btn--case,
+.menu-fab--case {
+  color: var(--case-header-color) !important;
+}
+
+/* Each case supplies an opposite foreground for the chip fill: light text on
+   dark fills (e.g. Baltika), ink text on light fills (dark case details). */
+@media (hover: hover) and (pointer: fine) {
+  .site-header--case .nav-link:hover,
+  .site-header--case .nav-link:focus-visible,
+  .menu-btn--case:hover,
+  .menu-btn--case:focus-visible,
+  .menu-fab--case:hover,
+  .menu-fab--case:focus-visible {
+    color: var(--case-header-hover-color) !important;
+  }
+}
+
+/* The Page Canvas is always sand/light; its close control never inherits the
+   underlying case theme while the menu is open. */
+html.page-canvas-surface .menu-btn--case,
+html.page-canvas-surface .menu-fab--case {
+  color: var(--palette-ink, #171915) !important;
+}
+
 /* Under the menu overlay; above the SPA hop veil so chrome stays put. */
 html.page-canvas-surface .site-header {
   z-index: 100;
@@ -900,17 +1087,96 @@ html.page-canvas-lock .menu-btn--float {
   cursor: pointer;
 }
 
+.header-logo-link--cases-fading {
+  pointer-events: none;
+}
+
 .header-logo {
   display: block;
   width: auto;
   height: var(--layout-header-content);
   /* Beat global `img { max-width: 100% }` so the mark doesn’t shrink in a grid col */
   max-width: none;
+  will-change: opacity;
   transition: filter 0.35s var(--motion-ease, ease);
 }
 
 .header-logo--inverted {
   filter: brightness(0) invert(1);
+}
+
+.case-header-back {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  width: 8.5rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.9rem;
+  overflow: hidden;
+  cursor: pointer;
+  appearance: none;
+  border-radius: 999px;
+  background-color: var(--palette-milk, #f5f1e8);
+  color: var(--palette-ink, #171915);
+  font-size: var(--type-nav);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font: inherit;
+  transition:
+    opacity 0.28s var(--motion-ease, ease),
+    background-color 0.35s var(--motion-ease, ease),
+    color 0.35s var(--motion-ease, ease);
+}
+
+.case-header-back__frame {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  transform: translate3d(0, -50%, 0);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.case-header-back__frame svg {
+  width: 100%;
+  height: 100%;
+}
+
+.case-header-back__label {
+  transform: translateX(1rem);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.case-header-back__frame--after {
+  right: 0.75rem;
+  left: auto;
+  transform: translate3d(calc(100% + 0.9rem), -50%, 0);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .case-header-back:hover,
+  .case-header-back:focus-visible {
+    background-color: color-mix(in srgb, var(--palette-sand) 55%, var(--palette-moss));
+    color: var(--palette-ink, #171915);
+  }
+
+  .case-header-back:hover .case-header-back__frame:not(.case-header-back__frame--after),
+  .case-header-back:focus-visible .case-header-back__frame:not(.case-header-back__frame--after) {
+    transform: translate3d(calc(-100% - 0.9rem), -50%, 0);
+  }
+
+  .case-header-back:hover .case-header-back__label,
+  .case-header-back:focus-visible .case-header-back__label {
+    transform: translateX(-1rem);
+  }
+
+  .case-header-back:hover .case-header-back__frame--after,
+  .case-header-back:focus-visible .case-header-back__frame--after {
+    transform: translate3d(0, -50%, 0);
+  }
 }
 
 @media (max-width: 767px) {

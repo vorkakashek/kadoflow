@@ -26,6 +26,7 @@ onMounted(() => {
     </div>
     <SiteHeader />
     <ClientOnly>
+      <CaseDetailTransition />
       <PageCanvas />
       <PageIris />
       <SiteCursor />

@@ -5,6 +5,8 @@
  * <1200: baked orbit + motion physics (angular velocity sweeps / collide / home).
  */
 import * as THREE from 'three'
+import gsap from 'gsap'
+import MorphSVGPlugin from 'gsap/MorphSVGPlugin'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import {
   isAppleTouchDevice,
@@ -123,6 +125,10 @@ const REBOOT_MS = 320
 const MOTION_INTRO_COOKIE = 'kado_motion_intro'
 const MOTION_INTRO_MAX_AGE = 60 * 60 * 24 * 7
 const DESKTOP_MOTION_EASE_MS = 520
+const DESKTOP_ICON_MORPH_S = 0.38
+const HAPTIC_CONTROL_EXIT_MS = 240
+const DESKTOP_PAUSE_ICON_PATH = 'M200,32H160a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z'
+const DESKTOP_PLAY_ICON_PATH = 'M239.96875,128a15.9,15.9,0,0,1-7.65625,13.65625L88.34375,229.64062A15.9978,15.9978,0,0,1,64,215.99219V40.00781A15.99781,15.99781,0,0,1,88.34375,26.35937L232.3125,114.34375A15.9,15.9,0,0,1,239.96875,128Z'
 
 function lerpStops(x: number, stops: number[], values: number[]) {
   if (x <= stops[0]) return values[0]
@@ -216,7 +222,9 @@ const motionControlActive = computed(
 )
 const motionControlAtRest = ref(true)
 const androidHapticConfirmed = ref(false)
+const androidHapticLeaving = ref(false)
 const desktopSceneEnabled = ref(true)
+const desktopMotionIconPath = ref<SVGPathElement | null>(null)
 const desktopMotionNotice = ref('')
 const desktopMotionNoticeVisible = ref(false)
 const motionIntroText = computed(() =>
@@ -227,6 +235,8 @@ const motionIntroText = computed(() =>
 let gyroUnlockFn: (() => void) | null = null
 let removeMotionControlScroll: (() => void) | null = null
 let desktopMotionNoticeTimer = 0
+let androidHapticExitTimer = 0
+let desktopIconMorph: gsap.core.Tween | null = null
 
 function hasMotionIntroCookie() {
   return document.cookie
@@ -272,11 +282,46 @@ function onMotionControlTap() {
 }
 
 function onHapticControlTap() {
-  if (swarmHapticConfirm()) androidHapticConfirmed.value = true
+  if (androidHapticLeaving.value || !swarmHapticConfirm()) return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    androidHapticConfirmed.value = true
+    return
+  }
+  androidHapticLeaving.value = true
+  window.clearTimeout(androidHapticExitTimer)
+  androidHapticExitTimer = window.setTimeout(() => {
+    androidHapticConfirmed.value = true
+    androidHapticLeaving.value = false
+  }, HAPTIC_CONTROL_EXIT_MS)
+}
+
+function morphDesktopMotionIcon(sceneEnabled: boolean) {
+  const path = desktopMotionIconPath.value
+  if (!path) return
+  const target = sceneEnabled
+    ? DESKTOP_PAUSE_ICON_PATH
+    : DESKTOP_PLAY_ICON_PATH
+  desktopIconMorph?.kill()
+  desktopIconMorph = null
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    path.setAttribute('d', target)
+    return
+  }
+  desktopIconMorph = gsap.to(path, {
+    duration: DESKTOP_ICON_MORPH_S,
+    morphSVG: { shape: target, type: 'rotational' },
+    ease: 'power2.inOut',
+    overwrite: true,
+    onComplete: () => {
+      path.setAttribute('d', target)
+      desktopIconMorph = null
+    },
+  })
 }
 
 function onDesktopMotionControlTap() {
   desktopSceneEnabled.value = !desktopSceneEnabled.value
+  morphDesktopMotionIcon(desktopSceneEnabled.value)
   desktopMotionNotice.value = desktopSceneEnabled.value ? 'вкл' : 'выкл'
   desktopMotionNoticeVisible.value = true
   window.clearTimeout(desktopMotionNoticeTimer)
@@ -411,6 +456,7 @@ function prepDataMap(tex: THREE.Texture, repeat = 2.4) {
 }
 
 onMounted(() => {
+  gsap.registerPlugin(MorphSVGPlugin)
   isIosClient.value = isAppleTouchDevice()
   isAndroidClient.value = /Android/i.test(navigator.userAgent)
   androidHapticConfirmed.value = isAndroidClient.value && swarmHapticIsArmed()
@@ -453,11 +499,14 @@ onMounted(() => {
 
 onUnmounted(() => {
   bootGen += 1
+  desktopIconMorph?.kill()
+  desktopIconMorph = null
   removeWindowResize?.()
   removeWindowResize = null
   removeMotionControlScroll?.()
   removeMotionControlScroll = null
   window.clearTimeout(desktopMotionNoticeTimer)
+  window.clearTimeout(androidHapticExitTimer)
   disposeScene()
 })
 
@@ -1802,75 +1851,26 @@ async function bootScene() {
       aria-hidden="true"
     />
 
+    <Teleport to="#hero-motion-controls">
+      <div
+        class="hero-swarm-controls size-full"
+        :style="motionOverlayStyle"
+      >
     <button
       v-if="isAndroidClient && !motionIntroVisible && !androidHapticConfirmed"
       type="button"
       class="motion-control motion-control--haptic"
-      :class="{ 'motion-control--scroll-hidden': !motionControlAtRest }"
+      :class="{
+        'motion-control--scroll-hidden': !motionControlAtRest,
+        'motion-control--haptic-leaving': androidHapticLeaving,
+      }"
       aria-label="Включить вибрацию"
       @click="onHapticControlTap"
     >
-      <svg
+      <span
         class="motion-control__icon motion-control__icon--haptic"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 256 256"
         aria-hidden="true"
-      >
-        <rect width="256" height="256" fill="none" />
-        <rect
-          x="40"
-          y="80"
-          width="176"
-          height="96"
-          rx="16"
-          transform="translate(256) rotate(90)"
-          fill="none"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="16"
-        />
-        <line
-          x1="208"
-          y1="88"
-          x2="208"
-          y2="168"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="16"
-        />
-        <line
-          x1="240"
-          y1="104"
-          x2="240"
-          y2="152"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="16"
-        />
-        <line
-          x1="48"
-          y1="88"
-          x2="48"
-          y2="168"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="16"
-        />
-        <line
-          x1="16"
-          y1="104"
-          x2="16"
-          y2="152"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="16"
-        />
-      </svg>
+      />
     </button>
 
     <button
@@ -1903,9 +1903,9 @@ async function bootScene() {
           stroke="currentColor"
           stroke-linecap="round"
           stroke-linejoin="round"
-          stroke-width="16"
+          stroke-width="12"
         />
-        <circle cx="128" cy="60" r="12" fill="currentColor" />
+        <circle cx="128" cy="60" r="10" fill="currentColor" />
       </svg>
     </button>
 
@@ -1927,7 +1927,6 @@ async function bootScene() {
         aria-hidden="true"
       >{{ desktopMotionNotice }}</span>
       <svg
-        v-if="desktopSceneEnabled"
         class="motion-control__icon motion-control__icon--desktop"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 256 256"
@@ -1935,21 +1934,9 @@ async function bootScene() {
       >
         <rect width="256" height="256" fill="none" />
         <path
+          ref="desktopMotionIconPath"
           fill="currentColor"
-          d="M200,32H160a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z"
-        />
-      </svg>
-      <svg
-        v-else
-        class="motion-control__icon motion-control__icon--desktop"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 256 256"
-        aria-hidden="true"
-      >
-        <rect width="256" height="256" fill="none" />
-        <path
-          fill="currentColor"
-          d="M239.96875,128a15.9,15.9,0,0,1-7.65625,13.65625L88.34375,229.64062A15.9978,15.9978,0,0,1,64,215.99219V40.00781A15.99781,15.99781,0,0,1,88.34375,26.35937L232.3125,114.34375A15.9,15.9,0,0,1,239.96875,128Z"
+          :d="DESKTOP_PAUSE_ICON_PATH"
         />
       </svg>
     </button>
@@ -1969,11 +1956,17 @@ async function bootScene() {
         <span class="motion-intro__text">{{ motionIntroText }}</span>
       </span>
     </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
 .hero-swarm-root {
+  position: relative;
+}
+
+.hero-swarm-controls {
   position: relative;
 }
 
@@ -2025,12 +2018,20 @@ async function bootScene() {
   pointer-events: auto;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .motion-control--scroll-hidden {
   opacity: 0;
   pointer-events: none;
+}
+
+.motion-control--haptic-leaving {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1.18);
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -2098,7 +2099,7 @@ async function bootScene() {
     padding: 0;
     border-radius: 9999px;
     color: var(--palette-ink);
-    background-color: color-mix(in srgb, var(--palette-sand) 80%, transparent);
+    background-color: color-mix(in srgb, var(--palette-sand) 60%, transparent);
     box-shadow: none;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -2111,8 +2112,8 @@ async function bootScene() {
   }
 
   .motion-control__icon {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
     transform: rotate(0deg) scale(1.04);
   }
 
@@ -2126,8 +2127,11 @@ async function bootScene() {
 
   .motion-control__icon--haptic,
   .motion-control--active .motion-control__icon--haptic {
-    width: 2rem;
-    height: 2rem;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    -webkit-mask: url('/svg/vibrate-custom.svg') center / contain no-repeat;
+    mask: url('/svg/vibrate-custom.svg') center / contain no-repeat;
     transform: none;
   }
 

@@ -83,7 +83,7 @@ export const homeCases: HomeCase[] = [
     blurb: 'История премиального продукта,\nвыстроенная в горизонтальном ритме.',
     focusTags: ['ритм', 'контраст', 'материальность'],
     roleTags: ['арт-дирекция', 'веб-дизайн', 'фронтенд'],
-    wash: '#ffffff',
+    wash: '#fafafa',
     media: {
       src: '/home/cases/schmidt.png',
       alt: 'SCHMIDT — премиальная водка',
@@ -91,6 +91,10 @@ export const homeCases: HomeCase[] = [
     },
   },
 ]
+
+export function homeCaseDetailPath(item: Pick<HomeCase, 'id'>): string {
+  return `/projects/${item.id}`
+}
 
 export function homeCaseBackground(item: HomeCase): string {
   if (item.bgImage) {

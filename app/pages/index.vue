@@ -59,6 +59,11 @@ onMounted(() => {
       <HomeHero ref="hero" />
       <HomeKado ref="kado" />
       <HomeCases ref="cases" />
+      <section
+        class="w-full"
+        style="min-height: var(--app-screen)"
+        aria-hidden="true"
+      />
     </main>
   </div>
 </template>

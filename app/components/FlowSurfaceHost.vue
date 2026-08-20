@@ -70,6 +70,10 @@ const CASE_SCRUB_START = 'top 60%'
 const CASE_SCRUB_END = 'top 18%'
 /** Parked / fill fully opaque once lagged progress passes this. */
 const CASE_PARK_P = 0.85
+/** Once the morph is complete, move the frame into the case figure. */
+const CASE_PIN_P = 0.999
+/** Surface tone → case photo crossfade starts later in the case corridor. */
+const CASE_FILL_FADE_START = 0.25
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
 /** Mobile hero→stone scrub lag (seconds) — soft follow, not 1:1. Keep box+morph on same live P. */
@@ -116,6 +120,8 @@ const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
 )
 /** Bumped by HomeCases after a case switch so we morph the parked box. */
 const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
+/** Emitted before HomeCases replaces its card, so a pinned surface can animate. */
+const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
 
 const BLANK_IMAGE =
   'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
@@ -193,6 +199,10 @@ let stMod: typeof import('gsap/ScrollTrigger') | null = null
 
 /** Mobile corridor state */
 let mobileActive = false
+/** Mobile center-square → case-media scrub progress. */
+let mobileCaseProgress = 0
+/** Frozen real box at the moment the mobile case corridor begins. */
+let mobileCaseFromBox: SurfaceBox | null = null
 let mobileStage: MobileStage = 'scrub'
 let heroPose: SurfaceBox | null = null
 let stonePose: SurfaceBox | null = null
@@ -504,7 +514,7 @@ function paintKadoToCasesSegment(t: number) {
     caseSurfaceDocked.value = docked
   }
   // Soft fade in for photo + desaturation of surface tone
-  const fadeT = Math.min(1, Math.max(0, (t - 0.1) / 0.9))
+  const fadeT = Math.min(1, Math.max(0, (t - CASE_FILL_FADE_START) / (1 - CASE_FILL_FADE_START)))
   showCaseFill.value = t > 0.005
   caseFillOpacity.value = fadeT
 
@@ -519,8 +529,63 @@ function paintKadoToCasesSegment(t: number) {
     paintBox(to, 1)
     return
   }
+  if (t >= CASE_PIN_P) {
+    pinCaseFrame()
+    return
+  }
+  if (caseFramePinned()) unpinFrame()
   // t===1 -> live photo; t===0 -> live stone. Same path both ways, no seam.
   paintBox(lerpBox(from, to, t), 1)
+}
+
+/** Mobile continues from its final center square into the case figure. */
+function paintMobileCaseSegment(t: number) {
+  const media = caseSurfaceMedia.value
+  if (media && !photoSwitchTl) {
+    if (activeFillLayer === 0) {
+      fillFrontSrc.value = media.src
+      fillFrontAlt.value = media.alt
+    } else {
+      fillBackSrc.value = media.src
+      fillBackAlt.value = media.alt
+    }
+    lastSwitchedSrc = media.src
+  }
+
+  const p = Math.min(1, Math.max(0, t))
+  const docked = p >= CASE_PARK_P
+  if (docked !== caseMediaActive) {
+    caseMediaActive = docked
+    caseSurfaceDocked.value = docked
+  }
+  showCaseFill.value = p > 0.005
+  caseFillOpacity.value = Math.min(
+    1,
+    Math.max(0, (p - CASE_FILL_FADE_START) / (1 - CASE_FILL_FADE_START)),
+  )
+
+  if (!mobileCaseFromBox) {
+    mobileCaseFromBox = liveBox
+      ? { ...liveBox }
+      : (centerPose ? { ...centerPose } : kadoLivePose())
+  }
+  const from = mobileCaseFromBox
+  const to = caseMediaPose()
+  if (!from && !to) return
+  if (!to) {
+    paintBox(from!, 1)
+    return
+  }
+  if (!from) {
+    paintBox(to, 1)
+    return
+  }
+  if (p >= CASE_PIN_P) {
+    pinCaseFrame()
+    return
+  }
+  if (caseFramePinned()) unpinFrame()
+  paintBox(lerpBox(from, to, p), 1)
 }
 
 function paintDesktop(s = desktopLiveS) {
@@ -538,7 +603,16 @@ function paintDesktop(s = desktopLiveS) {
 
 /** While parked: morph surface box to the current case media figure (case switch). */
 function morphParkedCaseMedia(animate: boolean) {
-  if (mobileActive || desktopLiveS < (1 + CASE_PARK_P) || !gsapMod || !frame.value) return
+  if (
+    (!mobileActive && desktopLiveS < (1 + CASE_PARK_P))
+    || (mobileActive && mobileCaseProgress < CASE_PARK_P)
+    || !gsapMod
+    || !frame.value
+  ) return
+  if (caseFramePinned()) {
+    syncPinnedMask()
+    return
+  }
   const dest = caseMediaPose()
   if (!dest) return
 
@@ -581,15 +655,20 @@ function morphParkedCaseMedia(animate: boolean) {
 
 /**
  * Sequential photo wipe on case switch:
- * 1. Old photo collapses right-to-left: inset(0 0% 0 0) -> inset(0 100% 0 0)
- * 2. Morph box dimensions (if changed)
- * 3. New photo expands left-to-right: inset(0 100% 0 0) -> inset(0 0% 0 0)
+ * 1. Morph the frame to the next case dimensions while the old photo remains.
+ * 2. Old photo collapses right-to-left: inset(0 0% 0 0) -> inset(0 100% 0 0)
+ * 3. After a short empty beat, the new photo expands left-to-right.
  */
 function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) {
-  if (lastSwitchedSrc === media.src) return
+  if (lastSwitchedSrc === media.src) {
+    // A second nonce is emitted after the case DOM/image has committed.
+    // The source is unchanged, but the figure's intrinsic height may not be.
+    morphParkedCaseMedia(animate)
+    return
+  }
   lastSwitchedSrc = media.src
 
-  const isVisibleInCases = showCaseFill.value || desktopLiveS >= 0.85 || caseMediaActive
+  const isVisibleInCases = showCaseFill.value || desktopLiveS >= 0.85 || mobileCaseProgress > 0.005 || caseMediaActive
 
   if (
     !animate
@@ -653,24 +732,26 @@ function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) 
   })
   photoSwitchTl = tl
 
-  // Step 1: Old photo collapses right-to-left
+  // Step 1: settle the surface geometry before touching either photo.
+  tl.call(() => {
+    morphParkedCaseMedia(true)
+  }, undefined, 0)
+
+  // Step 2: the old image leaves only after the size morph has completed.
   tl.to(curEl, {
     clipPath: 'inset(0 100% 0 0)',
     duration: 0.5,
     ease: 'power2.in',
-  }, 0)
+  }, CASE_MORPH_DURATION)
 
-  // Step 2: At 0.5s (old photo fully gone): morph box to new mockup dimensions
-  tl.call(() => {
-    morphParkedCaseMedia(true)
-  }, undefined, 0.5)
+  tl.set(curEl, { autoAlpha: 0 }, CASE_MORPH_DURATION + 0.52)
 
-  // Step 3: New photo expands left-to-right
+  // Step 3: only after the old layer has gone does the next one appear.
   tl.to(nextEl, {
     clipPath: 'inset(0 0% 0 0)',
     duration: 0.75,
     ease: 'power2.out',
-  }, 0.5)
+  }, CASE_MORPH_DURATION + 0.64)
 }
 
 function scrubProgressAt(scrollY: number) {
@@ -756,6 +837,38 @@ function syncPinnedMask() {
   liveBox = box
   writeMaskBox(box, 1)
   flushFlowSurfacePath(box)
+}
+
+function caseFramePinned() {
+  return !!props.caseMediaEl && pinTo.value === props.caseMediaEl
+}
+
+/** Park the completed surface inside the case figure so it scrolls with content. */
+function pinCaseFrame() {
+  const host = props.caseMediaEl
+  const el = frame.value
+  if (!host || !el) return
+  if (pinTo.value === host) {
+    syncPinnedMask()
+    return
+  }
+
+  unpinFrame()
+  pinHost = host
+  el.style.position = 'absolute'
+  el.style.top = '0px'
+  el.style.left = '0px'
+  el.style.width = '100%'
+  el.style.height = '100%'
+  el.style.right = 'auto'
+  el.style.bottom = 'auto'
+  el.style.transform = ''
+  pinTo.value = host
+
+  pinRo?.disconnect()
+  pinRo = new ResizeObserver(() => syncPinnedMask())
+  pinRo.observe(host)
+  void nextTick(() => syncPinnedMask())
 }
 
 function unpinFrame() {
@@ -1068,7 +1181,9 @@ function resyncAfterLayout() {
   if (mobileActive) {
     suppressStageCallbacks = true
     // Paint only — pin/Teleport here re-enters ST refresh and freezes the tab.
-    if (mobileStage === 'scrub' || !stageChangesAllowed()) {
+    if (mobileCaseProgress > 0.005) {
+      paintMobileCaseSegment(mobileCaseProgress)
+    } else if (mobileStage === 'scrub' || !stageChangesAllowed()) {
       if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintHeroRest()
       else paintScrub(window.scrollY, true)
     } else if (mobileStage === 'center' && centerPose) {
@@ -1108,6 +1223,9 @@ function reconcileFromScroll() {
     stageLockUntil = 0
   }
   lastScrollY = y
+
+  // The case corridor owns the frame after the center-square stage.
+  if (mobileCaseProgress > 0.005) return
 
   const next = stageFromScroll()
   if (next === mobileStage) {
@@ -1186,6 +1304,8 @@ function killMorph() {
   caseTrigger = null
   desktopTargetS = 0
   desktopLiveS = 0
+  mobileCaseProgress = 0
+  mobileCaseFromBox = null
   caseMediaActive = false
   setCaseSurfaceDocked(false)
   for (const t of mobileTriggers) t.kill()
@@ -1279,6 +1399,46 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
     }),
   )
 
+  // 5) Continue the final mobile surface square into the case image.
+  // The case figure is the destination, so it also follows dynamic content height.
+  if (props.caseSectionEl && props.caseMediaEl) {
+    mobileTriggers.push(
+      ScrollTrigger.create({
+        trigger: props.caseSectionEl,
+        start: CASE_SCRUB_START,
+        end: CASE_SCRUB_END,
+        invalidateOnRefresh: true,
+        onEnter: () => {
+          const current = readBox(frame.value) ?? liveBox
+          mobileCaseFromBox = current ? { ...current } : null
+          // A waypoint hop may still be settling when a fast swipe reaches cases.
+          // From here the scroll corridor owns the frame, exactly like desktop.
+          killHopTween()
+          unpinFrame()
+          if (mobileCaseFromBox) paintBox(mobileCaseFromBox, 1)
+        },
+        onUpdate: (self) => {
+          mobileCaseProgress = self.progress
+          if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
+          else if (mobileCaseFromBox && !hopTween) paintBox(mobileCaseFromBox, 1)
+        },
+        onRefresh: (self) => {
+          mobileCaseProgress = self.progress
+          if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
+        },
+        onLeaveBack: () => {
+          showCaseFill.value = false
+          caseFillOpacity.value = 0
+          caseMediaActive = false
+          caseSurfaceDocked.value = false
+          const restore = mobileCaseFromBox
+          mobileCaseFromBox = null
+          if (restore && !hopTween) paintBox(restore, 1)
+        },
+      }),
+    )
+  }
+
   // 1) Scrub hero → stone until stone `top 10%`.
   mobileTriggers.push(
     ScrollTrigger.create({
@@ -1359,8 +1519,9 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
   )
 
   lastScrollY = window.scrollY
-  // Snap scrub paint only — never pin/Teleport while ST is refreshing.
-  paintHeroRest()
+  // Snap the currently active corridor only — never pin/Teleport while ST is refreshing.
+  if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
+  else paintHeroRest()
   mobileStage = 'scrub'
   // Defer refresh so logo→home first frame isn't blocked by ST measure.
   scheduleDeferredRefresh(ScrollTrigger)
@@ -1511,6 +1672,10 @@ function onResize() {
   if (isMobileChromeHeightOnlyResize()) return
   capturePoses()
   if (mobileActive) {
+    if (mobileCaseProgress > 0.005) {
+      paintMobileCaseSegment(mobileCaseProgress)
+      return
+    }
     if (pinTo.value) {
       if (stageChangesAllowed()) syncPinnedMask()
       return
@@ -1525,6 +1690,10 @@ function onResize() {
 }
 
 function onCaseMediaScroll() {
+  if (caseFramePinned()) {
+    syncPinnedMask()
+    return
+  }
   if (mobileActive || hopTween) return
   ensureTick()
 }
@@ -1626,11 +1795,17 @@ watch(caseMediaMorphNonce, () => {
   }
 })
 
+watch(caseMediaPrepareNonce, () => {
+  // A pinned frame follows its host's size synchronously. Freeze it in viewport
+  // coordinates first; the following case switch will tween it to the new host.
+  if (caseFramePinned()) unpinFrame()
+})
+
 watch(
   caseSurfaceMedia,
   (media) => {
     if (!media) return
-    const isVisibleInCases = showCaseFill.value || desktopLiveS >= 0.85 || caseMediaActive
+    const isVisibleInCases = showCaseFill.value || desktopLiveS >= 0.85 || mobileCaseProgress > 0.005 || caseMediaActive
     if (isVisibleInCases) {
       switchCasePhoto(media, true)
     } else {

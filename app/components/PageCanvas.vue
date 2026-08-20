@@ -63,7 +63,10 @@ const NAV_LEAVE_WIPE_DELAY = 0.048
 const NAV_WAVE_AMP = 3.4
 const NAV_WAVE_VB_W = 64
 const LINK_ENTER_S = 0.48
-const LINK_STAGGER = 0.045
+const LINK_INDEX_ENTER_S = 0.34
+const LINK_INDEX_LEAD_S = 0.1
+const LINK_STAGGER = 0.07
+const PLAQUE_ENTER_DELAY_S = 0.18
 
 /** Hovered / focused link — drives the right-hand preview. */
 const hoverId = ref<string | null>(null)
@@ -562,17 +565,35 @@ function plaqueLinks() {
   return rootEl.value?.querySelectorAll('.pc-link-shell') ?? []
 }
 
+function plaqueEnterParts() {
+  const root = rootEl.value
+  const shells = Array.from(plaqueLinks()) as HTMLElement[]
+  const bottomUp = [...shells].reverse()
+  const indices = bottomUp
+    .map(shell => shell.querySelector<HTMLElement>('.pc-link__index'))
+    .filter((el): el is HTMLElement => !!el)
+  const labels = bottomUp
+    .map(shell => shell.querySelector<HTMLElement>('.pc-link__label'))
+    .filter((el): el is HTMLElement => !!el)
+  const chrome = root
+    ? Array.from(root.querySelectorAll<HTMLElement>(
+        '.page-canvas__eyebrow, .page-canvas__mail, .page-canvas__lang',
+      ))
+    : []
+  const preview = root?.querySelector<HTMLElement>('.pc-preview') ?? null
+  const activeBg = root?.querySelector<HTMLElement>(
+    '.pc-link-shell--current .chip-scale-bg',
+  ) ?? null
+  return { shells, bottomUp, indices, labels, chrome, preview, activeBg }
+}
+
 function resetEnterProps() {
   if (!gsapMod) return
-  const links = plaqueLinks()
-  if (links.length) {
-    gsapMod.set(links, { clearProps: 'opacity,visibility,transform' })
-  }
-  const chip = menuChip()
-  if (chip?.track) gsapMod.set(chip.track, { yPercent: 0 })
-  if (chip?.dots) gsapMod.set(chip.dots, { clearProps: 'transform' })
-  const menuW = chip?.sizerMenu?.scrollWidth ?? 0
-  if (chip?.word && menuW) gsapMod.set(chip.word, { width: menuW })
+  const { shells, indices, labels, chrome, preview, activeBg } = plaqueEnterParts()
+  const moving = [...shells, ...indices, ...labels, ...chrome]
+  if (preview) moving.push(preview)
+  if (moving.length) gsapMod.set(moving, { clearProps: 'opacity,visibility,transform' })
+  if (activeBg) gsapMod.set(activeBg, { clearProps: 'opacity,visibility' })
 }
 
 function measureCloseWord(to: 'menu' | 'back') {
@@ -671,32 +692,77 @@ function resetNavVisibility() {
 
 async function playPlaqueEnter() {
   const g = await gsap()
-  const links = plaqueLinks()
+  const { shells, bottomUp, indices, labels, chrome, preview, activeBg }
+    = plaqueEnterParts()
   enterTl?.kill()
-  if (!links.length) return
-  g.set(links, { autoAlpha: 0, y: 18 })
+  if (!shells.length) return
+  g.set(shells, { autoAlpha: 1, y: 0 })
+  g.set([...indices, ...labels], { autoAlpha: 0, yPercent: 120 })
+  if (chrome.length) g.set(chrome, { autoAlpha: 0, y: 14 })
+  if (preview) g.set(preview, { autoAlpha: 0, y: 18, scale: 0.985 })
+  if (activeBg) g.set(activeBg, { autoAlpha: 0 })
   if (reducedMotion.value) {
-    g.set(links, { clearProps: 'opacity,visibility,transform' })
+    resetEnterProps()
     return
   }
   const tl = g.timeline({
+    delay: PLAQUE_ENTER_DELAY_S,
     onComplete: () => {
-      g.set(links, { clearProps: 'opacity,visibility,transform' })
+      resetEnterProps()
       enterTl = null
     },
   })
   enterTl = tl
-  tl.to(
-    links,
-    {
+  let activeBgAt = 0.72
+  bottomUp.forEach((shell, index) => {
+    const at = 0.12 + index * LINK_STAGGER
+    const number = shell.querySelector<HTMLElement>('.pc-link__index')
+    const label = shell.querySelector<HTMLElement>('.pc-link__label')
+    if (number) {
+      tl.to(number, {
+        autoAlpha: 1,
+        yPercent: 0,
+        duration: LINK_INDEX_ENTER_S,
+        ease: 'power3.out',
+      }, at)
+    }
+    if (label) {
+      tl.to(label, {
+        autoAlpha: 1,
+        yPercent: 0,
+        duration: LINK_ENTER_S,
+        ease: 'power3.out',
+      }, at + LINK_INDEX_LEAD_S)
+    }
+    if (shell.classList.contains('pc-link-shell--current')) {
+      activeBgAt = at + LINK_INDEX_LEAD_S + LINK_ENTER_S
+    }
+  })
+  if (chrome.length) {
+    tl.to(chrome, {
       autoAlpha: 1,
       y: 0,
-      duration: LINK_ENTER_S,
-      stagger: LINK_STAGGER,
+      duration: 0.46,
+      stagger: 0.06,
       ease: 'power3.out',
-    },
-    0.16,
-  )
+    }, 0.28)
+  }
+  if (preview) {
+    tl.to(preview, {
+      autoAlpha: 1,
+      y: 0,
+      scale: 1,
+      duration: 0.58,
+      ease: 'power3.out',
+    }, 0.34)
+  }
+  if (activeBg) {
+    tl.to(activeBg, {
+      autoAlpha: 1,
+      duration: 0.36,
+      ease: 'power2.out',
+    }, activeBgAt)
+  }
 }
 
 function mailWavePath(amp: number) {
@@ -1642,6 +1708,7 @@ onUnmounted(() => {
   width: max-content;
   max-width: 100%;
   padding-block: 0.275rem;
+  overflow: hidden;
   cursor: pointer;
 }
 

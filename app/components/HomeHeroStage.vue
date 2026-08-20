@@ -21,10 +21,10 @@ const FADE_OUT_START_MOBILE = 0.28
 const FADE_OUT_END_MOBILE = 0.62
 /**
  * Mobile — 3D opacity corridor (+0.40 vs previous scene/copy window).
- * Was effectively ~30%→62%; now 70%→102%.
+ * Finish 10 percentage points earlier than the current surface morph.
  */
 const SCENE_FADE_START_MOBILE = 0.7
-const SCENE_FADE_END_MOBILE = 1.02
+const SCENE_FADE_END_MOBILE = 0.92
 /**
  * Swarm/media bleed past the stage box (px).
  * Desktop: cover stacked roam+hover outward (~2× dent + bow).
@@ -186,6 +186,8 @@ watch(heroGlPrewarm, () => {
 const copyOpacity = ref(1)
 /** 3D / media opacity — separate corridor on mobile. */
 const sceneOpacity = ref(1)
+/** Mobile text backing toggles as soon as the page leaves hero rest. */
+const titleBlurOpacity = ref(1)
 /** Text parallax Y (px). Negative = up. */
 const copyY = ref(0)
 
@@ -221,6 +223,7 @@ function onCopyParallaxResize() {
   }
   syncSwarmInteractive()
   updateCopyParallax()
+  updateTitleBlurVisibility()
 }
 
 function opacityInRange(m: number, start: number, end: number) {
@@ -271,11 +274,25 @@ function updateCopyParallax() {
   copyY.value = -t * vh * COPY_PARALLAX_VH
 }
 
+/** Not scrubbed: a tiny scroll starts one self-contained fade-out transition. */
+function updateTitleBlurVisibility() {
+  if (typeof window === 'undefined') return
+  if (!mobileLite.value || pageCanvasOpen.value) {
+    titleBlurOpacity.value = 1
+    return
+  }
+  const sectionTop = props.sectionEl
+    ? props.sectionEl.getBoundingClientRect().top + window.scrollY
+    : 0
+  titleBlurOpacity.value = window.scrollY > sectionTop + 2 ? 0 : 1
+}
+
 function onParallaxScroll() {
   if (parallaxRaf) return
   parallaxRaf = requestAnimationFrame(() => {
     parallaxRaf = 0
     updateCopyParallax()
+    updateTitleBlurVisibility()
   })
 }
 
@@ -458,6 +475,7 @@ onMounted(() => {
   // Don't freeze at rest — living edges + hover need an unfrozen silhouette.
   setFrozen(false)
   updateCopyParallax()
+  updateTitleBlurVisibility()
   syncSwarmInteractive()
   window.addEventListener('scroll', onParallaxScroll, { passive: true })
   window.addEventListener('resize', onCopyParallaxResize, { passive: true })
@@ -706,6 +724,7 @@ onUnmounted(() => {
             <div
               ref="titleEl"
               class="hero-title-block flex flex-col order-2 md:order-1"
+              :style="{ '--hero-title-blur-opacity': titleBlurOpacity }"
             >
               <h1 class="hero-title text-ink">
                 <span class="block">Авторская&nbsp;студия</span>
@@ -725,6 +744,18 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- Only motion controls sit above the copy backing; the WebGL canvas stays below it. -->
+      <div
+        id="hero-motion-controls"
+        class="pointer-events-none absolute z-20"
+        :style="{
+          top: `-${sceneBleedY}px`,
+          left: `-${sceneBleedX}px`,
+          width: `calc(100% + ${sceneBleedX * 2}px)`,
+          height: `calc(100% + ${sceneBleedY * 2}px)`,
+        }"
+      />
     </div>
   </div>
 </template>
@@ -759,7 +790,7 @@ onUnmounted(() => {
   /* Mobile: same inset on sides and above the title. */
   padding-inline: var(--layout-margin-content);
   padding-top: var(--layout-margin-content);
-  padding-bottom: calc(2 * var(--space-block));
+  padding-bottom: calc(4 * var(--space-block));
 }
 
 @media (min-width: 768px) {
@@ -779,6 +810,7 @@ onUnmounted(() => {
 }
 
 .hero-title-block {
+  position: relative;
   gap: 16px;
 }
 
@@ -812,10 +844,38 @@ onUnmounted(() => {
 
   .hero-desc {
     font-size: calc(var(--type-slogan) * 0.9);
+    color: color-mix(in srgb, var(--palette-ink) 68%, var(--palette-ash));
   }
 
   .hero-title-block {
     gap: 12px;
+    isolation: isolate;
+    transform: translate3d(0, calc(2 * var(--space-block)), 0);
+  }
+
+  /* Local text legibility layer: opaque at the bottom, fading upward. */
+  .hero-title-block::before {
+    position: absolute;
+    z-index: -1;
+    inset: -40px -24px calc(-2 * var(--space-block));
+    content: '';
+    pointer-events: none;
+    opacity: var(--hero-title-blur-opacity, 1);
+    transition: opacity 0.32s var(--motion-ease, ease);
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--palette-stone) 44%, transparent),
+      transparent 78%
+    );
+    mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
+  }
+
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .hero-title-block::before {
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
   }
 }
 

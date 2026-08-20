@@ -1,4 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
+import { homeCases } from './app/utils/homeCases'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -87,6 +88,9 @@ export default defineNuxtConfig({
 
   nitro: {
     preset: 'static',
+    prerender: {
+      routes: homeCases.map((item) => `/projects/${item.id}`),
+    },
   },
 
   routeRules: {

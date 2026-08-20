@@ -5,33 +5,23 @@
  * Section bg teleports to `#home-cases-bg-host` (page z-1) under Flow Surface (z-5)
  * and under main (z-10). Never teleport to body — body z beats `.pc-live-stack`.
  * Desktop: figure is a pose slot; the case photo fills the Flow Surface.
- * Mobile: photo stays in the figure (no surface hop).
+ * Mobile: the figure remains the layout target; Flow Surface morphs into it.
  */
 import {
   homeCaseBackground,
+  homeCaseDetailPath,
   homeCases,
   type HomeCase,
 } from '~/utils/homeCases'
-import { setChipBgOrigin } from '~/utils/chipHoverBg'
 import {
-  hasFinePointer,
   isAppleTouchDevice,
   isCoarsePointer,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 
-const BLANK_IMAGE =
-  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-
 const rootEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
 const mediaImgFrontEl = ref<HTMLImageElement | null>(null)
-const mediaImgBackEl = ref<HTMLImageElement | null>(null)
-const mobileFrontSrc = ref(homeCases[0]?.media.src ?? BLANK_IMAGE)
-const mobileFrontAlt = ref(homeCases[0]?.media.alt ?? '')
-const mobileBackSrc = ref(BLANK_IMAGE)
-const mobileBackAlt = ref('')
-let mobileActiveLayer = 0
 
 const bgPortalEl = ref<HTMLElement | null>(null)
 const bgObjectEl = ref<HTMLElement | null>(null)
@@ -40,11 +30,13 @@ const bgFrontEl = ref<HTMLElement | null>(null)
 const bgBackEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const railEl = ref<HTMLElement | null>(null)
+const railListEl = ref<HTMLElement | null>(null)
+const blurbEl = ref<HTMLElement | null>(null)
 /** Avoid SSR Teleport into `#home-cases-bg-host` (hydration child mismatch). */
 const mountBgPortal = ref(false)
 const mobileCases = ref(false)
 
-const activeId = ref(homeCases[0]?.id ?? 'audience')
+const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
 const hasSwitched = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
@@ -53,11 +45,19 @@ const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
   () => null,
 )
 const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
+/** Ask FlowSurface to freeze its pinned frame before this card changes size. */
+const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
 const caseInverse = useState('home-case-inverse', () => !!homeCases[0]?.inverse)
+const { openCaseDetail } = useCaseDetailTransition()
 
 const activeCase = computed(
   () => homeCases.find((c) => c.id === activeId.value) ?? homeCases[0],
 )
+const blurbLines = computed(() =>
+  activeCase.value?.blurb.split('\n').filter(Boolean) ?? [],
+)
+/** On mobile keep the authored break only when its first phrase fits intact. */
+const mobileBlurbBreak = ref(true)
 
 const sections = computed(() => {
   const el = rootEl.value
@@ -70,23 +70,76 @@ defineExpose({
   mediaEl,
 })
 
-function onRailBtnPointerEnter(item: HomeCase, e: PointerEvent) {
-  const el = e.currentTarget
-  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
-  // Desktop only (mouse / fine pointer): switch on hover
-  if (e.pointerType === 'mouse' || (hasFinePointer() && !mobileCases.value)) {
-    void selectCase(item)
+function onRailBtnClick(item: HomeCase) {
+  void selectCase(item)
+}
+
+function onCaseDetailLink(item: HomeCase, e: MouseEvent) {
+  const media = mediaEl.value
+  if (!media) return
+  e.preventDefault()
+  const rect = media.getBoundingClientRect()
+  if (rect.width < 2 || rect.height < 2) return
+  openCaseDetail({
+    to: homeCaseDetailPath(item),
+    origin: 'home',
+    src: item.media.src,
+    alt: item.media.alt,
+    wash: item.wash,
+    rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+  })
+}
+
+let caseSwipeStart: { x: number; y: number; pointerId: number } | null = null
+const CASE_SWIPE_MIN_PX = 44
+
+function onCaseStagePointerDown(e: PointerEvent) {
+  if (!mobileCases.value || !e.isPrimary) return
+  if (e.target instanceof Element && e.target.closest('a, button')) return
+  caseSwipeStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
+  if (e.currentTarget instanceof HTMLElement) {
+    e.currentTarget.setPointerCapture(e.pointerId)
   }
 }
 
-function onRailBtnClick(item: HomeCase, e: PointerEvent | MouseEvent) {
-  const el = e.currentTarget
-  if (el instanceof HTMLElement) setChipBgOrigin(el, e)
-  // Touch / mobile only: switch case on tap/click
-  // On desktop with fine pointer / mouse: ignore click (already switched on hover, avoids glitch)
-  if (mobileCases.value || isCoarsePointer() || !hasFinePointer()) {
-    void selectCase(item)
-  }
+function onCaseStagePointerCancel() {
+  caseSwipeStart = null
+}
+
+function onCaseStagePointerUp(e: PointerEvent) {
+  const start = caseSwipeStart
+  caseSwipeStart = null
+  if (!start || start.pointerId !== e.pointerId || !mobileCases.value) return
+
+  const dx = e.clientX - start.x
+  const dy = e.clientY - start.y
+  if (Math.abs(dx) < CASE_SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return
+  selectAdjacentCase(dx < 0 ? 1 : -1)
+}
+
+function scrollActiveCaseLinkIntoView(behavior: ScrollBehavior = 'smooth') {
+  const list = railListEl.value
+  const active = list?.querySelector<HTMLElement>('.cases-rail__btn--active')
+  if (!list || !active) return
+
+  const listBox = list.getBoundingClientRect()
+  const activeBox = active.getBoundingClientRect()
+  const inlinePad = Number.parseFloat(getComputedStyle(list).paddingLeft) || 0
+  const target = Math.max(
+    0,
+    Math.min(
+      list.scrollWidth - list.clientWidth,
+      list.scrollLeft + activeBox.left - listBox.left - inlinePad,
+    ),
+  )
+  list.scrollTo({ left: target, behavior })
+}
+
+function selectAdjacentCase(direction: 1 | -1) {
+  const from = homeCases.findIndex((item) => item.id === targetCaseId)
+  const index = from >= 0 ? from : 0
+  const next = homeCases[(index + direction + homeCases.length) % homeCases.length]
+  if (next) void selectCase(next)
 }
 
 function prefersReduce() {
@@ -102,6 +155,40 @@ function isMobileCases() {
 
 function refreshMobileCases() {
   mobileCases.value = isMobileCases()
+  scheduleMobileBlurbBreak()
+}
+
+function syncMobileBlurbBreak() {
+  const el = blurbEl.value
+  const firstLine = blurbLines.value[0]
+  if (!el || !firstLine || !mobileCases.value || blurbLines.value.length < 2) {
+    mobileBlurbBreak.value = true
+    return
+  }
+
+  const style = getComputedStyle(el)
+  const probe = document.createElement('span')
+  probe.textContent = firstLine
+  probe.style.position = 'fixed'
+  probe.style.visibility = 'hidden'
+  probe.style.pointerEvents = 'none'
+  probe.style.whiteSpace = 'nowrap'
+  probe.style.width = 'auto'
+  probe.style.fontFamily = style.fontFamily
+  probe.style.fontSize = style.fontSize
+  probe.style.fontWeight = style.fontWeight
+  probe.style.fontStyle = style.fontStyle
+  probe.style.letterSpacing = style.letterSpacing
+  probe.style.lineHeight = style.lineHeight
+  probe.style.textTransform = style.textTransform
+  document.body.append(probe)
+  const firstLineWidth = probe.getBoundingClientRect().width
+  probe.remove()
+  mobileBlurbBreak.value = firstLineWidth <= el.clientWidth + 0.5
+}
+
+function scheduleMobileBlurbBreak() {
+  void nextTick(() => requestAnimationFrame(syncMobileBlurbBreak))
 }
 
 function publishSurfaceMedia(item: HomeCase | undefined) {
@@ -124,6 +211,8 @@ watch(
   { immediate: true },
 )
 
+watch([activeCase, mobileCases], scheduleMobileBlurbBreak, { flush: 'post' })
+
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let parallaxCtx: { revert: () => void } | null = null
@@ -131,6 +220,7 @@ let enterCtx: { revert: () => void } | null = null
 let enterTl: { kill: () => void } | null = null
 let switchTl: { kill: () => void } | null = null
 let bgPortalRo: ResizeObserver | null = null
+let blurbRo: ResizeObserver | null = null
 /** Which absolute bg layer is currently visible (0 | 1). */
 let bgFront = 0
 
@@ -183,7 +273,7 @@ function stageCopyParts(): StageCopyParts {
 function railAnimTargets(): HTMLElement[] {
   const rail = railEl.value
   if (!rail) return []
-  return Array.from(rail.querySelectorAll<HTMLElement>('.cases-rail__btn'))
+  return Array.from(rail.querySelectorAll<HTMLElement>('.cases-rail__list > li'))
 }
 
 const COPY_IN = {
@@ -463,7 +553,12 @@ async function setupEnterMotion() {
     if (!rail.length && !parts.all.length) return
 
     if (rail.length) {
-      gsap.set(rail, { opacity: 0, y: 28, clearProps: 'visibility' })
+      gsap.set(
+        rail,
+        mobileCases.value
+          ? { opacity: 0, clearProps: 'visibility,transform' }
+          : { opacity: 0, y: 28, clearProps: 'visibility' },
+      )
     }
     setCopyHidden(gsap, parts)
 
@@ -471,9 +566,18 @@ async function setupEnterMotion() {
     localEnter = tl
     enterTl = tl
     if (rail.length) {
-      tl.to(rail, { opacity: 1, y: 0, duration: 1.1, stagger: 0.14 }, 0)
+      tl.to(
+        rail,
+        mobileCases.value
+          ? { opacity: 1, duration: 1.1, stagger: 0.14 }
+          : { opacity: 1, y: 0, duration: 1.1, stagger: 0.14 },
+        0,
+      )
     }
     tweenCopyIn(tl, parts, rail.length ? 0.18 : 0)
+    if (rail.length) {
+      tl.set(rail, { clearProps: 'opacity,transform' }, '>')
+    }
   }
 
   const resetOut = () => {
@@ -494,7 +598,9 @@ async function setupEnterMotion() {
     if (rail.length) {
       tl.to(
         rail,
-        { opacity: 0, y: 20, duration: 0.55, stagger: 0.05 },
+        mobileCases.value
+          ? { opacity: 0, duration: 0.55, stagger: 0.05 }
+          : { opacity: 0, y: 20, duration: 0.55, stagger: 0.05 },
         0,
       )
     }
@@ -505,7 +611,12 @@ async function setupEnterMotion() {
     const rail = railAnimTargets()
     const parts = stageCopyParts()
     if (rail.length) {
-      gsap.set(rail, { opacity: 0, y: 28, clearProps: 'visibility' })
+      gsap.set(
+        rail,
+        mobileCases.value
+          ? { opacity: 0, clearProps: 'visibility,transform' }
+          : { opacity: 0, y: 28, clearProps: 'visibility' },
+      )
     }
     setCopyHidden(gsap, parts)
 
@@ -550,8 +661,14 @@ function waitTimeline(tl: {
 let switchGen = 0
 let targetCaseId = homeCases[0]?.id ?? 'audience'
 let bgTl: { kill: () => void } | null = null
-let mediaPhotoTl: { kill: () => void } | null = null
 let heightTl: { kill: () => void } | null = null
+
+function onMediaLayoutReady() {
+  if (!caseSurfaceDocked.value) return
+  requestAnimationFrame(() => {
+    caseMediaMorphNonce.value += 1
+  })
+}
 
 function tweenSectionHeight(
   gsap: typeof import('gsap').default,
@@ -587,9 +704,19 @@ function transitionBackground(next: HomeCase, gsap: typeof import('gsap').defaul
     return
   }
 
+  // A rapid hover can interrupt the previous crossfade before `bgFront` is
+  // committed. Resolve the actually visible layer first; otherwise we can
+  // zero the brighter layer and expose the sand page for one frame.
   bgTl?.kill()
-  const front = bgFront === 0 ? a : b
-  const back = bgFront === 0 ? b : a
+  bgTl = null
+  const opacityA = Number.parseFloat(getComputedStyle(a).opacity) || 0
+  const opacityB = Number.parseFloat(getComputedStyle(b).opacity) || 0
+  const front = opacityA >= opacityB ? a : b
+  const back = front === a ? b : a
+  bgFront = front === a ? 0 : 1
+
+  // Keep a fully opaque plate under the new incoming layer at all times.
+  gsap.set(front, { autoAlpha: 1 })
 
   // Paint the incoming layer with the new case's background
   paintBgLayer(back, next)
@@ -604,7 +731,8 @@ function transitionBackground(next: HomeCase, gsap: typeof import('gsap').defaul
   const tl = gsap.timeline({
     defaults: { duration: 0.65 },
     onComplete: () => {
-      bgFront = bgFront === 0 ? 1 : 0
+      bgFront = back === a ? 0 : 1
+      gsap.set(back, { autoAlpha: 1, clearProps: 'transform' })
       gsap.set(front, { autoAlpha: 0, clearProps: 'transform' })
       bgTl = null
     },
@@ -648,6 +776,8 @@ async function selectCase(item: HomeCase) {
     paintBgLayer(bgFront === 0 ? bgFrontEl.value : bgBackEl.value, item)
     publishSurfaceMedia(item)
     if (caseSurfaceDocked.value) caseMediaMorphNonce.value += 1
+    await nextTick()
+    scrollActiveCaseLinkIntoView('auto')
     return
   }
 
@@ -658,45 +788,13 @@ async function selectCase(item: HomeCase) {
   enterTl = null
   switchTl?.kill()
   switchTl = null
-  mediaPhotoTl?.kill()
-  mediaPhotoTl = null
   heightTl?.kill()
   heightTl = null
 
   // 1. Background transition starts immediately upon click
   transitionBackground(item, gsap)
 
-  // 2. Desktop FlowSurface photo wipe starts immediately with 0 delay
-  publishSurfaceMedia(item)
-  caseMediaMorphNonce.value += 1
-
-  // 3. Mobile photo wipe transition (if on mobile) starts immediately
-  if (mobileCases.value) {
-    const curEl = mobileActiveLayer === 0 ? mediaImgFrontEl.value : mediaImgBackEl.value
-    const nextEl = mobileActiveLayer === 0 ? mediaImgBackEl.value : mediaImgFrontEl.value
-    if (mobileActiveLayer === 0) {
-      mobileBackSrc.value = item.media.src
-      mobileBackAlt.value = item.media.alt
-    } else {
-      mobileFrontSrc.value = item.media.src
-      mobileFrontAlt.value = item.media.alt
-    }
-    if (curEl && nextEl) {
-      gsap.set(nextEl, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 1 })
-      const pTl = gsap.timeline({
-        onComplete: () => {
-          mobileActiveLayer = mobileActiveLayer === 0 ? 1 : 0
-          gsap.set(curEl, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
-          mediaPhotoTl = null
-        },
-      })
-      mediaPhotoTl = pTl
-      pTl.to(curEl, { clipPath: 'inset(0 100% 0 0)', duration: 0.5, ease: 'power2.in' }, 0)
-      pTl.to(nextEl, { clipPath: 'inset(0 0% 0 0)', duration: 0.75, ease: 'power2.out' }, 0.5)
-    }
-  }
-
-  // 4. Animate old copy out quickly
+  // 2. Animate old copy out before the next figure changes its dimensions.
   const parts = stageCopyParts()
   const out = gsap.timeline({ defaults: { ease: 'power2.in' } })
   switchTl = out
@@ -704,13 +802,24 @@ async function selectCase(item: HomeCase) {
   await waitTimeline(out)
   if (gen !== switchGen) return
 
-  // 5. Update case ID & DOM
+  // 3. Freeze the parked surface in its current box before the DOM card changes
+  // dimensions. FlowSurface then has a real from→to geometry to interpolate.
+  caseMediaPrepareNonce.value += 1
+  await nextTick()
+  if (gen !== switchGen) return
+
+  // 4. Update case ID & DOM
   const root = rootEl.value
   const fromH = root?.offsetHeight ?? 0
   if (root && fromH) gsap.set(root, { height: fromH })
   activeId.value = item.id
   await nextTick()
   if (gen !== switchGen) return
+  // The figure now has its next dimensions. Only now start the photo handoff,
+  // so the surface can resize before the outgoing image is wiped.
+  publishSurfaceMedia(item)
+  caseMediaMorphNonce.value += 1
+  scrollActiveCaseLinkIntoView()
   if (root && fromH) {
     root.style.height = 'auto'
     const toH = root.offsetHeight
@@ -719,7 +828,7 @@ async function selectCase(item: HomeCase) {
   }
   syncBgPortal()
 
-  // 6. Animate new copy in
+  // 5. Animate new copy in
   const nextParts = stageCopyParts()
   setCopyHidden(gsap, nextParts)
   const inn = gsap.timeline({ defaults: { ease: 'power3.out' } })
@@ -742,8 +851,6 @@ onMounted(async () => {
   if (first) {
     paintBgLayer(bgFrontEl.value, first)
     publishSurfaceMedia(first)
-    mobileFrontSrc.value = first.media.src
-    mobileFrontAlt.value = first.media.alt
     if (bgBackEl.value) {
       const gsap = await ensureGsap()
       gsap.set(bgBackEl.value, { autoAlpha: 0 })
@@ -751,6 +858,7 @@ onMounted(async () => {
   }
   await setupParallax()
   await setupEnterMotion()
+  scrollActiveCaseLinkIntoView('auto')
   window.addEventListener('resize', syncBgPortal, { passive: true })
   window.addEventListener('resize', refreshMobileCases, { passive: true })
 
@@ -759,6 +867,12 @@ onMounted(async () => {
     bgPortalRo = new ResizeObserver(() => syncBgPortal())
     bgPortalRo.observe(rootEl.value)
   }
+  if (blurbEl.value && typeof ResizeObserver !== 'undefined') {
+    blurbRo?.disconnect()
+    blurbRo = new ResizeObserver(() => scheduleMobileBlurbBreak())
+    blurbRo.observe(blurbEl.value)
+  }
+  void document.fonts?.ready.then(() => syncMobileBlurbBreak())
 })
 
 onBeforeUnmount(() => {
@@ -766,8 +880,6 @@ onBeforeUnmount(() => {
   switchTl = null
   bgTl?.kill()
   bgTl = null
-  mediaPhotoTl?.kill()
-  mediaPhotoTl = null
   heightTl?.kill()
   heightTl = null
   enterTl?.kill()
@@ -778,6 +890,8 @@ onBeforeUnmount(() => {
   enterCtx = null
   bgPortalRo?.disconnect()
   bgPortalRo = null
+  blurbRo?.disconnect()
+  blurbRo = null
   window.removeEventListener('resize', syncBgPortal)
   window.removeEventListener('resize', refreshMobileCases)
 })
@@ -788,7 +902,10 @@ onBeforeUnmount(() => {
     id="cases"
     ref="rootEl"
     class="home-cases pointer-events-auto relative z-10 w-full"
-    :class="{ 'home-cases--inverse': activeCase?.inverse }"
+    :class="{
+      'home-cases--inverse': activeCase?.inverse,
+      'home-cases--mobile': mobileCases,
+    }"
     :data-case-id="activeCase?.id"
     :aria-label="`Кейс: ${activeCase?.title ?? ''}`"
   >
@@ -828,7 +945,7 @@ onBeforeUnmount(() => {
         class="cases-rail col-span-12 md:col-span-2"
         aria-label="Кейсы"
       >
-        <ul class="cases-rail__list">
+        <ul ref="railListEl" class="cases-rail__list">
           <li
             v-for="item in homeCases"
             :key="item.id"
@@ -842,8 +959,7 @@ onBeforeUnmount(() => {
               }"
               :aria-pressed="item.id === activeId"
               :aria-busy="switching"
-              @pointerenter="onRailBtnPointerEnter(item, $event)"
-              @click="onRailBtnClick(item, $event)"
+              @click="onRailBtnClick(item)"
             >
               <span class="chip-scale-bg" aria-hidden="true">
                 <span class="chip-scale-bg__fill" />
@@ -858,41 +974,62 @@ onBeforeUnmount(() => {
         v-if="activeCase"
         ref="stageEl"
         class="cases-stage col-span-12 md:col-span-9 md:col-start-4"
+        @pointerdown="onCaseStagePointerDown"
+        @pointerup="onCaseStagePointerUp"
+        @pointercancel="onCaseStagePointerCancel"
       >
         <div class="cases-stage__visual">
           <h2 class="cases-title">
-            {{ activeCase.title }}
+            <a
+              class="cases-title__link"
+              :href="homeCaseDetailPath(activeCase)"
+              :aria-label="`Открыть кейс ${activeCase.title}`"
+              @click="onCaseDetailLink(activeCase, $event)"
+            >
+              <span class="cases-title__icon-frame" aria-hidden="true">
+                <svg
+                  class="cases-title__icon"
+                  viewBox="0 0 32 32"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M5 5v10a6 6 0 0 0 6 6h16" />
+                  <path d="m21 15 6 6-6 6" />
+                </svg>
+              </span>
+              <span>{{ activeCase.title }}</span>
+            </a>
           </h2>
           <figure
             ref="mediaEl"
             class="cases-media"
+            :data-case-media="activeCase.media.src"
             :class="`cases-media--${activeCase.media.orientation ?? 'portrait'}`"
             :style="
-              activeCase.media.cols
+              activeCase.media.cols && !mobileCases
                 ? { width: `var(--layout-span-${activeCase.media.cols})`, maxWidth: '100%' }
                 : undefined
             "
           >
             <img
               ref="mediaImgFrontEl"
-              :src="mobileCases ? mobileFrontSrc : activeCase.media.src"
-              :alt="mobileCases ? mobileFrontAlt : ''"
-              class="cases-media__img"
-              :class="{ 'cases-media__img--ghost': !mobileCases }"
-              :aria-hidden="(!mobileCases).toString()"
+              :src="activeCase.media.src"
+              alt=""
+              class="cases-media__img cases-media__img--ghost"
+              aria-hidden="true"
               loading="eager"
               decoding="async"
+              @load="onMediaLayoutReady"
             >
-            <img
-              ref="mediaImgBackEl"
-              :src="mobileBackSrc"
-              :alt="mobileCases ? mobileBackAlt : ''"
-              class="cases-media__img cases-media__img--back"
-              :class="{ 'cases-media__img--ghost': !mobileCases }"
-              :aria-hidden="(!mobileCases).toString()"
-              loading="eager"
-              decoding="async"
-            >
+            <a
+              class="cases-media__link"
+              :href="homeCaseDetailPath(activeCase)"
+              :aria-label="`Открыть кейс ${activeCase.title}`"
+              @click="onCaseDetailLink(activeCase, $event)"
+            ></a>
           </figure>
         </div>
 
@@ -913,9 +1050,13 @@ onBeforeUnmount(() => {
                 </template>
               </p>
             </div>
-            <p class="cases-blurb">
+            <p
+              ref="blurbEl"
+              class="cases-blurb"
+              :class="{ 'cases-blurb--natural': mobileCases && !mobileBlurbBreak }"
+            >
               <span
-                v-for="(line, i) in activeCase.blurb.split('\n').filter(Boolean)"
+                v-for="(line, i) in blurbLines"
                 :key="i"
                 class="cases-blurb__line"
               >{{ line }}</span>
@@ -962,6 +1103,12 @@ onBeforeUnmount(() => {
   overflow-anchor: none;
 }
 
+.home-cases--mobile {
+  /* Mobile cases grow with their copy and full-width media, not the viewport. */
+  --cases-stage-h: auto;
+  min-height: var(--app-screen);
+}
+
 .home-cases--inverse {
   color: var(--palette-milk, #f5f1e8);
 }
@@ -984,12 +1131,20 @@ onBeforeUnmount(() => {
 .cases-rail__list {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.65rem;
   margin: 0;
   padding: 0;
   list-style: none;
   width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cases-rail__list::-webkit-scrollbar {
+  display: none;
 }
 
 @media (min-width: 768px) {
@@ -1027,7 +1182,7 @@ onBeforeUnmount(() => {
   letter-spacing: -0.02em;
   line-height: 1.2;
   cursor: pointer;
-  opacity: 0.65;
+  opacity: 0.5;
   isolation: isolate;
   overflow: hidden;
   backdrop-filter: blur(10px);
@@ -1042,7 +1197,7 @@ onBeforeUnmount(() => {
 
 .cases-rail__btn .chip-scale-bg {
   transform: scale(0);
-  transform-origin: var(--chip-bg-x, 50%) var(--chip-bg-y, 50%);
+  transform-origin: 50% 50%;
   transition: none;
 }
 
@@ -1051,7 +1206,7 @@ onBeforeUnmount(() => {
 }
 
 .cases-rail__btn:hover:not(.cases-rail__btn--active) {
-  opacity: 0.85;
+  opacity: 1;
 }
 
 .cases-rail__label {
@@ -1069,29 +1224,22 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: none;
 }
 
-@media (hover: none), (pointer: coarse) {
-  .cases-rail__btn {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
-
 .cases-rail__btn--active:not(.cases-rail__btn--flash) .chip-scale-bg {
   display: none;
 }
 
 .cases-rail__btn--flash .chip-scale-bg {
-  animation: case-rail-scale-fade 0.58s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: case-rail-scale-fade 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .cases-rail__btn--flash .cases-rail__label {
-  animation: case-rail-label-contrast 0.58s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: case-rail-label-contrast 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes case-rail-scale-fade {
   0% {
     transform: scale(0);
-    opacity: 1;
+    opacity: 0;
   }
   42% {
     transform: scale(1);
@@ -1123,15 +1271,60 @@ onBeforeUnmount(() => {
 }
 
 .cases-stage {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 2rem;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   align-items: stretch;
 }
 
+@media (max-width: 767.98px) {
+  .cases-stage {
+    touch-action: pan-y;
+  }
+
+  .cases-rail {
+    position: sticky;
+    top: var(--layout-header-inset);
+    z-index: 2;
+    align-self: start;
+    width: calc(100% + var(--layout-margin-content) + var(--layout-margin-content));
+    margin-left: calc(-1 * var(--layout-margin-content));
+    margin-right: calc(-1 * var(--layout-margin-content));
+    margin-bottom: clamp(2.75rem, 12vw, 4.5rem);
+  }
+
+  .cases-rail__list {
+    gap: 0.325rem;
+    padding-inline: var(--layout-margin-content);
+    scroll-padding-inline: var(--layout-margin-content);
+  }
+
+  /* One mobile reading order: media → title → description → mood → role. */
+  .cases-media {
+    order: 1;
+  }
+
+  .cases-title {
+    order: 2;
+  }
+
+  .cases-blurb {
+    order: 3;
+  }
+
+  .cases-tags-motion--focus {
+    order: 4;
+  }
+
+  .cases-tags-motion--role {
+    order: 5;
+  }
+
+}
+
 @media (min-width: 768px) {
   .cases-stage {
+    display: grid;
     grid-template-columns: repeat(9, minmax(0, 1fr));
     column-gap: var(--layout-gutter);
     row-gap: 0;
@@ -1164,6 +1357,55 @@ onBeforeUnmount(() => {
   line-height: 1.05;
 }
 
+.cases-title__link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.14em;
+}
+
+.cases-title__link > span:last-child {
+  min-width: 0;
+}
+
+.cases-title__icon-frame {
+  display: flex;
+  flex: 0 0 auto;
+  width: 0;
+  margin-right: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    width 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-right 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.2s ease;
+}
+
+.cases-title__icon {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  transform: translateX(-100%);
+  transition: transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cases-title__link:hover .cases-title__icon-frame,
+  .cases-title__link:focus-visible .cases-title__icon-frame {
+    width: 32px;
+    margin-right: 0.35em;
+    opacity: 1;
+  }
+
+  .cases-title__link:hover .cases-title__icon,
+  .cases-title__link:focus-visible .cases-title__icon {
+    transform: translateX(0);
+  }
+}
+
 .cases-media {
   position: relative;
   margin: 0;
@@ -1171,6 +1413,12 @@ onBeforeUnmount(() => {
   /* Desktop: empty pose slot — surface (z-5) shows through; photo lives inside it. */
   isolation: isolate;
   overflow: hidden;
+}
+
+.cases-media__link {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
 }
 
 .cases-media__img {
@@ -1189,7 +1437,8 @@ onBeforeUnmount(() => {
 }
 
 .cases-media__img--ghost {
-  opacity: 0;
+  opacity: 0 !important;
+  clip-path: inset(0 0 0 0) !important;
   pointer-events: none;
   user-select: none;
 }
@@ -1264,6 +1513,51 @@ onBeforeUnmount(() => {
 
 .cases-blurb__line {
   display: block;
+}
+
+.cases-blurb--natural {
+  display: block;
+}
+
+.cases-blurb--natural .cases-blurb__line {
+  display: inline;
+}
+
+.cases-blurb--natural .cases-blurb__line + .cases-blurb__line::before {
+  content: ' ';
+}
+
+@media (max-width: 767.98px) {
+  .cases-rail__list > li,
+  .cases-rail__btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .cases-aside,
+  .cases-aside__top {
+    gap: 0;
+  }
+
+  .cases-media {
+    margin-bottom: clamp(1.5rem, 7vw, 2.5rem);
+  }
+
+  .cases-title {
+    margin-bottom: 1rem;
+  }
+
+  .cases-blurb {
+    margin-bottom: clamp(2.25rem, 9vw, 3.5rem);
+  }
+
+  .cases-tags-motion--focus {
+    margin-bottom: 0.75rem;
+  }
+
+  .cases-tags {
+    gap: 0.15rem 0.35rem;
+  }
 }
 </style>
 

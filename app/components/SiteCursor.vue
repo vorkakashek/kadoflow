@@ -141,25 +141,36 @@ onUnmounted(() => {
   height: 8px;
   pointer-events: none;
   mix-blend-mode: difference;
-  will-change: transform, opacity;
+  will-change: transform, opacity, width, height;
   opacity: 1;
-  transition: opacity 0.28s var(--motion-ease, ease);
+  transition:
+    width 0.24s var(--motion-ease, ease),
+    height 0.24s var(--motion-ease, ease),
+    opacity 0.28s var(--motion-ease, ease);
 }
 
 .site-cursor__dot {
+  box-sizing: border-box;
   display: block;
   width: 100%;
   height: 100%;
   border-radius: 50%;
   background: #fff;
-  transform: scale(1);
-  transform-origin: 50% 50%;
-  will-change: transform;
-  transition: transform 0.2s var(--motion-ease, ease);
+  border: 0 solid #fff;
+  will-change: background-color, border-width;
+  transition:
+    background-color 0.24s var(--motion-ease, ease),
+    border-width 0.24s var(--motion-ease, ease);
+}
+
+.site-cursor--hot {
+  width: 16px;
+  height: 16px;
 }
 
 .site-cursor--hot .site-cursor__dot {
-  transform: scale(1.55);
+  border-width: 2px;
+  background-color: transparent;
 }
 
 .site-cursor--hide {
