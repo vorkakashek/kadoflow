@@ -7,6 +7,13 @@ const item = computed(() =>
 )
 const { detailContentVisible } = useCaseDetailTransition()
 
+onMounted(() => {
+  // Direct entries have not visited the home route yet. Warm its component
+  // while the user reads the case so the return transition can mount it under
+  // the fullscreen cover without a route-chunk pause.
+  void preloadRouteComponents('/')
+})
+
 if (!item.value) {
   throw createError({ statusCode: 404, statusMessage: 'Кейс не найден' })
 }
@@ -34,7 +41,14 @@ useHead(() => ({
       <section class="case-detail__content">
         <p class="case-detail__eyebrow">Фокус внимания</p>
         <p class="case-detail__tags">{{ item.focusTags.join(' · ') }}</p>
-        <img :src="item.media.src" :alt="item.media.alt" class="case-detail__image">
+        <img
+          :src="item.media.src"
+          :alt="item.media.alt"
+          class="case-detail__image"
+          loading="eager"
+          fetchpriority="high"
+          decoding="async"
+        >
         <p class="case-detail__blurb">{{ item.blurb.replace('\n', ' ') }}</p>
       </section>
     </div>

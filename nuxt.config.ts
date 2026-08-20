@@ -8,7 +8,7 @@ export default defineNuxtConfig({
 
   modules: ['@nuxt/fonts'],
 
-  css: ['~/assets/css/main.css'],
+  css: ['~/assets/css/main.css', 'lenis/dist/lenis.css'],
 
   // Bind on all interfaces so phone can open the LAN IP.
   // Device motion on iOS: use a public HTTPS tunnel (see preview:tunnel), not LAN HTTP.
@@ -36,6 +36,7 @@ export default defineNuxtConfig({
       include: [
         'gsap',
         'gsap/ScrollTrigger',
+        'lenis',
         'three',
         'three/examples/jsm/loaders/HDRLoader.js',
       ],

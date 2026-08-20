@@ -68,6 +68,16 @@ const CASE_MORPH_EASE = 'power2.inOut'
  */
 const CASE_SCRUB_START = 'top 60%'
 const CASE_SCRUB_END = 'top 18%'
+/** Scroll-follow softness for the final Kado/center → case-media approach. */
+const CASE_SCRUB_LAG = 0.13
+/**
+ * Global scroll-driven surface morph limit, in normalized morph segments/sec.
+ * The route stays continuous through waypoints; only its velocity is clamped.
+ */
+const SURFACE_MORPH_MAX_VELOCITY = 1.55
+const SURFACE_MORPH_EPSILON = 0.0008
+/** Hand off just before the mobile case segment asymptotically settles at Kado. */
+const MOBILE_CASE_REVERSE_HANDOFF_P = 0.12
 /** Parked / fill fully opaque once lagged progress passes this. */
 const CASE_PARK_P = 0.85
 /** Once the morph is complete, move the frame into the case figure. */
@@ -114,7 +124,14 @@ const props = withDefaults(
 
 /** Shared with HomeCases — surface owns the case photo once docked. */
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
-const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
+type CaseSurfaceMedia = {
+  src: string
+  alt: string
+  wash: string
+  video?: { webm: string; mp4: string; poster: string }
+}
+
+const caseSurfaceMedia = useState<CaseSurfaceMedia | null>(
   'home-case-surface-media',
   () => null,
 )
@@ -128,12 +145,29 @@ const BLANK_IMAGE =
 
 /** Template: hide hero stage / show case fill. */
 const showCaseFill = ref(false)
-const fillFrontEl = ref<HTMLImageElement | null>(null)
-const fillBackEl = ref<HTMLImageElement | null>(null)
+const fillFrontEl = ref<HTMLElement | null>(null)
+const fillBackEl = ref<HTMLElement | null>(null)
 const fillFrontSrc = ref(BLANK_IMAGE)
 const fillFrontAlt = ref('')
 const fillBackSrc = ref(BLANK_IMAGE)
 const fillBackAlt = ref('')
+/** Keep media metadata with each layer during a case-to-case wipe. */
+const fillFrontMedia = ref<CaseSurfaceMedia | null>(null)
+const fillBackMedia = ref<CaseSurfaceMedia | null>(null)
+const fillFrontVideo = computed(() => fillFrontMedia.value?.video)
+const fillBackVideo = computed(() => fillBackMedia.value?.video)
+
+function setFillLayer(layer: 0 | 1, media: CaseSurfaceMedia) {
+  if (layer === 0) {
+    fillFrontSrc.value = media.src
+    fillFrontAlt.value = media.alt
+    fillFrontMedia.value = media
+  } else {
+    fillBackSrc.value = media.src
+    fillBackAlt.value = media.alt
+    fillBackMedia.value = media
+  }
+}
 let activeFillLayer = 0
 let photoSwitchTl: { kill: () => void } | null = null
 let lastSwitchedSrc = ''
@@ -150,13 +184,7 @@ function setCaseSurfaceDocked(on: boolean) {
   if (on) {
     const media = caseSurfaceMedia.value
     if (media) {
-      if (activeFillLayer === 0) {
-        fillFrontSrc.value = media.src
-        fillFrontAlt.value = media.alt
-      } else {
-        fillBackSrc.value = media.src
-        fillBackAlt.value = media.alt
-      }
+      setFillLayer(activeFillLayer, media)
       lastSwitchedSrc = media.src
     }
     caseFillOpacity.value = 1
@@ -201,8 +229,15 @@ let stMod: typeof import('gsap/ScrollTrigger') | null = null
 let mobileActive = false
 /** Mobile center-square → case-media scrub progress. */
 let mobileCaseProgress = 0
+let mobileCaseTargetProgress = 0
 /** Frozen real box at the moment the mobile case corridor begins. */
 let mobileCaseFromBox: SurfaceBox | null = null
+/** Smooth bridge from a skipped mobile waypoint back into the Hero scrub. */
+let mobileScrubBridge: {
+  from: SurfaceBox
+  fromMorph: number
+  progress: number
+} | null = null
 let mobileStage: MobileStage = 'scrub'
 let heroPose: SurfaceBox | null = null
 let stonePose: SurfaceBox | null = null
@@ -498,13 +533,7 @@ function paintHeroToKadoSegment(t: number) {
 function paintKadoToCasesSegment(t: number) {
   const media = caseSurfaceMedia.value
   if (media && !photoSwitchTl) {
-    if (activeFillLayer === 0) {
-      fillFrontSrc.value = media.src
-      fillFrontAlt.value = media.alt
-    } else {
-      fillBackSrc.value = media.src
-      fillBackAlt.value = media.alt
-    }
+    setFillLayer(activeFillLayer, media)
     lastSwitchedSrc = media.src
   }
 
@@ -542,13 +571,7 @@ function paintKadoToCasesSegment(t: number) {
 function paintMobileCaseSegment(t: number) {
   const media = caseSurfaceMedia.value
   if (media && !photoSwitchTl) {
-    if (activeFillLayer === 0) {
-      fillFrontSrc.value = media.src
-      fillFrontAlt.value = media.alt
-    } else {
-      fillBackSrc.value = media.src
-      fillBackAlt.value = media.alt
-    }
+    setFillLayer(activeFillLayer, media)
     lastSwitchedSrc = media.src
   }
 
@@ -584,7 +607,11 @@ function paintMobileCaseSegment(t: number) {
     pinCaseFrame()
     return
   }
-  if (caseFramePinned()) unpinFrame()
+  // Fast reverse scrolling can fire the skipped term/word threshold callbacks
+  // while this corridor still owns the visual. Release any pin, not only the
+  // case-media pin, otherwise paintBox() is blocked and the surface freezes at
+  // that stale waypoint until the corridor ends.
+  if (pinTo.value) unpinFrame()
   paintBox(lerpBox(from, to, p), 1)
 }
 
@@ -622,6 +649,7 @@ function morphParkedCaseMedia(animate: boolean) {
     || window.matchMedia('(prefers-reduced-motion: reduce)').matches
   ) {
     paintBox(dest, 1)
+    if (caseFrameShouldBePinned()) pinCaseFrame()
     return
   }
 
@@ -649,6 +677,10 @@ function morphParkedCaseMedia(animate: boolean) {
       hopProgress = 0
       paintBox((caseMediaPose() ?? fallbackDest), 1)
       caseMediaActive = true
+      // A case switch temporarily releases the Teleport so the frame can
+      // interpolate between two card geometries. Reattach it immediately once
+      // the morph has finished instead of waiting for another scroll update.
+      if (caseFrameShouldBePinned()) pinCaseFrame()
     },
   })
 }
@@ -659,7 +691,7 @@ function morphParkedCaseMedia(animate: boolean) {
  * 2. Old photo collapses right-to-left: inset(0 0% 0 0) -> inset(0 100% 0 0)
  * 3. After a short empty beat, the new photo expands left-to-right.
  */
-function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) {
+function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
   if (lastSwitchedSrc === media.src) {
     // A second nonce is emitted after the case DOM/image has committed.
     // The source is unchanged, but the figure's intrinsic height may not be.
@@ -679,8 +711,7 @@ function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) 
     photoSwitchTl?.kill()
     photoSwitchTl = null
     if (activeFillLayer === 0) {
-      fillFrontSrc.value = media.src
-      fillFrontAlt.value = media.alt
+      setFillLayer(0, media)
       if (fillFrontEl.value && gsapMod) {
         gsapMod.default.set(fillFrontEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
       }
@@ -688,8 +719,7 @@ function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) 
         gsapMod.default.set(fillBackEl.value, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
       }
     } else {
-      fillBackSrc.value = media.src
-      fillBackAlt.value = media.alt
+      setFillLayer(1, media)
       if (fillBackEl.value && gsapMod) {
         gsapMod.default.set(fillBackEl.value, { clipPath: 'inset(0 0% 0 0)', autoAlpha: 1 })
       }
@@ -707,13 +737,7 @@ function switchCasePhoto(media: { src: string; alt: string }, animate: boolean) 
   const curEl = activeFillLayer === 0 ? fillFrontEl.value : fillBackEl.value
   const nextEl = activeFillLayer === 0 ? fillBackEl.value : fillFrontEl.value
 
-  if (activeFillLayer === 0) {
-    fillBackSrc.value = media.src
-    fillBackAlt.value = media.alt
-  } else {
-    fillFrontSrc.value = media.src
-    fillFrontAlt.value = media.alt
-  }
+  setFillLayer(activeFillLayer === 0 ? 1 : 0, media)
 
   if (!curEl || !nextEl) {
     morphParkedCaseMedia(true)
@@ -779,6 +803,7 @@ function paintScrubAt(p: number) {
 }
 
 function paintHeroRest() {
+  mobileScrubBridge = null
   scrubLiveP = 0
   scrubTargetP = 0
   if (heroPose) paintBox(heroPose, 0)
@@ -796,6 +821,7 @@ function paintScrub(scrollY = window.scrollY, snap = false) {
   const p = scrubProgressAt(scrollY)
   scrubTargetP = p
   if (snap) {
+    mobileScrubBridge = null
     scrubLiveP = p
     paintScrubAt(p)
     return
@@ -841,6 +867,13 @@ function syncPinnedMask() {
 
 function caseFramePinned() {
   return !!props.caseMediaEl && pinTo.value === props.caseMediaEl
+}
+
+/** The frame may only re-enter the card once this corridor has fully arrived. */
+function caseFrameShouldBePinned() {
+  return mobileActive
+    ? mobileCaseProgress >= CASE_PIN_P
+    : desktopLiveS >= 1 + CASE_PIN_P
 }
 
 /** Park the completed surface inside the case figure so it scrolls with content. */
@@ -955,6 +988,7 @@ function hopPose(hop: MobileHop): SurfaceBox | null {
 function killHopTween() {
   hopTween?.kill()
   hopTween = null
+  mobileScrubBridge = null
   hopFromBox = null
   hopProgress = 0
 }
@@ -989,7 +1023,7 @@ function requestStage(next: MobileStage, animate: boolean) {
     stageLockUntil = now + STAGE_FORWARD_LOCK_MS
   }
 
-  if (next === 'scrub') enterScrub()
+  if (next === 'scrub') enterScrub(animate)
   else tweenToHop(next, animate)
 }
 
@@ -1054,17 +1088,39 @@ function tweenToHop(hop: MobileHop, animate: boolean) {
 }
 
 /**
- * Hand control back to the scrub corridor immediately.
- * Unpin first so the frame is viewport-fixed again, then paint the scrub pose.
+ * Hand control back to the scrub corridor. A skipped multi-waypoint reverse
+ * uses the same normalized velocity cap instead of snapping center → Hero.
  */
-function enterScrub() {
+function enterScrub(animate: boolean, fromOverride?: SurfaceBox | null) {
+  const current = fromOverride ?? readBox(frame.value) ?? liveBox
+  const currentMorph = flowSurfaceMask.morph
   mobileStage = 'scrub'
   killHopTween()
   const wasPinned = !!pinTo.value
   unpinFrame()
   const paint = () => {
     if (!heroPose || !stonePose) return
-    paintScrub(window.scrollY, true)
+    const p = scrubProgressAt(window.scrollY)
+    scrubTargetP = p
+    if (
+      !animate
+      || !current
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      scrubLiveP = p
+      paintScrubAt(p)
+      return
+    }
+    mobileScrubBridge = {
+      from: { ...current },
+      fromMorph: currentMorph,
+      progress: 0,
+    }
+    // Threshold callbacks may have pinned the DOM to an already skipped
+    // waypoint. Restore the case corridor's last actually painted box before
+    // the bridge starts so no stale pin flashes for one frame.
+    paintBox(current, currentMorph)
+    ensureTick()
   }
   if (wasPinned) void nextTick(paint)
   else paint()
@@ -1227,6 +1283,12 @@ function reconcileFromScroll() {
   // The case corridor owns the frame after the center-square stage.
   if (mobileCaseProgress > 0.005) return
 
+  if (mobileScrubBridge) {
+    scrubTargetP = scrubProgressAt(y)
+    ensureTick()
+    return
+  }
+
   const next = stageFromScroll()
   if (next === mobileStage) {
     if (next === 'scrub' && !hopTween) paintScrub()
@@ -1250,13 +1312,84 @@ function tick(now: number) {
 
   // Mobile scrub: light lag toward scroll target (box + morph share scrubLiveP).
   if (mobileActive) {
+    if (
+      mobileCaseFromBox
+      && (
+        mobileCaseProgress > SURFACE_MORPH_EPSILON
+        || mobileCaseTargetProgress > SURFACE_MORPH_EPSILON
+      )
+    ) {
+      mobileCaseProgress = updateContinuousProgress(
+        mobileCaseProgress,
+        mobileCaseTargetProgress,
+        dt,
+        {
+          lag: CASE_SCRUB_LAG,
+          maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
+          epsilon: SURFACE_MORPH_EPSILON,
+        },
+      )
+      paintMobileCaseSegment(mobileCaseProgress)
+      const handOffReverse =
+        mobileCaseTargetProgress <= SURFACE_MORPH_EPSILON
+        && mobileCaseProgress <= MOBILE_CASE_REVERSE_HANDOFF_P
+      if (handOffReverse) {
+        const handoffBox = liveBox ? { ...liveBox } : readBox(frame.value)
+        mobileCaseProgress = 0
+        mobileCaseFromBox = null
+        showCaseFill.value = false
+        caseFillOpacity.value = 0
+        // A fast reverse can cross every mobile waypoint while the case
+        // corridor still owns the frame. Resume from the current box without
+        // waiting for another touch/wheel event or decelerating to rest at Kado.
+        if (stageChangesAllowed()) {
+          const next = stageFromScroll()
+          // Threshold callbacks may already have changed `mobileStage` while
+          // the case corridor was still painting over them. Resume from the
+          // frame's real current box even when the logical stage already
+          // equals the destination.
+          if (next === 'scrub') enterScrub(true, handoffBox)
+          else tweenToHop(next, true)
+        }
+      } else if (
+        Math.abs(mobileCaseTargetProgress - mobileCaseProgress)
+        >= SURFACE_MORPH_EPSILON
+      ) {
+        raf = requestAnimationFrame(tick)
+      }
+      return
+    }
+
+    if (mobileScrubBridge && heroPose && stonePose) {
+      const bridge = mobileScrubBridge
+      bridge.progress = updateContinuousProgress(bridge.progress, 1, dt, {
+        lag: MOBILE_SCRUB_LAG,
+        maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
+        epsilon: SURFACE_MORPH_EPSILON,
+      })
+      const p = scrubProgressAt(window.scrollY)
+      scrubTargetP = p
+      const to = lerpBox(heroPose, stonePose, p)
+      const morph = bridge.fromMorph + (p - bridge.fromMorph) * bridge.progress
+      paintBox(lerpBox(bridge.from, to, bridge.progress), morph)
+      if (bridge.progress < 1 - SURFACE_MORPH_EPSILON) {
+        raf = requestAnimationFrame(tick)
+      } else {
+        mobileScrubBridge = null
+        scrubLiveP = p
+        paintScrubAt(p)
+      }
+      return
+    }
+
     if (mobileStage === 'scrub' && !hopTween && !pinTo.value && heroPose && stonePose) {
-      const lag = Math.max(0.04, MOBILE_SCRUB_LAG)
-      const k = 1 - Math.exp(-dt / lag)
-      scrubLiveP += (scrubTargetP - scrubLiveP) * k
-      if (Math.abs(scrubTargetP - scrubLiveP) < 0.00035) scrubLiveP = scrubTargetP
+      scrubLiveP = updateContinuousProgress(scrubLiveP, scrubTargetP, dt, {
+        lag: MOBILE_SCRUB_LAG,
+        maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
+        epsilon: SURFACE_MORPH_EPSILON,
+      })
       paintScrubAt(scrubLiveP)
-      if (Math.abs(scrubTargetP - scrubLiveP) >= 0.00035) {
+      if (Math.abs(scrubTargetP - scrubLiveP) >= SURFACE_MORPH_EPSILON) {
         raf = requestAnimationFrame(tick)
       }
     }
@@ -1277,15 +1410,19 @@ function tick(now: number) {
     return
   }
 
+  // One continuous target across Hero → Kado → Cases. Never retarget to the
+  // middle waypoint: that made the exponential follow decelerate to rest at
+  // Kado before it was allowed to continue toward Hero.
+  const touchesCaseSegment = desktopLiveS > 1 || sTarget > 1
   desktopLiveS = updateContinuousProgress(desktopLiveS, sTarget, dt, {
-    lag: props.plan.lag,
-    maxVelocity: 4.0, // Max 4.0 segments/sec — keeps smooth sweep across waypoints on fast flings
-    epsilon: 0.0008,
+    lag: touchesCaseSegment ? CASE_SCRUB_LAG : props.plan.lag,
+    maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
+    epsilon: SURFACE_MORPH_EPSILON,
   })
 
   paintDesktop(desktopLiveS)
 
-  if (Math.abs(sTarget - desktopLiveS) >= 0.0008) {
+  if (Math.abs(sTarget - desktopLiveS) >= SURFACE_MORPH_EPSILON) {
     raf = requestAnimationFrame(tick)
   }
 }
@@ -1305,7 +1442,9 @@ function killMorph() {
   desktopTargetS = 0
   desktopLiveS = 0
   mobileCaseProgress = 0
+  mobileCaseTargetProgress = 0
   mobileCaseFromBox = null
+  mobileScrubBridge = null
   caseMediaActive = false
   setCaseSurfaceDocked(false)
   for (const t of mobileTriggers) t.kill()
@@ -1418,22 +1557,19 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
           if (mobileCaseFromBox) paintBox(mobileCaseFromBox, 1)
         },
         onUpdate: (self) => {
-          mobileCaseProgress = self.progress
-          if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
-          else if (mobileCaseFromBox && !hopTween) paintBox(mobileCaseFromBox, 1)
+          mobileCaseTargetProgress = self.progress
+          ensureTick()
         },
         onRefresh: (self) => {
+          // Layout refresh is not user motion: align immediately so a restored
+          // scroll position does not animate in from a stale box.
+          mobileCaseTargetProgress = self.progress
           mobileCaseProgress = self.progress
           if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
         },
         onLeaveBack: () => {
-          showCaseFill.value = false
-          caseFillOpacity.value = 0
-          caseMediaActive = false
-          caseSurfaceDocked.value = false
-          const restore = mobileCaseFromBox
-          mobileCaseFromBox = null
-          if (restore && !hopTween) paintBox(restore, 1)
+          mobileCaseTargetProgress = 0
+          ensureTick()
         },
       }),
     )
@@ -1809,13 +1945,7 @@ watch(
     if (isVisibleInCases) {
       switchCasePhoto(media, true)
     } else {
-      if (activeFillLayer === 0) {
-        fillFrontSrc.value = media.src
-        fillFrontAlt.value = media.alt
-      } else {
-        fillBackSrc.value = media.src
-        fillBackAlt.value = media.alt
-      }
+      setFillLayer(activeFillLayer, media)
       lastSwitchedSrc = media.src
     }
     if (caseMediaActive || showCaseFill.value) caseFillOpacity.value = 1
@@ -1869,22 +1999,66 @@ watch(
             :class="{ 'case-surface-fill--on': showCaseFill }"
             :aria-hidden="(!showCaseFill).toString()"
           >
-            <img
+            <div
               ref="fillFrontEl"
-              class="case-surface-fill__img"
-              :src="fillFrontSrc"
-              :alt="fillFrontAlt"
-              :style="{ opacity: caseFillOpacity }"
-              decoding="async"
+              class="case-surface-fill__media"
+              :style="{
+                opacity: caseFillOpacity,
+                backgroundColor: fillFrontVideo ? fillFrontMedia?.wash : undefined,
+              }"
             >
-            <img
+              <img
+                class="case-surface-fill__asset"
+                :class="{ 'case-surface-fill__asset--behind-video': showCaseFill && fillFrontVideo }"
+                :src="fillFrontSrc"
+                :alt="fillFrontAlt"
+                decoding="async"
+              >
+              <video
+                v-if="showCaseFill && fillFrontVideo"
+                class="case-surface-fill__asset case-surface-fill__video"
+                autoplay
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                :poster="fillFrontVideo.poster"
+                aria-hidden="true"
+              >
+                <source :src="fillFrontVideo.webm" type="video/webm">
+                <source :src="fillFrontVideo.mp4" type="video/mp4">
+              </video>
+            </div>
+            <div
               ref="fillBackEl"
-              class="case-surface-fill__img"
-              :src="fillBackSrc"
-              :alt="fillBackAlt"
-              :style="{ opacity: caseFillOpacity }"
-              decoding="async"
+              class="case-surface-fill__media"
+              :style="{
+                opacity: caseFillOpacity,
+                backgroundColor: fillBackVideo ? fillBackMedia?.wash : undefined,
+              }"
             >
+              <img
+                class="case-surface-fill__asset"
+                :class="{ 'case-surface-fill__asset--behind-video': showCaseFill && fillBackVideo }"
+                :src="fillBackSrc"
+                :alt="fillBackAlt"
+                decoding="async"
+              >
+              <video
+                v-if="showCaseFill && fillBackVideo"
+                class="case-surface-fill__asset case-surface-fill__video"
+                autoplay
+                muted
+                loop
+                playsinline
+                preload="metadata"
+                :poster="fillBackVideo.poster"
+                aria-hidden="true"
+              >
+                <source :src="fillBackVideo.webm" type="video/webm">
+                <source :src="fillBackVideo.mp4" type="video/mp4">
+              </video>
+            </div>
           </div>
         </FlowSurface>
       </div>
@@ -1906,7 +2080,15 @@ watch(
   opacity: 1;
 }
 
-.case-surface-fill__img {
+.case-surface-fill__media {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  clip-path: inset(0 0 0 0);
+  will-change: clip-path, opacity;
+}
+
+.case-surface-fill__asset {
   position: absolute;
   inset: 0;
   display: block;
@@ -1914,7 +2096,17 @@ watch(
   height: 100%;
   object-fit: cover;
   object-position: center;
-  clip-path: inset(0 0 0 0);
-  will-change: clip-path;
+}
+
+/* The source has an opaque white backdrop rather than an alpha channel.
+   Multiply lets that white resolve to the case wash while preserving the video
+   as an inline, hardware-decoded asset. */
+.case-surface-fill__video {
+  object-fit: cover;
+  mix-blend-mode: multiply;
+}
+
+.case-surface-fill__asset--behind-video {
+  opacity: 0;
 }
 </style>

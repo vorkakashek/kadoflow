@@ -21,7 +21,6 @@ const CHIP_FADE_SEL = [
   '.nav-link',
   '.menu-btn--float',
   '.menu-fab',
-  '.header-logo-link',
 ].join(',')
 
 const TEXT_SEL = [

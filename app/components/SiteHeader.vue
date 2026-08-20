@@ -49,20 +49,7 @@ function onCaseDetailBack(event: MouseEvent) {
   event.preventDefault()
   closeCaseDetail({ src: item.media.src, alt: item.media.alt, wash: item.wash })
 }
-const detailHeaderStyle = computed(() =>
-  detailCase.value
-      ? {
-        '--case-header-color': detailInverse.value
-          ? 'var(--palette-milk, #f5f1e8)'
-          : 'var(--palette-ink, #0a0a0a)',
-        '--case-header-hover-color': detailInverse.value
-          ? 'var(--palette-ink, #0a0a0a)'
-          : 'var(--palette-milk, #f5f1e8)',
-      }
-    : undefined,
-)
 const fabStyle = computed(() => ({
-  ...(detailHeaderStyle.value ?? {}),
   bottom: `calc(${fabBottomExtra.value}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
 }))
 const logoInverted = computed(
@@ -183,6 +170,27 @@ function syncMobileLogoCasesProgress(cases: HTMLElement, logo: HTMLElement) {
   mobileLogoCasesProgress.value = Math.min(enter, exit)
 }
 
+/**
+ * ScrollTrigger is useful for regular scrolling, but its `isActive` can be
+ * stale for a paint while HMR rebuilds the cases layout. Read the two actual
+ * boxes when we resync so the logo tone never waits for another user scroll.
+ */
+function syncLogoCasesToneFromLayout() {
+  if (route.path !== '/') {
+    isOverCases.value = false
+    mobileLogoCasesProgress.value = 0
+    return
+  }
+  const cases = document.getElementById('cases')
+  const logo = logoImgEl.value
+  if (!cases || !logo) return
+
+  const caseBox = cases.getBoundingClientRect()
+  const logoBox = logo.getBoundingClientRect()
+  isOverCases.value = caseBox.top <= logoBox.bottom && caseBox.bottom >= logoBox.top
+  syncMobileLogoCasesProgress(cases, logo)
+}
+
 async function setupLogoCasesTrigger() {
   logoCasesSt?.kill()
   logoCasesSt = null
@@ -239,7 +247,7 @@ async function setupLogoCasesTrigger() {
       syncMobileLogoCasesProgress(cases, logo)
     },
   })
-  isOverCases.value = logoCasesSt.isActive
+  syncLogoCasesToneFromLayout()
   scheduleLogoCasesToneSync(true)
 }
 
@@ -263,9 +271,8 @@ function scheduleLogoCasesToneSync(refresh = false) {
     logoToneSyncRaf = requestAnimationFrame(() => {
       logoToneSyncRaf = 0
       if (refresh) refreshLogoCasesTone()
-      if (!logoCasesSt || !stMod) return
-      stMod.update()
-      isOverCases.value = logoCasesSt.isActive
+      if (logoCasesSt && stMod) stMod.update()
+      syncLogoCasesToneFromLayout()
     })
   })
 }
@@ -674,6 +681,10 @@ onMounted(() => {
     if (was && !on) void nextTick(restoreMenuHoverFill)
   })
 
+  // HomeCases can be hot-replaced while the viewport is already inside the
+  // section. Refresh the geometric logo check when its active tone is restored.
+  watch(caseInverse, () => scheduleLogoCasesToneSync())
+
   watch(
     () => route.path,
     () => {
@@ -785,7 +796,6 @@ onUnmounted(() => {
       'site-header--case-inverse': detailInverse,
       'site-header--case-transitioning': caseDetailTransitionActive,
     }"
-    :style="detailHeaderStyle"
     :inert="canvasSurface"
   >
     <!--
@@ -863,7 +873,7 @@ onUnmounted(() => {
             :key="link.to"
             :to="link.to"
             class="nav-link chip-scale-host text-ink"
-            :class="{ 'is-chip-on nav-link--here': isNavHere(link.to) }"
+            :class="{ 'nav-link--here': isNavHere(link.to) }"
             :aria-current="isNavHere(link.to) ? 'page' : undefined"
             @pointerenter="onChipPointer"
             @pointerleave="onChipPointer"
@@ -905,7 +915,6 @@ onUnmounted(() => {
         'menu-btn--case': detailCase,
         'menu-btn--case-transitioning': caseDetailTransitionActive,
       }"
-      :style="detailHeaderStyle"
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
       :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
@@ -991,16 +1000,15 @@ onUnmounted(() => {
 }
 
 .site-header--case {
-  color: var(--case-header-color);
+  color: var(--palette-ink, #171915);
 }
 
-/* The logo may remain as a stable anchor, but route-reactive controls stay
-   hidden under the case image instead of repainting during the route swap. */
+/* Keep the full header as a stable navigation layer during case transitions.
+   Interaction is paused while the cover owns the page, but nothing fades. */
 .site-header--case-transitioning .header-nav,
 .site-header--case-transitioning .case-header-back,
 .menu-btn--case-transitioning,
 .menu-fab--case-transitioning {
-  opacity: 0 !important;
   pointer-events: none !important;
 }
 
@@ -1011,45 +1019,15 @@ onUnmounted(() => {
   transition: opacity 0.28s var(--motion-ease, ease);
 }
 
-.site-header--case .header-nav,
-.site-header--case .nav-link,
-.site-header--case .header-desk-menu,
-.site-header--case .menu-fab {
-  color: var(--case-header-color) !important;
-}
-
-.site-header--case .chip-scale-bg__fill {
-  background-color: var(--case-header-color);
-}
-
-.menu-btn--case .chip-scale-bg__fill,
-.menu-fab--case .chip-scale-bg__fill {
-  background-color: var(--case-header-color);
-}
-
-.menu-btn--case,
-.menu-fab--case {
-  color: var(--case-header-color) !important;
-}
-
-/* Each case supplies an opposite foreground for the chip fill: light text on
-   dark fills (e.g. Baltika), ink text on light fills (dark case details). */
 @media (hover: hover) and (pointer: fine) {
-  .site-header--case .nav-link:hover,
-  .site-header--case .nav-link:focus-visible,
-  .menu-btn--case:hover,
-  .menu-btn--case:focus-visible,
-  .menu-fab--case:hover,
-  .menu-fab--case:focus-visible {
-    color: var(--case-header-hover-color) !important;
+  .nav-link:hover,
+  .nav-link:focus-visible,
+  .menu-btn:hover,
+  .menu-btn:focus-visible,
+  .menu-fab:hover,
+  .menu-fab:focus-visible {
+    color: var(--palette-milk, #f5f1e8) !important;
   }
-}
-
-/* The Page Canvas is always sand/light; its close control never inherits the
-   underlying case theme while the menu is open. */
-html.page-canvas-surface .menu-btn--case,
-html.page-canvas-surface .menu-fab--case {
-  color: var(--palette-ink, #171915) !important;
 }
 
 /* Under the menu overlay; above the SPA hop veil so chrome stays put. */
@@ -1117,7 +1095,7 @@ html.page-canvas-lock .menu-btn--float {
   cursor: pointer;
   appearance: none;
   border-radius: 999px;
-  background-color: var(--palette-milk, #f5f1e8);
+  background-color: var(--palette-sand);
   color: var(--palette-ink, #171915);
   font-size: var(--type-nav);
   letter-spacing: -0.02em;
@@ -1159,8 +1137,8 @@ html.page-canvas-lock .menu-btn--float {
 @media (hover: hover) and (pointer: fine) {
   .case-header-back:hover,
   .case-header-back:focus-visible {
-    background-color: color-mix(in srgb, var(--palette-sand) 55%, var(--palette-moss));
-    color: var(--palette-ink, #171915);
+    background-color: var(--palette-ink, #171915);
+    color: var(--palette-milk, #f5f1e8);
   }
 
   .case-header-back:hover .case-header-back__frame:not(.case-header-back__frame--after),
@@ -1190,7 +1168,7 @@ html.page-canvas-lock .menu-btn--float {
   padding: 8px 12px;
   margin: -8px -12px;
   border-radius: 8px;
-  background-color: transparent;
+  background-color: var(--palette-sand);
   transition: background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
@@ -1210,13 +1188,13 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .header-chip--scrolled {
-  background-color: color-mix(in srgb, var(--palette-sand) 72%, transparent);
+  background-color: var(--palette-sand);
 }
 
 /* backdrop-filter is a scroll-compositor tax on mobile Chrome too — solid only. */
 @media (max-width: 767px) {
   .header-chip--scrolled {
-    background-color: color-mix(in srgb, var(--palette-sand) 88%, transparent);
+    background-color: var(--palette-sand);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1234,9 +1212,9 @@ html.page-canvas-lock .menu-btn--float {
     }
 
     .header-chip--scrolled {
-      background-color: color-mix(in srgb, var(--palette-sand) 55%, transparent);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      background-color: var(--palette-sand);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
     }
   }
 }
@@ -1386,9 +1364,21 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   padding: 10px 24px;
   opacity: 1;
   visibility: visible;
-  background-color: color-mix(in srgb, var(--palette-sand) 80%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background-color: var(--palette-sand);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.header-nav .chip-scale-bg__fill,
+.menu-btn--float .chip-scale-bg__fill,
+.menu-fab .chip-scale-bg__fill {
+  background-color: var(--palette-ink, #171915);
+}
+
+.nav-link,
+.menu-btn--float,
+.menu-fab {
+  transition: color 0.3s var(--motion-ease, ease);
 }
 
 .menu-fab:hover .menu-dots,

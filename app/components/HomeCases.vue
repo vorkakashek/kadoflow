@@ -32,15 +32,30 @@ const stageEl = ref<HTMLElement | null>(null)
 const railEl = ref<HTMLElement | null>(null)
 const railListEl = ref<HTMLElement | null>(null)
 const blurbEl = ref<HTMLElement | null>(null)
+const gestureHintEl = ref<HTMLElement | null>(null)
 /** Avoid SSR Teleport into `#home-cases-bg-host` (hydration child mismatch). */
 const mountBgPortal = ref(false)
 const mobileCases = ref(false)
+const caseGestureHintSeen = useCookie<boolean>('kadoflow-case-gesture-hint-v2', {
+  default: () => false,
+  maxAge: 60 * 60 * 24 * 7,
+  path: '/',
+  sameSite: 'lax',
+})
+const showCaseGestureHint = computed(
+  () => mobileCases.value && !caseGestureHintSeen.value,
+)
 
 const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
 const hasSwitched = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
-const caseSurfaceMedia = useState<{ src: string; alt: string } | null>(
+const caseSurfaceMedia = useState<{
+  src: string
+  alt: string
+  wash: string
+  video?: { webm: string; mp4: string; poster: string }
+} | null>(
   'home-case-surface-media',
   () => null,
 )
@@ -74,10 +89,9 @@ function onRailBtnClick(item: HomeCase) {
   void selectCase(item)
 }
 
-function onCaseDetailLink(item: HomeCase, e: MouseEvent) {
+function openCaseDetailFromMedia(item: HomeCase) {
   const media = mediaEl.value
   if (!media) return
-  e.preventDefault()
   const rect = media.getBoundingClientRect()
   if (rect.width < 2 || rect.height < 2) return
   openCaseDetail({
@@ -90,12 +104,74 @@ function onCaseDetailLink(item: HomeCase, e: MouseEvent) {
   })
 }
 
+function onCaseDetailLink(item: HomeCase, e: MouseEvent) {
+  e.preventDefault()
+  openCaseDetailFromMedia(item)
+}
+
 let caseSwipeStart: { x: number; y: number; pointerId: number } | null = null
+/** Prevent the synthetic link click that follows a completed horizontal swipe. */
+let suppressCaseLinkClick = false
+let suppressCaseLinkClickTimer = 0
 const CASE_SWIPE_MIN_PX = 44
+
+let caseGestureStart: { x: number; y: number; pointerId: number } | null = null
+const CASE_GESTURE_TAP_MAX_PX = 12
+
+function dismissCaseGestureHint() {
+  caseGestureHintSeen.value = true
+}
+
+function openActiveCaseFromGesture() {
+  const item = activeCase.value
+  if (!item) return
+  dismissCaseGestureHint()
+  openCaseDetailFromMedia(item)
+}
+
+function onCaseGesturePointerDown(e: PointerEvent) {
+  if (!e.isPrimary) return
+  caseGestureStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
+  if (e.currentTarget instanceof HTMLElement) {
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+}
+
+function onCaseGesturePointerCancel() {
+  caseGestureStart = null
+}
+
+function onCaseGesturePointerUp(e: PointerEvent) {
+  const start = caseGestureStart
+  caseGestureStart = null
+  if (!start || start.pointerId !== e.pointerId) return
+
+  const dx = e.clientX - start.x
+  const dy = e.clientY - start.y
+  const horizontalSwipe =
+    Math.abs(dx) >= CASE_SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)
+  const tap =
+    Math.abs(dx) <= CASE_GESTURE_TAP_MAX_PX
+    && Math.abs(dy) <= CASE_GESTURE_TAP_MAX_PX
+
+  if (horizontalSwipe) {
+    e.preventDefault()
+    dismissCaseGestureHint()
+    selectAdjacentCase(dx < 0 ? 1 : -1)
+    return
+  }
+
+  if (tap) {
+    e.preventDefault()
+    openActiveCaseFromGesture()
+  }
+}
 
 function onCaseStagePointerDown(e: PointerEvent) {
   if (!mobileCases.value || !e.isPrimary) return
-  if (e.target instanceof Element && e.target.closest('a, button')) return
+  // Links remain normal tap targets. We still capture their pointer sequence so
+  // a horizontal drag across either the title or the image can switch cases.
+  if (e.target instanceof Element && e.target.closest('button')) return
   caseSwipeStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
   if (e.currentTarget instanceof HTMLElement) {
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -114,7 +190,25 @@ function onCaseStagePointerUp(e: PointerEvent) {
   const dx = e.clientX - start.x
   const dy = e.clientY - start.y
   if (Math.abs(dx) < CASE_SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return
+  // Browsers dispatch a click after pointerup, including when the gesture began
+  // on a link. Suppress that one click so the swipe does not open the case.
+  e.preventDefault()
+  suppressCaseLinkClick = true
+  if (suppressCaseLinkClickTimer) window.clearTimeout(suppressCaseLinkClickTimer)
+  suppressCaseLinkClickTimer = window.setTimeout(() => {
+    suppressCaseLinkClick = false
+    suppressCaseLinkClickTimer = 0
+  }, 0)
   selectAdjacentCase(dx < 0 ? 1 : -1)
+}
+
+function onCaseStageClickCapture(e: MouseEvent) {
+  if (!suppressCaseLinkClick) return
+  suppressCaseLinkClick = false
+  if (suppressCaseLinkClickTimer) window.clearTimeout(suppressCaseLinkClickTimer)
+  suppressCaseLinkClickTimer = 0
+  e.preventDefault()
+  e.stopPropagation()
 }
 
 function scrollActiveCaseLinkIntoView(behavior: ScrollBehavior = 'smooth') {
@@ -199,6 +293,8 @@ function publishSurfaceMedia(item: HomeCase | undefined) {
   caseSurfaceMedia.value = {
     src: item.media.src,
     alt: item.media.alt,
+    wash: item.wash,
+    video: item.media.video,
   }
 }
 
@@ -475,6 +571,7 @@ async function setupParallax() {
   const portal = bgPortalEl.value
   const objectEl = bgObjectEl.value
   const textureEl = bgParallaxEl.value
+  const gestureHint = gestureHintEl.value
   if (!section || !portal || !objectEl || !textureEl) return
 
   const gsap = await ensureGsap()
@@ -482,6 +579,7 @@ async function setupParallax() {
     gsap.set(portal, { y: 0 })
     gsap.set(objectEl, { y: 0 })
     gsap.set(textureEl, { yPercent: 0 })
+    if (gestureHint) gsap.set(gestureHint, { y: 0 })
     return
   }
 
@@ -503,6 +601,19 @@ async function setupParallax() {
         scrollTrigger: st,
       },
     )
+    if (gestureHint) {
+      // The interactive overlay remains in the section stacking context, but
+      // follows the teleported background plate pixel-for-pixel.
+      gsap.fromTo(
+        gestureHint,
+        { y: 120 },
+        {
+          y: -100,
+          ease: 'none',
+          scrollTrigger: { ...st },
+        },
+      )
+    }
     gsap.fromTo(
       objectEl,
       { y: 48 },
@@ -876,6 +987,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (suppressCaseLinkClickTimer) {
+    window.clearTimeout(suppressCaseLinkClickTimer)
+    suppressCaseLinkClickTimer = 0
+  }
   switchTl?.kill()
   switchTl = null
   bgTl?.kill()
@@ -931,6 +1046,42 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
 
+    <Transition name="cases-gesture-hint">
+      <div
+        v-if="showCaseGestureHint"
+        ref="gestureHintEl"
+        class="cases-gesture-hint"
+        role="button"
+        tabindex="0"
+        aria-label="Свайпайте для перелистывания. Тапните, чтобы изучить кейс."
+        @pointerdown="onCaseGesturePointerDown"
+        @pointerup="onCaseGesturePointerUp"
+        @pointercancel="onCaseGesturePointerCancel"
+        @keydown.enter.prevent="openActiveCaseFromGesture"
+        @keydown.space.prevent="openActiveCaseFromGesture"
+      >
+        <div class="cases-gesture-hint__content">
+          <svg
+            class="cases-gesture-hint__icon"
+            xmlns="http://www.w3.org/2000/svg"
+            width="32"
+            height="32"
+            viewBox="0 0 256 256"
+            fill="none"
+            aria-hidden="true"
+          >
+            <line x1="172" y1="56" x2="244" y2="56" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
+            <polyline points="204 24 172 56 204 88" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
+            <path class="cases-gesture-hint__hand" d="M60,216,34.68,174a20,20,0,0,1,34.64-20L88,184V76a20,20,0,0,1,40,0v56a20,20,0,0,1,40,0v16a20,20,0,0,1,40,0v36c0,13.84-1.75,25-4,32" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
+          </svg>
+          <p class="cases-gesture-hint__copy">
+            <span>Свайпайте для перелистывания.</span>
+            <span>Тапните, чтобы изучить кейс.</span>
+          </p>
+        </div>
+      </div>
+    </Transition>
+
     <div
       class="cases-inner relative z-[1] mx-auto grid w-full"
       :style="{
@@ -945,7 +1096,11 @@ onBeforeUnmount(() => {
         class="cases-rail col-span-12 md:col-span-2"
         aria-label="Кейсы"
       >
-        <ul ref="railListEl" class="cases-rail__list">
+        <ul
+          ref="railListEl"
+          class="cases-rail__list"
+          data-lenis-prevent-horizontal
+        >
           <li
             v-for="item in homeCases"
             :key="item.id"
@@ -977,6 +1132,7 @@ onBeforeUnmount(() => {
         @pointerdown="onCaseStagePointerDown"
         @pointerup="onCaseStagePointerUp"
         @pointercancel="onCaseStagePointerCancel"
+        @click.capture="onCaseStageClickCapture"
       >
         <div class="cases-stage__visual">
           <h2 class="cases-title">
@@ -1007,7 +1163,10 @@ onBeforeUnmount(() => {
             ref="mediaEl"
             class="cases-media"
             :data-case-media="activeCase.media.src"
-            :class="`cases-media--${activeCase.media.orientation ?? 'portrait'}`"
+            :class="[
+              `cases-media--${activeCase.media.orientation ?? 'portrait'}`,
+              { 'cases-media--video': !!activeCase.media.video },
+            ]"
             :style="
               activeCase.media.cols && !mobileCases
                 ? { width: `var(--layout-span-${activeCase.media.cols})`, maxWidth: '100%' }
@@ -1263,9 +1422,80 @@ onBeforeUnmount(() => {
   }
 }
 
+.cases-gesture-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgb(10 10 10 / 72%);
+  color: #fff;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.cases-gesture-hint__content {
+  position: sticky;
+  top: 0;
+  display: flex;
+  min-height: var(--app-screen);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: var(--layout-margin-content);
+  text-align: center;
+}
+
+.cases-gesture-hint__icon {
+  display: block;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.cases-gesture-hint__hand {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cases-gesture-hand-swipe 1.65s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.cases-gesture-hint__copy {
+  display: flex;
+  max-width: 21rem;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  font-size: var(--type-nav);
+  letter-spacing: -0.02em;
+  line-height: 1.4;
+}
+
+.cases-gesture-hint-enter-active,
+.cases-gesture-hint-leave-active {
+  transition: opacity 0.32s var(--motion-ease, ease);
+}
+
+.cases-gesture-hint-enter-from,
+.cases-gesture-hint-leave-to {
+  opacity: 0;
+}
+
+@keyframes cases-gesture-hand-swipe {
+  0%,
+  18% {
+    transform: translate3d(7px, 0, 0) rotate(1.5deg);
+  }
+  58%,
+  72% {
+    transform: translate3d(-7px, 0, 0) rotate(-1.5deg);
+  }
+  100% {
+    transform: translate3d(7px, 0, 0) rotate(1.5deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cases-rail__btn--flash .chip-scale-bg,
-  .cases-rail__btn--flash .cases-rail__label {
+  .cases-rail__btn--flash .cases-rail__label,
+  .cases-gesture-hint__hand {
     animation: none;
   }
 }
@@ -1445,6 +1675,17 @@ onBeforeUnmount(() => {
 
 .cases-media--landscape .cases-media__img {
   width: 100%;
+}
+
+/* Baltika's motion asset is square. Give its measured surface a square pose,
+   so the video can span the full width without sacrificing its top or bottom. */
+.cases-media--video {
+  aspect-ratio: 1;
+}
+
+.cases-media--video .cases-media__img {
+  height: 100%;
+  object-fit: cover;
 }
 
 .cases-aside {

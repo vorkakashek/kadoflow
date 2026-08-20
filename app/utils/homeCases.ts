@@ -26,6 +26,12 @@ export type HomeCase = {
     orientation?: 'portrait' | 'landscape'
     /** Width in 12-col layout spans (uses `--layout-span-N`). */
     cols?: 2 | 3 | 4 | 5 | 6
+    /** Optional motion treatment for the home case surface. */
+    video?: {
+      webm: string
+      mp4: string
+      poster: string
+    }
   }
 }
 
@@ -74,6 +80,11 @@ export const homeCases: HomeCase[] = [
       src: '/home/cases/baltika.png',
       alt: 'Балтика Brew — продукт',
       orientation: 'portrait',
+      video: {
+        webm: '/home/cases/video.webm',
+        mp4: '/home/cases/video.mp4',
+        poster: '/home/cases/baltika-video-poster.jpg',
+      },
     },
   },
   {

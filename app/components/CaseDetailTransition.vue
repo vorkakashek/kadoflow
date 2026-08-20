@@ -26,6 +26,25 @@ async function findTarget(selector: string) {
   return null
 }
 
+/** Let route watchers finish, then restore the hash position under the cover. */
+async function settleRouteHash(to: string) {
+  const hashAt = to.indexOf('#')
+  if (hashAt < 0) return
+  const id = decodeURIComponent(to.slice(hashAt + 1))
+  if (!id) return
+
+  for (let frame = 0; frame < 4; frame += 1) {
+    const target = document.getElementById(id)
+    if (!target) {
+      await nextPaint()
+      continue
+    }
+    target.scrollIntoView({ block: 'start', behavior: 'auto' })
+    await nextPaint()
+    if (Math.abs(target.getBoundingClientRect().top) < 1) return
+  }
+}
+
 watch(request, async (next) => {
   if (!next || active.value) return
   const root = rootEl.value
@@ -70,34 +89,72 @@ watch(request, async (next) => {
       return
     }
 
-    // Return: the detail fades under a full-screen case image, then the image
-    // docks into its remembered card on Home or in the projects catalogue.
-    // Keep the layer transparent while the detail copy fades out under the
-    // incoming image. Once the image covers the page, restore the wash before
-    // routing so the destination never flashes through.
+    // Return is staged like a physical cover: first make the detail image fully
+    // opaque over the current page, then mount the destination underneath it.
+    // Once the home page has painted, the cover can shrink and reveal a page
+    // that already exists instead of fading the whole route in at the end.
     gsap.set(root, { opacity: 1 })
     root.style.backgroundColor = 'transparent'
-    gsap.set(image, { top: 0, left: 0, width: viewport.width, height: viewport.height, opacity: 0, filter: 'blur(0px)' })
+    gsap.set(image, {
+      top: 0,
+      left: 0,
+      width: viewport.width,
+      height: viewport.height,
+      opacity: 0,
+      filter: 'blur(28px)',
+      scale: 1.16,
+      rotate: -3.5,
+      transformOrigin: '50% 50%',
+    })
     const detail = document.querySelector<HTMLElement>('.case-detail__inner')
-    await Promise.all([
-      gsap.to(image, { opacity: 1, duration: 0.55, ease: 'power1.inOut' }),
-      detail ? gsap.to(detail, { opacity: 0, duration: 0.55, ease: 'power1.inOut' }) : Promise.resolve(),
-    ])
-    root.style.backgroundColor = wash.value
+    const cover = gsap.timeline()
+    if (detail) {
+      cover.to(detail, { opacity: 0, duration: 0.48, ease: 'power2.inOut' }, 0)
+    }
+    cover.to(image, {
+      opacity: 1,
+      filter: 'blur(0px)',
+      scale: 1.06,
+      rotate: -1.5,
+      duration: 0.58,
+      ease: 'power2.inOut',
+    }, 0)
+    await cover
+
+    // The opaque image now owns the frame. Nuxt can mount and settle the home
+    // route behind it without exposing an intermediate page state.
     await router.push(next.to)
     await nextPaint()
+    await settleRouteHash(next.to)
     const target = next.targetSelector ? await findTarget(next.targetSelector) : null
+
     if (target) {
-      await gsap.to(image, {
+      const flight = gsap.timeline()
+      flight.to(image, {
         top: target.top,
         left: target.left,
         width: target.width,
         height: target.height,
-        duration: 0.72,
+        scale: 1,
+        rotate: 0,
+        duration: 0.92,
         ease: 'power3.inOut',
+      }, 0)
+      await flight
+      // Crossfade only the duplicate transition image. The page around it has
+      // already been visible throughout the flight.
+      await gsap.to(image, { opacity: 0, duration: 0.22, ease: 'power1.out' })
+    } else {
+      await gsap.to(image, {
+        opacity: 0,
+        filter: 'blur(12px)',
+        scale: 1.02,
+        rotate: 0,
+        duration: 0.42,
+        ease: 'power2.out',
       })
     }
-    await gsap.to(root, { opacity: 0, duration: 0.2, ease: 'power1.out' })
+    gsap.set(root, { opacity: 0 })
   } finally {
     visible.value = false
     request.value = null
@@ -132,6 +189,6 @@ watch(request, async (next) => {
   display: block;
   object-fit: cover;
   object-position: center;
-  will-change: top, left, width, height, opacity, filter;
+  will-change: top, left, width, height, transform, opacity, filter;
 }
 </style>

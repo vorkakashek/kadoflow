@@ -23,10 +23,16 @@ function openCase(item: HomeCase, event: MouseEvent) {
         <p>02</p><h1>Проекты</h1><p>Каталог кейсов — задача, идея, система, результат.</p>
       </header>
       <ul class="projects-catalog__grid">
-        <li v-for="item in homeCases" :key="item.id">
+        <li v-for="(item, index) in homeCases" :key="item.id">
           <a :href="homeCaseDetailPath(item)" class="projects-card" :style="{ backgroundColor: item.wash }" @click="openCase(item, $event)">
             <div class="projects-card__cover" :data-case-cover="item.media.src">
-              <img :src="item.media.src" :alt="item.media.alt" loading="eager" decoding="async">
+              <img
+                :src="item.media.src"
+                :alt="item.media.alt"
+                :loading="index === 0 ? 'eager' : 'lazy'"
+                :fetchpriority="index === 0 ? 'high' : 'auto'"
+                decoding="async"
+              >
             </div>
             <span>{{ item.title }}</span>
           </a>

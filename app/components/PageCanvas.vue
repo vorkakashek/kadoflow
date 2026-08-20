@@ -1318,7 +1318,12 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div ref="stageEl" class="page-canvas__stage" data-pc-scroller>
+      <div
+        ref="stageEl"
+        class="page-canvas__stage"
+        data-pc-scroller
+        data-lenis-prevent
+      >
         <div ref="deskEl" class="page-canvas__desk">
           <nav
             class="pc-links"
