@@ -41,7 +41,15 @@ useHead(() => ({
       <section class="case-detail__content">
         <p class="case-detail__eyebrow">Фокус внимания</p>
         <p class="case-detail__tags">{{ item.focusTags.join(' · ') }}</p>
+        <BaltikaScrollFilm
+          v-if="item.id === 'baltika' && item.media.video"
+          :webm="item.media.video.webm"
+          :mp4="item.media.video.mp4"
+          :poster="item.media.video.poster"
+          :alt="item.media.alt"
+        />
         <img
+          v-else
           :src="item.media.src"
           :alt="item.media.alt"
           class="case-detail__image"
@@ -129,7 +137,8 @@ h1 {
 
 .case-detail__eyebrow,
 .case-detail__tags,
-.case-detail__image {
+.case-detail__image,
+.case-detail :deep(.baltika-scroll-film) {
   transition:
     opacity 1.6s cubic-bezier(0.22, 1, 0.36, 1),
     transform 1.6s cubic-bezier(0.22, 1, 0.36, 1);
@@ -138,7 +147,8 @@ h1 {
 .case-detail--entering h1,
 .case-detail--entering .case-detail__eyebrow,
 .case-detail--entering .case-detail__tags,
-.case-detail--entering .case-detail__image {
+.case-detail--entering .case-detail__image,
+.case-detail--entering :deep(.baltika-scroll-film) {
   opacity: 0;
 }
 
@@ -161,11 +171,16 @@ h1 {
   transition-delay: 0.48s;
 }
 
+.case-detail:not(.case-detail--entering) :deep(.baltika-scroll-film) {
+  transition-delay: 0.48s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   h1,
   .case-detail__eyebrow,
   .case-detail__tags,
-  .case-detail__image {
+  .case-detail__image,
+  .case-detail :deep(.baltika-scroll-film) {
     transition: none;
   }
 }
