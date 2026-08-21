@@ -128,7 +128,13 @@ type CaseSurfaceMedia = {
   src: string
   alt: string
   wash: string
-  video?: { webm: string; mp4: string; poster: string }
+  video?: {
+    webm: string
+    mp4: string
+    mobileWebm?: string
+    mobileMp4?: string
+    poster: string
+  }
 }
 
 const caseSurfaceMedia = useState<CaseSurfaceMedia | null>(
@@ -2025,6 +2031,18 @@ watch(
                 :poster="fillFrontVideo.poster"
                 aria-hidden="true"
               >
+                <source
+                  v-if="fillFrontVideo.mobileWebm"
+                  media="(max-width: 767.98px)"
+                  :src="fillFrontVideo.mobileWebm"
+                  type="video/webm"
+                >
+                <source
+                  v-if="fillFrontVideo.mobileMp4"
+                  media="(max-width: 767.98px)"
+                  :src="fillFrontVideo.mobileMp4"
+                  type="video/mp4"
+                >
                 <source :src="fillFrontVideo.webm" type="video/webm">
                 <source :src="fillFrontVideo.mp4" type="video/mp4">
               </video>
@@ -2055,6 +2073,18 @@ watch(
                 :poster="fillBackVideo.poster"
                 aria-hidden="true"
               >
+                <source
+                  v-if="fillBackVideo.mobileWebm"
+                  media="(max-width: 767.98px)"
+                  :src="fillBackVideo.mobileWebm"
+                  type="video/webm"
+                >
+                <source
+                  v-if="fillBackVideo.mobileMp4"
+                  media="(max-width: 767.98px)"
+                  :src="fillBackVideo.mobileMp4"
+                  type="video/mp4"
+                >
                 <source :src="fillBackVideo.webm" type="video/webm">
                 <source :src="fillBackVideo.mp4" type="video/mp4">
               </video>

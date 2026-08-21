@@ -54,7 +54,13 @@ const caseSurfaceMedia = useState<{
   src: string
   alt: string
   wash: string
-  video?: { webm: string; mp4: string; poster: string }
+  video?: {
+    webm: string
+    mp4: string
+    mobileWebm?: string
+    mobileMp4?: string
+    poster: string
+  }
 } | null>(
   'home-case-surface-media',
   () => null,
@@ -770,7 +776,10 @@ function waitTimeline(tl: {
 }
 
 let switchGen = 0
-let targetCaseId = homeCases[0]?.id ?? 'audience'
+// The home route remounts after a case-detail return while `activeId` is kept
+// in Nuxt state. Start from that persisted selection; otherwise returning from
+// any non-Audience case makes the first Audience click look like a no-op.
+let targetCaseId = activeId.value
 let bgTl: { kill: () => void } | null = null
 let heightTl: { kill: () => void } | null = null
 
@@ -1577,6 +1586,153 @@ onBeforeUnmount(() => {
     align-self: end;
     justify-content: flex-end;
   }
+
+  /* Keys Store uses the right side as one reading column. The tag rows keep
+     the same right alignment as Audience, with deliberate space between each
+     editorial block rather than overlapping the product frame. */
+  .home-cases[data-case-id='keys-store'] .cases-stage {
+    align-items: start;
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-stage__visual,
+  .home-cases[data-case-id='keys-store'] .cases-aside,
+  .home-cases[data-case-id='keys-store'] .cases-aside__top {
+    display: contents;
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-tags-motion--focus {
+    grid-column: 6 / -1;
+    grid-row: 1;
+    margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-media {
+    grid-column: 2 / span 5;
+    grid-row: 2;
+    align-self: start;
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-title {
+    grid-column: 1 / span 4;
+    grid-row: 3;
+    width: 100%;
+    margin-top: clamp(1.5rem, 3vw, 2.5rem);
+    justify-self: start;
+    text-align: left;
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-blurb {
+    grid-column: 7 / -1;
+    grid-row: 1;
+    width: 100%;
+    margin-top: clamp(4rem, 8vw, 7rem);
+    justify-self: start;
+    text-align: left;
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-tags-motion--role {
+    grid-column: 6 / -1;
+    grid-row: 5;
+    margin-top: clamp(2.5rem, 5vw, 5rem);
+  }
+
+  /* Baltika Brew: product at the centre, with the text balanced against the
+     upper and lower fifths of its square frame. */
+  .home-cases[data-case-id='baltika'] .cases-stage {
+    --baltika-media-size: calc(
+      (var(--layout-span-5) - 4 * var(--layout-gutter)) * 0.8
+      + 3 * var(--layout-gutter)
+    );
+    min-height: max(var(--cases-stage-h), var(--layout-span-5));
+    grid-template-rows: var(--layout-span-5) auto;
+    align-items: stretch;
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-stage__visual,
+  .home-cases[data-case-id='baltika'] .cases-aside,
+  .home-cases[data-case-id='baltika'] .cases-aside__top {
+    display: contents;
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-media {
+    grid-column: 3 / span 5;
+    grid-row: 1;
+    align-self: start;
+    justify-self: center;
+    width: var(--baltika-media-size);
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-title {
+    grid-column: 1 / span 2;
+    grid-row: 1;
+    align-self: start;
+    margin-top: calc(var(--baltika-media-size) * 0.2);
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-blurb {
+    grid-column: 8 / -1;
+    grid-row: 1;
+    align-self: end;
+    margin-bottom: calc(
+      var(--layout-span-5) * 0.2 + var(--layout-gutter) * 0.65
+    );
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-tags-motion--focus {
+    grid-column: 8 / -1;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    width: min(18rem, 100vw);
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-tags-motion--role {
+    grid-column: 8 / -1;
+    grid-row: 2;
+    justify-self: end;
+    width: min(18rem, 100vw);
+    margin-top: clamp(2.5rem, 5vw, 5rem);
+  }
+
+  /* SCHMIDT: an expanded image plane, with the headline and the supporting
+     copy set as two independent reading columns above it. */
+  .home-cases[data-case-id='schmidt'] .cases-stage__visual,
+  .home-cases[data-case-id='schmidt'] .cases-aside,
+  .home-cases[data-case-id='schmidt'] .cases-aside__top {
+    display: contents;
+  }
+
+  .home-cases[data-case-id='schmidt'] .cases-title {
+    grid-column: 1 / span 3;
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .home-cases[data-case-id='schmidt'] .cases-media {
+    grid-column: 1 / span 6;
+    grid-row: 2;
+    align-self: start;
+    margin-top: clamp(1.5rem, 3vw, 2.5rem);
+  }
+
+  .home-cases[data-case-id='schmidt'] .cases-tags-motion--focus {
+    grid-column: 6 / -1;
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .home-cases[data-case-id='schmidt'] .cases-blurb {
+    grid-column: 6 / -1;
+    grid-row: 1;
+    align-self: start;
+    margin-top: clamp(4rem, 8vw, 7rem);
+  }
+
+  .home-cases[data-case-id='schmidt'] .cases-tags-motion--role {
+    grid-column: 6 / -1;
+    grid-row: 2;
+    align-self: end;
+  }
 }
 
 .cases-title {
@@ -1747,6 +1903,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   margin: 0;
   font-size: var(--type-lead);
+  font-weight: 300;
   letter-spacing: -0.02em;
   line-height: 1.35;
   text-align: left;

@@ -30,6 +30,8 @@ export type HomeCase = {
     video?: {
       webm: string
       mp4: string
+      mobileWebm?: string
+      mobileMp4?: string
       poster: string
     }
   }
@@ -77,13 +79,15 @@ export const homeCases: HomeCase[] = [
     roleTags: ['веб-дизайн', '3D-графика', 'анимация'],
     wash: 'var(--palette-milk)',
     media: {
-      src: '/home/cases/baltika.png',
+      src: '/home/cases/baltika-brew-poster.webp',
       alt: 'Балтика Brew — продукт',
       orientation: 'portrait',
       video: {
-        webm: '/home/cases/video.webm',
-        mp4: '/home/cases/video.mp4',
-        poster: '/home/cases/baltika-video-poster.jpg',
+        webm: '/home/cases/baltika-brew.webm',
+        mp4: '/home/cases/baltika-brew.mp4',
+        mobileWebm: '/home/cases/baltika-brew-mobile.webm',
+        mobileMp4: '/home/cases/baltika-brew-mobile.mp4',
+        poster: '/home/cases/baltika-brew-poster.webp',
       },
     },
   },

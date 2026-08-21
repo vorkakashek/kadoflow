@@ -6,12 +6,50 @@ const item = computed(() =>
   homeCases.find((caseItem) => caseItem.id === route.params.id),
 )
 const { detailContentVisible } = useCaseDetailTransition()
+const mediaEnterEl = ref<HTMLElement | null>(null)
+const mediaParallaxEl = ref<HTMLElement | null>(null)
+
+let mediaParallaxCtx: { revert: () => void } | null = null
+
+async function setupMediaParallax() {
+  const media = mediaParallaxEl.value
+  if (!media || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+  const gsap = (await import('gsap')).default
+  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
+  gsap.registerPlugin(ScrollTrigger)
+
+  mediaParallaxCtx?.revert()
+  mediaParallaxCtx = gsap.context(() => {
+    gsap.fromTo(
+      media,
+      { yPercent: 0 },
+      {
+        yPercent: 30,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: mediaEnterEl.value ?? media,
+          start: () => `top top+=${Math.round(media.offsetHeight * 0.3)}px`,
+          end: 'bottom top',
+          scrub: 0.65,
+          invalidateOnRefresh: true,
+        },
+      },
+    )
+  }, mediaEnterEl.value ?? media)
+}
 
 onMounted(() => {
   // Direct entries have not visited the home route yet. Warm its component
   // while the user reads the case so the return transition can mount it under
   // the fullscreen cover without a route-chunk pause.
   void preloadRouteComponents('/')
+  void nextTick(setupMediaParallax)
+})
+
+onBeforeUnmount(() => {
+  mediaParallaxCtx?.revert()
+  mediaParallaxCtx = null
 })
 
 if (!item.value) {
@@ -39,24 +77,42 @@ useHead(() => ({
       </section>
 
       <section class="case-detail__content">
-        <p class="case-detail__eyebrow">Фокус внимания</p>
-        <p class="case-detail__tags">{{ item.focusTags.join(' · ') }}</p>
-        <BaltikaScrollFilm
-          v-if="item.id === 'baltika' && item.media.video"
-          :webm="item.media.video.webm"
-          :mp4="item.media.video.mp4"
-          :poster="item.media.video.poster"
-          :alt="item.media.alt"
-        />
-        <img
-          v-else
-          :src="item.media.src"
-          :alt="item.media.alt"
-          class="case-detail__image"
-          loading="eager"
-          fetchpriority="high"
-          decoding="async"
+        <div class="case-detail__meta">
+          <div>
+            <p class="case-detail__eyebrow">Фокус внимания</p>
+            <p class="case-detail__tags">{{ item.focusTags.join(' · ') }}</p>
+          </div>
+          <div>
+            <p class="case-detail__eyebrow">Участие КАДОФЛОУ</p>
+            <p class="case-detail__tags">{{ item.roleTags.join(' · ') }}</p>
+          </div>
+        </div>
+        <div
+          ref="mediaEnterEl"
+          class="case-detail__media"
+          :class="{ 'case-detail__media--video': item.id === 'baltika' && item.media.video }"
         >
+          <div ref="mediaParallaxEl" class="case-detail__media-parallax">
+            <BaltikaScrollFilm
+              v-if="item.id === 'baltika' && item.media.video"
+              :webm="item.media.video.webm"
+              :mp4="item.media.video.mp4"
+              :mobile-webm="item.media.video.mobileWebm"
+              :mobile-mp4="item.media.video.mobileMp4"
+              :poster="item.media.video.poster"
+              :alt="item.media.alt"
+            />
+            <img
+              v-else
+              :src="item.media.src"
+              :alt="item.media.alt"
+              class="case-detail__image"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+            >
+          </div>
+        </div>
         <p class="case-detail__blurb">{{ item.blurb.replace('\n', ' ') }}</p>
       </section>
     </div>
@@ -83,16 +139,45 @@ useHead(() => ({
   display: grid;
   /* Keep the opening mark compact so the case itself starts in the first view. */
   box-sizing: border-box;
-  min-height: 40svh;
+  min-height: 60svh;
   place-items: center;
   padding-block: calc(var(--layout-surface-top) + clamp(1rem, 2vw, 2rem)) clamp(1rem, 2vw, 2rem);
   text-align: center;
 }
 
 .case-detail__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
   margin: 0 auto;
   padding-top: clamp(1.5rem, 3vw, 3rem);
+}
+
+.case-detail__meta {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .case-detail__content {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: var(--layout-gutter);
+  }
+
+  .case-detail__meta {
+    grid-column: 2 / -2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--layout-gutter);
+  }
+
+  .case-detail__media {
+    grid-column: 1 / -1;
+  }
+
+  .case-detail__blurb {
+    grid-column: 2 / -2;
+    max-width: none;
+  }
 }
 
 .case-detail__eyebrow,
@@ -127,60 +212,59 @@ h1 {
   line-height: 1.35;
 }
 
+.case-detail__media {
+  margin-top: 1.25rem;
+  /* Reserve the media’s lowest parallax position. */
+  margin-bottom: clamp(4rem, 18vw, 22rem);
+}
+
+.case-detail__media--video {
+  /* Baltika’s square film needs its full 30% travel below the block. */
+  margin-bottom: clamp(4rem, 30vw, 24rem);
+}
+
+.case-detail__media-parallax {
+  will-change: transform;
+}
+
 .case-detail__image {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
-  margin-top: 1.25rem;
   object-fit: cover;
 }
 
-.case-detail__eyebrow,
-.case-detail__tags,
-.case-detail__image,
-.case-detail :deep(.baltika-scroll-film) {
+.case-detail__meta,
+.case-detail__media {
   transition:
     opacity 1.6s cubic-bezier(0.22, 1, 0.36, 1),
     transform 1.6s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .case-detail--entering h1,
-.case-detail--entering .case-detail__eyebrow,
-.case-detail--entering .case-detail__tags,
-.case-detail--entering .case-detail__image,
-.case-detail--entering :deep(.baltika-scroll-film) {
+.case-detail--entering .case-detail__meta,
+.case-detail--entering .case-detail__media {
   opacity: 0;
 }
 
-.case-detail--entering .case-detail__eyebrow,
-.case-detail--entering .case-detail__tags,
-.case-detail--entering .case-detail__image {
+.case-detail--entering .case-detail__meta,
+.case-detail--entering .case-detail__media {
   transform: translateY(2rem);
 }
 
 /* Once the fullscreen image has cleared, bring the page in as a short cascade. */
-.case-detail:not(.case-detail--entering) .case-detail__eyebrow {
+.case-detail:not(.case-detail--entering) .case-detail__meta {
   transition-delay: 0.2s;
 }
 
-.case-detail:not(.case-detail--entering) .case-detail__tags {
-  transition-delay: 0.34s;
-}
-
-.case-detail:not(.case-detail--entering) .case-detail__image {
-  transition-delay: 0.48s;
-}
-
-.case-detail:not(.case-detail--entering) :deep(.baltika-scroll-film) {
+.case-detail:not(.case-detail--entering) .case-detail__media {
   transition-delay: 0.48s;
 }
 
 @media (prefers-reduced-motion: reduce) {
   h1,
-  .case-detail__eyebrow,
-  .case-detail__tags,
-  .case-detail__image,
-  .case-detail :deep(.baltika-scroll-film) {
+  .case-detail__meta,
+  .case-detail__media {
     transition: none;
   }
 }

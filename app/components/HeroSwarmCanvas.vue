@@ -2019,8 +2019,16 @@ async function bootScene() {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition:
+    background-color 0.3s var(--motion-ease, ease),
     opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  .motion-control:hover,
+  .motion-control:focus-visible {
+    background-color: var(--palette-ink, #171915);
+  }
 }
 
 .motion-control--scroll-hidden {

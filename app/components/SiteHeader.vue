@@ -820,7 +820,7 @@ onUnmounted(() => {
         <NuxtLink
           ref="logoEl"
           to="/"
-          class="header-logo-link pointer-events-auto col-span-12 justify-self-center md:col-span-3 md:col-start-1 md:justify-self-start"
+          class="header-logo-link pointer-events-auto row-start-1 col-span-12 col-start-1 justify-self-center md:col-span-3 md:justify-self-start"
           :class="{ 'header-logo-link--cases-fading': mobileLogoCasesProgress > 0.01 }"
           aria-label="Kadoflow — на главную"
           :tabindex="canvasSurface ? -1 : 0"
@@ -843,19 +843,19 @@ onUnmounted(() => {
         <button
           v-if="detailCase"
           type="button"
-          class="case-header-back pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
+          class="case-header-back site-nav pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
           aria-label="Назад на главную"
           @click="onCaseDetailBack"
         >
           <span class="case-header-back__frame" aria-hidden="true">
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M27 16H5" />
               <path d="m12 9-7 7 7 7" />
             </svg>
           </span>
           <span class="case-header-back__label">назад</span>
           <span class="case-header-back__frame case-header-back__frame--after" aria-hidden="true">
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M27 16H5" />
               <path d="m12 9-7 7 7 7" />
             </svg>
@@ -899,6 +899,7 @@ onUnmounted(() => {
             <span class="menu-dot" />
           </span>
         </span>
+
       </div>
     </div>
   </header>
@@ -1090,7 +1091,8 @@ html.page-canvas-lock .menu-btn--float {
   border: 0;
   width: 8.5rem;
   min-height: 3rem;
-  padding: 0.5rem 0.9rem;
+  /* Match the menu chip’s optical top/bottom balance. */
+  padding: 7px 0.9rem 9px;
   overflow: hidden;
   cursor: pointer;
   appearance: none;
@@ -1112,9 +1114,9 @@ html.page-canvas-lock .menu-btn--float {
   left: 0.75rem;
   top: 50%;
   display: flex;
-  width: 32px;
-  height: 32px;
-  transform: translate3d(0, -50%, 0);
+  width: 26px;
+  height: 26px;
+  transform: translate3d(0, calc(-50% + 2px), 0);
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -1131,7 +1133,7 @@ html.page-canvas-lock .menu-btn--float {
 .case-header-back__frame--after {
   right: 0.75rem;
   left: auto;
-  transform: translate3d(calc(100% + 0.9rem), -50%, 0);
+  transform: translate3d(calc(100% + 0.9rem), calc(-50% + 2px), 0);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1143,7 +1145,7 @@ html.page-canvas-lock .menu-btn--float {
 
   .case-header-back:hover .case-header-back__frame:not(.case-header-back__frame--after),
   .case-header-back:focus-visible .case-header-back__frame:not(.case-header-back__frame--after) {
-    transform: translate3d(calc(-100% - 0.9rem), -50%, 0);
+    transform: translate3d(calc(-100% - 0.9rem), calc(-50% + 2px), 0);
   }
 
   .case-header-back:hover .case-header-back__label,
@@ -1153,7 +1155,7 @@ html.page-canvas-lock .menu-btn--float {
 
   .case-header-back:hover .case-header-back__frame--after,
   .case-header-back:focus-visible .case-header-back__frame--after {
-    transform: translate3d(0, -50%, 0);
+    transform: translate3d(0, calc(-50% + 2px), 0);
   }
 }
 
@@ -1223,6 +1225,8 @@ html.page-canvas-lock .menu-btn--float {
   position: relative;
   cursor: pointer;
   border-radius: 9999px;
+  /* The typeface’s visible glyph area sits slightly low in its line box. */
+  padding-block: 7px 9px;
   /* ~1.5× chip horizontal padding (2× then −25%) */
   padding-inline: 18px;
   margin-inline: -18px;
@@ -1308,6 +1312,7 @@ html.page-canvas-lock .menu-btn--float {
 
 .menu-dots {
   position: relative;
+  top: 2px;
   z-index: 1;
   display: inline-flex;
   align-items: center;
