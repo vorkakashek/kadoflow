@@ -788,7 +788,6 @@ onBeforeUnmount(() => {
       class="cases-inner relative z-[1] mx-auto grid w-full"
       :style="{
         maxWidth: 'var(--layout-content-max)',
-        paddingInline: 'var(--layout-margin)',
         gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
         columnGap: 'var(--layout-gutter)',
       }"
@@ -921,12 +920,14 @@ onBeforeUnmount(() => {
   */
   padding-top: calc(var(--layout-surface-top) + var(--space-section));
   padding-bottom: var(--space-section);
+  padding-inline: var(--layout-margin-content);
 }
 
 @media (min-width: 768px) {
   .cases-inner {
     padding-top: 120px;
     padding-bottom: 120px;
+    padding-inline: 0;
   }
 }
 
