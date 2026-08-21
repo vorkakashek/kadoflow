@@ -9,14 +9,11 @@ export type HomeCase = {
   title: string
   /** Short description under focus tags (≈2 lines). */
   blurb: string
-  /** Top-right tags (mood / focus). */
+  /** Case-detail metadata; it is intentionally hidden on the home stage. */
   focusTags: string[]
-  /** Bottom-right tags (role / scope). */
   roleTags: string[]
   /** Page / section wash color. */
   wash: string
-  /** Optional full-bleed pattern / photo behind the case. */
-  bgImage?: string
   /** Light text on dark washes. */
   inverse?: boolean
   media: {
@@ -25,7 +22,7 @@ export type HomeCase = {
     /** Portrait mockups stay tall; landscape can sit wider later. */
     orientation?: 'portrait' | 'landscape'
     /** Width in 12-col layout spans (uses `--layout-span-N`). */
-    cols?: 2 | 3 | 4 | 5 | 6
+    cols?: 2 | 3 | 4 | 5 | 6 | 7 | 12
     /** Optional motion treatment for the home case surface. */
     video?: {
       webm: string
@@ -45,14 +42,13 @@ export const homeCases: HomeCase[] = [
     blurb: 'Цифровое расширение пространства\nв японской эстетике.',
     focusTags: ['тишина', 'ритм', 'японская пластика'],
     roleTags: ['арт-дирекция', 'UX/UI-дизайн', 'под ключ'],
-    wash: '#0a0a0a',
-    bgImage: '/home/cases/case-bg-audience.png',
+    wash: '#0A0501',
     inverse: true,
     media: {
       src: '/home/cases/audience-img.png',
       alt: 'Audience — мобильный мокап сайта',
       orientation: 'portrait',
-      cols: 3,
+      cols: 5,
     },
   },
   {
@@ -68,13 +64,14 @@ export const homeCases: HomeCase[] = [
       src: '/home/cases/keys-1.png',
       alt: 'Keys Store — витрина',
       orientation: 'portrait',
+      cols: 7,
     },
   },
   {
     id: 'baltika',
     label: 'Балтика Brew',
     title: 'Балтика Brew',
-    blurb: 'Одна форма, несколько характеров —\nраскрытых через движение.',
+    blurb: 'Одна форма,\nнесколько характеров,\nраскрытых через движение.',
     focusTags: ['объект', 'движение', 'трансформация'],
     roleTags: ['веб-дизайн', '3D-графика', 'анимация'],
     wash: 'var(--palette-milk)',
@@ -82,6 +79,7 @@ export const homeCases: HomeCase[] = [
       src: '/home/cases/baltika-brew-poster.webp',
       alt: 'Балтика Brew — продукт',
       orientation: 'portrait',
+      cols: 5,
       video: {
         webm: '/home/cases/baltika-brew.webm',
         mp4: '/home/cases/baltika-brew.mp4',
@@ -103,17 +101,11 @@ export const homeCases: HomeCase[] = [
       src: '/home/cases/schmidt.png',
       alt: 'SCHMIDT — премиальная водка',
       orientation: 'landscape',
+      cols: 12,
     },
   },
 ]
 
 export function homeCaseDetailPath(item: Pick<HomeCase, 'id'>): string {
   return `/projects/${item.id}`
-}
-
-export function homeCaseBackground(item: HomeCase): string {
-  if (item.bgImage) {
-    return `${item.wash} url(${item.bgImage}) center / cover no-repeat`
-  }
-  return item.wash
 }

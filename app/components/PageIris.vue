@@ -19,6 +19,7 @@ import {
 } from '~/utils/irisClip'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
 import { isThumbNav } from '~/utils/mobileViewport'
+import { homeCases } from '~/utils/homeCases'
 
 const {
   surfaceOn,
@@ -31,7 +32,10 @@ const {
 } = usePageCanvas()
 const rootEl = ref<HTMLElement | null>(null)
 const live = ref(false)
-const { active: caseDetailTransitionActive } = useCaseDetailTransition()
+const {
+  active: caseDetailTransitionActive,
+  closeCaseDetail,
+} = useCaseDetailTransition()
 
 let originEl: Element | null = null
 let originGeom: IrisGeom | null = null
@@ -305,9 +309,32 @@ onMounted(() => {
   const router = useRouter()
   document.addEventListener('pointerdown', captureOrigin, true)
   document.addEventListener('click', captureOrigin, true)
-  window.addEventListener('popstate', onPopState)
+  // Capture before Vue Router’s bubble-phase listener. This lets a browser
+  // Back from a home-origin case use the same physical return flight as the
+  // explicit header control, instead of opening the generic page iris.
+  window.addEventListener('popstate', onPopState, true)
 
   stopBefore = router.beforeEach(async (to, from) => {
+    const detailId = /^\/projects\/([^/]+)$/.exec(from.path)?.[1]
+    const isCaseReturn =
+      !caseDetailTransitionActive.value
+      && to.path === '/'
+      && !!detailId
+
+    if (isCaseReturn) {
+      const item = homeCases.find((caseItem) => caseItem.id === detailId)
+      popNav = false
+      if (item) {
+        closeCaseDetail({
+          src: item.media.src,
+          alt: item.media.alt,
+          wash: item.wash,
+          historyBack: true,
+        })
+        return false
+      }
+    }
+
     if (shouldSkip(to, from)) return
     if (to.path === '/') preloadHomeSceneAssets()
     const token = ++gen
@@ -348,7 +375,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('pointerdown', captureOrigin, true)
   document.removeEventListener('click', captureOrigin, true)
-  window.removeEventListener('popstate', onPopState)
+  window.removeEventListener('popstate', onPopState, true)
   stopBefore?.()
   stopAfter?.()
   stopError?.()

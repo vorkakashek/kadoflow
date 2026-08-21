@@ -2128,14 +2128,6 @@ watch(
   object-position: center;
 }
 
-/* The source has an opaque white backdrop rather than an alpha channel.
-   Multiply lets that white resolve to the case wash while preserving the video
-   as an inline, hardware-decoded asset. */
-.case-surface-fill__video {
-  object-fit: cover;
-  mix-blend-mode: multiply;
-}
-
 .case-surface-fill__asset--behind-video {
   opacity: 0;
 }

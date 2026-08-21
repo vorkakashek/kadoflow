@@ -16,6 +16,15 @@ function nextPaint() {
   })
 }
 
+async function returnThroughHistory(to: string) {
+  router.back()
+  const targetPath = to.split('#')[0] || '/'
+  for (let frame = 0; frame < 18; frame += 1) {
+    await nextPaint()
+    if (router.currentRoute.value.path === targetPath) return
+  }
+}
+
 async function findTarget(selector: string) {
   for (let frame = 0; frame < 12; frame += 1) {
     const target = document.querySelector<HTMLElement>(selector)
@@ -123,7 +132,8 @@ watch(request, async (next) => {
 
     // The opaque image now owns the frame. Nuxt can mount and settle the home
     // route behind it without exposing an intermediate page state.
-    await router.push(next.to)
+    if (next.historyBack) await returnThroughHistory(next.to)
+    else await router.push(next.to)
     await nextPaint()
     await settleRouteHash(next.to)
     const target = next.targetSelector ? await findTarget(next.targetSelector) : null

@@ -1,14 +1,11 @@
 <script setup lang="ts">
 /**
  * Home cases — one viewport stage + left rail switcher.
- * Grid: 2 list | 1 gap | 9 content.
- * Section bg teleports to `#home-cases-bg-host` (page z-1) under Flow Surface (z-5)
- * and under main (z-10). Never teleport to body — body z beats `.pc-live-stack`.
+ * Grid: full 12-column editorial stage with a compact navigation rail.
  * Desktop: figure is a pose slot; the case photo fills the Flow Surface.
  * Mobile: the figure remains the layout target; Flow Surface morphs into it.
  */
 import {
-  homeCaseBackground,
   homeCaseDetailPath,
   homeCases,
   type HomeCase,
@@ -22,18 +19,14 @@ import {
 const rootEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
 const mediaImgFrontEl = ref<HTMLImageElement | null>(null)
+const bgTrackEl = ref<HTMLElement | null>(null)
 
-const bgPortalEl = ref<HTMLElement | null>(null)
-const bgObjectEl = ref<HTMLElement | null>(null)
-const bgParallaxEl = ref<HTMLElement | null>(null)
-const bgFrontEl = ref<HTMLElement | null>(null)
-const bgBackEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const railEl = ref<HTMLElement | null>(null)
 const railListEl = ref<HTMLElement | null>(null)
 const blurbEl = ref<HTMLElement | null>(null)
 const gestureHintEl = ref<HTMLElement | null>(null)
-/** Avoid SSR Teleport into `#home-cases-bg-host` (hydration child mismatch). */
+/** Avoid SSR Teleport into the page-local colour host. */
 const mountBgPortal = ref(false)
 const mobileCases = ref(false)
 const caseGestureHintSeen = useCookie<boolean>('kadoflow-case-gesture-hint-v2', {
@@ -48,7 +41,6 @@ const showCaseGestureHint = computed(
 
 const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
-const hasSwitched = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
 const caseSurfaceMedia = useState<{
   src: string
@@ -317,14 +309,11 @@ watch([activeCase, mobileCases], scheduleMobileBlurbBreak, { flush: 'post' })
 
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
-let parallaxCtx: { revert: () => void } | null = null
 let enterCtx: { revert: () => void } | null = null
 let enterTl: { kill: () => void } | null = null
 let switchTl: { kill: () => void } | null = null
 let bgPortalRo: ResizeObserver | null = null
 let blurbRo: ResizeObserver | null = null
-/** Which absolute bg layer is currently visible (0 | 1). */
-let bgFront = 0
 
 async function ensureGsap() {
   if (!gsapMod) gsapMod = (await import('gsap')).default
@@ -336,14 +325,22 @@ async function ensureGsap() {
   return gsapMod
 }
 
-/** Copy blocks only — media + section bg are not staged. */
+/** Keep the colour plate under FlowSurface aligned to the cases section. */
+function syncColorPlate() {
+  const section = rootEl.value
+  const plate = bgTrackEl.value
+  if (!section || !plate) return
+  const host = plate.offsetParent as HTMLElement | null
+  if (!host) return
+  const sectionBox = section.getBoundingClientRect()
+  const hostBox = host.getBoundingClientRect()
+  plate.style.top = `${sectionBox.top - hostBox.top}px`
+  plate.style.height = `${sectionBox.height}px`
+}
+
+/** Copy blocks only — the media is owned by FlowSurface. */
 type StageCopyParts = {
-  title: HTMLElement | null
   blurb: HTMLElement | null
-  /** Whole focus-tags list (not per-chip). */
-  focusBlock: HTMLElement | null
-  /** Whole role-tags list. */
-  roleBlock: HTMLElement | null
   all: HTMLElement[]
 }
 
@@ -351,25 +348,15 @@ function stageCopyParts(): StageCopyParts {
   const stage = stageEl.value
   if (!stage) {
     return {
-      title: null,
       blurb: null,
-      focusBlock: null,
-      roleBlock: null,
       all: [],
     }
   }
-  const title = stage.querySelector<HTMLElement>('.cases-title')
   const blurb = stage.querySelector<HTMLElement>('.cases-blurb')
-  const focusBlock = stage.querySelector<HTMLElement>(
-    '.cases-tags-motion--focus',
-  )
-  const roleBlock = stage.querySelector<HTMLElement>(
-    '.cases-tags-motion--role',
-  )
-  const all = [title, blurb, focusBlock, roleBlock].filter(
+  const all = [blurb].filter(
     (el): el is HTMLElement => !!el,
   )
-  return { title, blurb, focusBlock, roleBlock, all }
+  return { blurb, all }
 }
 
 function railAnimTargets(): HTMLElement[] {
@@ -379,33 +366,19 @@ function railAnimTargets(): HTMLElement[] {
 }
 
 const COPY_IN = {
-  titleX: -28,
   blurbY: 20,
-  tagX: 24,
   dur: 0.75,
-  roleDelay: 0.12,
 } as const
 
 const COPY_OUT = {
-  titleX: -20,
   blurbY: 16,
-  tagX: 20,
   dur: 0.35,
-  roleDelay: 0.04,
 } as const
 
 function setCopyHidden(
   gsap: typeof import('gsap').default,
   parts: StageCopyParts,
 ) {
-  if (parts.title) {
-    gsap.set(parts.title, {
-      opacity: 0,
-      x: COPY_IN.titleX,
-      y: 0,
-      clearProps: 'visibility',
-    })
-  }
   if (parts.blurb) {
     gsap.set(parts.blurb, {
       opacity: 0,
@@ -414,25 +387,9 @@ function setCopyHidden(
       clearProps: 'visibility',
     })
   }
-  if (parts.focusBlock) {
-    gsap.set(parts.focusBlock, {
-      opacity: 0,
-      x: COPY_IN.tagX,
-      y: 0,
-      clearProps: 'visibility',
-    })
-  }
-  if (parts.roleBlock) {
-    gsap.set(parts.roleBlock, {
-      opacity: 0,
-      x: COPY_IN.tagX,
-      y: 0,
-      clearProps: 'visibility',
-    })
-  }
 }
 
-/** Title ←→, blurb ↑↓, tag lists as whole blocks RTL. */
+/** Description rises in after each media morph. */
 function tweenCopyIn(
   tl: {
     to: (
@@ -444,13 +401,6 @@ function tweenCopyIn(
   parts: StageCopyParts,
   at = 0,
 ) {
-  if (parts.title) {
-    tl.to(
-      parts.title,
-      { opacity: 1, x: 0, duration: COPY_IN.dur, ease: 'power3.out' },
-      at,
-    )
-  }
   if (parts.blurb) {
     tl.to(
       parts.blurb,
@@ -458,33 +408,9 @@ function tweenCopyIn(
       at + 0.1,
     )
   }
-  if (parts.focusBlock) {
-    tl.to(
-      parts.focusBlock,
-      {
-        opacity: 1,
-        x: 0,
-        duration: COPY_IN.dur * 0.95,
-        ease: 'power3.out',
-      },
-      at + 0.08,
-    )
-  }
-  if (parts.roleBlock) {
-    tl.to(
-      parts.roleBlock,
-      {
-        opacity: 1,
-        x: 0,
-        duration: COPY_IN.dur * 0.95,
-        ease: 'power3.out',
-      },
-      at + COPY_IN.roleDelay,
-    )
-  }
 }
 
-/** Reverse of in — same axes, opacity → 0. */
+/** Reverse of the description entrance. */
 function tweenCopyOut(
   tl: {
     to: (
@@ -496,18 +422,6 @@ function tweenCopyOut(
   parts: StageCopyParts,
   at = 0,
 ) {
-  if (parts.title) {
-    tl.to(
-      parts.title,
-      {
-        opacity: 0,
-        x: COPY_OUT.titleX,
-        duration: COPY_OUT.dur,
-        ease: 'power2.in',
-      },
-      at,
-    )
-  }
   if (parts.blurb) {
     tl.to(
       parts.blurb,
@@ -520,125 +434,6 @@ function tweenCopyOut(
       at + 0.05,
     )
   }
-  if (parts.focusBlock) {
-    tl.to(
-      parts.focusBlock,
-      {
-        opacity: 0,
-        x: COPY_OUT.tagX,
-        duration: COPY_OUT.dur,
-        ease: 'power2.in',
-      },
-      at + 0.04,
-    )
-  }
-  if (parts.roleBlock) {
-    tl.to(
-      parts.roleBlock,
-      {
-        opacity: 0,
-        x: COPY_OUT.tagX,
-        duration: COPY_OUT.dur,
-        ease: 'power2.in',
-      },
-      at + COPY_OUT.roleDelay,
-    )
-  }
-}
-
-function paintBgLayer(el: HTMLElement | null, item: HomeCase) {
-  if (!el) return
-  el.style.background = homeCaseBackground(item)
-}
-
-/** Keep teleported bg aligned to the cases section inside the page host. */
-function syncBgPortal() {
-  const section = rootEl.value
-  const portal = bgPortalEl.value
-  if (!section || !portal) return
-  const host = portal.offsetParent as HTMLElement | null
-  if (!host) {
-    portal.style.top = `${section.offsetTop}px`
-    portal.style.height = `${section.offsetHeight}px`
-    return
-  }
-  const s = section.getBoundingClientRect()
-  const h = host.getBoundingClientRect()
-  portal.style.top = `${s.top - h.top}px`
-  portal.style.height = `${s.height}px`
-}
-
-async function setupParallax() {
-  parallaxCtx?.revert()
-  parallaxCtx = null
-  syncBgPortal()
-
-  const section = rootEl.value
-  const portal = bgPortalEl.value
-  const objectEl = bgObjectEl.value
-  const textureEl = bgParallaxEl.value
-  const gestureHint = gestureHintEl.value
-  if (!section || !portal || !objectEl || !textureEl) return
-
-  const gsap = await ensureGsap()
-  if (prefersReduce()) {
-    gsap.set(portal, { y: 0 })
-    gsap.set(objectEl, { y: 0 })
-    gsap.set(textureEl, { yPercent: 0 })
-    if (gestureHint) gsap.set(gestureHint, { y: 0 })
-    return
-  }
-
-  // Frame starts lower and travels further up; texture drifts inside the plate.
-  parallaxCtx = gsap.context(() => {
-    const st = {
-      trigger: section,
-      start: 'top bottom',
-      end: 'bottom top',
-      scrub: 1.15,
-      invalidateOnRefresh: true,
-    }
-    gsap.fromTo(
-      portal,
-      { y: 120 },
-      {
-        y: -100,
-        ease: 'none',
-        scrollTrigger: st,
-      },
-    )
-    if (gestureHint) {
-      // The interactive overlay remains in the section stacking context, but
-      // follows the teleported background plate pixel-for-pixel.
-      gsap.fromTo(
-        gestureHint,
-        { y: 120 },
-        {
-          y: -100,
-          ease: 'none',
-          scrollTrigger: { ...st },
-        },
-      )
-    }
-    gsap.fromTo(
-      objectEl,
-      { y: 48 },
-      {
-        y: -56,
-        ease: 'none',
-        scrollTrigger: { ...st },
-      },
-    )
-    gsap.fromTo(
-      textureEl,
-      { yPercent: -16 },
-      {
-        yPercent: 16,
-        ease: 'none',
-        scrollTrigger: { ...st },
-      },
-    )
-  }, portal)
 }
 
 async function setupEnterMotion() {
@@ -780,7 +575,6 @@ let switchGen = 0
 // in Nuxt state. Start from that persisted selection; otherwise returning from
 // any non-Audience case makes the first Audience click look like a no-op.
 let targetCaseId = activeId.value
-let bgTl: { kill: () => void } | null = null
 let heightTl: { kill: () => void } | null = null
 
 function onMediaLayoutReady() {
@@ -807,93 +601,21 @@ function tweenSectionHeight(
     height: toH,
     duration: 0.55,
     ease: 'power2.inOut',
-    onUpdate: syncBgPortal,
     onComplete: () => {
       gsap.set(el, { clearProps: 'height' })
       heightTl = null
-      syncBgPortal()
     },
   })
-}
-
-function transitionBackground(next: HomeCase, gsap: typeof import('gsap').default) {
-  const a = bgFrontEl.value
-  const b = bgBackEl.value
-  if (!a || !b) {
-    paintBgLayer(bgFrontEl.value, next)
-    return
-  }
-
-  // A rapid hover can interrupt the previous crossfade before `bgFront` is
-  // committed. Resolve the actually visible layer first; otherwise we can
-  // zero the brighter layer and expose the sand page for one frame.
-  bgTl?.kill()
-  bgTl = null
-  const opacityA = Number.parseFloat(getComputedStyle(a).opacity) || 0
-  const opacityB = Number.parseFloat(getComputedStyle(b).opacity) || 0
-  const front = opacityA >= opacityB ? a : b
-  const back = front === a ? b : a
-  bgFront = front === a ? 0 : 1
-
-  // Keep a fully opaque plate under the new incoming layer at all times.
-  gsap.set(front, { autoAlpha: 1 })
-
-  // Paint the incoming layer with the new case's background
-  paintBgLayer(back, next)
-
-  // Incoming layer starts below (+8% Y), scaled up (1.1), opacity 0
-  gsap.set(back, {
-    yPercent: 8,
-    scale: 1.1,
-    autoAlpha: 0,
-  })
-
-  const tl = gsap.timeline({
-    defaults: { duration: 0.65 },
-    onComplete: () => {
-      bgFront = back === a ? 0 : 1
-      gsap.set(back, { autoAlpha: 1, clearProps: 'transform' })
-      gsap.set(front, { autoAlpha: 0, clearProps: 'transform' })
-      bgTl = null
-    },
-  })
-  bgTl = tl
-
-  // Disappearing layer: moves up (yPercent: -8), scale up (scale: 1.1), opacity -> 0
-  tl.to(
-    front,
-    {
-      yPercent: -8,
-      scale: 1.1,
-      autoAlpha: 0,
-      ease: 'power2.inOut',
-    },
-    0,
-  )
-
-  // Appearing layer: moves up (yPercent: 0), scale down (scale: 1), opacity -> 1
-  tl.to(
-    back,
-    {
-      yPercent: 0,
-      scale: 1,
-      autoAlpha: 1,
-      ease: 'power2.out',
-    },
-    0,
-  )
 }
 
 async function selectCase(item: HomeCase) {
   if (targetCaseId === item.id) return
   targetCaseId = item.id
-  hasSwitched.value = true
 
   const gsap = await ensureGsap()
 
   if (prefersReduce()) {
     activeId.value = item.id
-    paintBgLayer(bgFront === 0 ? bgFrontEl.value : bgBackEl.value, item)
     publishSurfaceMedia(item)
     if (caseSurfaceDocked.value) caseMediaMorphNonce.value += 1
     await nextTick()
@@ -911,10 +633,7 @@ async function selectCase(item: HomeCase) {
   heightTl?.kill()
   heightTl = null
 
-  // 1. Background transition starts immediately upon click
-  transitionBackground(item, gsap)
-
-  // 2. Animate old copy out before the next figure changes its dimensions.
+  // Animate old copy out before the next figure changes its dimensions.
   const parts = stageCopyParts()
   const out = gsap.timeline({ defaults: { ease: 'power2.in' } })
   switchTl = out
@@ -946,9 +665,7 @@ async function selectCase(item: HomeCase) {
     gsap.set(root, { height: fromH })
     tweenSectionHeight(gsap, root, fromH, toH)
   }
-  syncBgPortal()
-
-  // 5. Animate new copy in
+  // Animate new copy in.
   const nextParts = stageCopyParts()
   setCopyHidden(gsap, nextParts)
   const inn = gsap.timeline({ defaults: { ease: 'power3.out' } })
@@ -966,25 +683,18 @@ onMounted(async () => {
   refreshMobileCases()
   mountBgPortal.value = true
   await nextTick()
-  syncBgPortal()
+  syncColorPlate()
   const first = activeCase.value
   if (first) {
-    paintBgLayer(bgFrontEl.value, first)
     publishSurfaceMedia(first)
-    if (bgBackEl.value) {
-      const gsap = await ensureGsap()
-      gsap.set(bgBackEl.value, { autoAlpha: 0 })
-    }
   }
-  await setupParallax()
   await setupEnterMotion()
   scrollActiveCaseLinkIntoView('auto')
-  window.addEventListener('resize', syncBgPortal, { passive: true })
+  window.addEventListener('resize', syncColorPlate, { passive: true })
   window.addEventListener('resize', refreshMobileCases, { passive: true })
 
   if (rootEl.value && typeof ResizeObserver !== 'undefined') {
-    bgPortalRo?.disconnect()
-    bgPortalRo = new ResizeObserver(() => syncBgPortal())
+    bgPortalRo = new ResizeObserver(syncColorPlate)
     bgPortalRo.observe(rootEl.value)
   }
   if (blurbEl.value && typeof ResizeObserver !== 'undefined') {
@@ -1002,21 +712,17 @@ onBeforeUnmount(() => {
   }
   switchTl?.kill()
   switchTl = null
-  bgTl?.kill()
-  bgTl = null
   heightTl?.kill()
   heightTl = null
   enterTl?.kill()
   enterTl = null
-  parallaxCtx?.revert()
-  parallaxCtx = null
   enterCtx?.revert()
   enterCtx = null
   bgPortalRo?.disconnect()
   bgPortalRo = null
   blurbRo?.disconnect()
   blurbRo = null
-  window.removeEventListener('resize', syncBgPortal)
+  window.removeEventListener('resize', syncColorPlate)
   window.removeEventListener('resize', refreshMobileCases)
 })
 </script>
@@ -1033,26 +739,13 @@ onBeforeUnmount(() => {
     :data-case-id="activeCase?.id"
     :aria-label="`Кейс: ${activeCase?.title ?? ''}`"
   >
-    <!--
-      Under Flow Surface (z-5) + under main (z-10): host is page-local z-1.
-      Teleporting to body with z>1 buried content + surface under the wash.
-    -->
-    <Teleport
-      v-if="mountBgPortal"
-      to="#home-cases-bg-host"
-    >
+    <Teleport v-if="mountBgPortal" to="#home-cases-bg-host">
       <div
-        ref="bgPortalEl"
-        class="cases-bg-portal"
+        ref="bgTrackEl"
+        class="cases-colour-plate"
+        :style="{ backgroundColor: activeCase?.wash }"
         aria-hidden="true"
-      >
-        <div ref="bgObjectEl" class="cases-bg-object">
-          <div ref="bgParallaxEl" class="cases-bg-parallax">
-            <div ref="bgFrontEl" class="cases-bg cases-bg--layer" />
-            <div ref="bgBackEl" class="cases-bg cases-bg--layer" />
-          </div>
-        </div>
-      </div>
+      />
     </Teleport>
 
     <Transition name="cases-gesture-hint">
@@ -1095,14 +788,14 @@ onBeforeUnmount(() => {
       class="cases-inner relative z-[1] mx-auto grid w-full"
       :style="{
         maxWidth: 'var(--layout-content-max)',
-        paddingInline: 'var(--layout-margin-content)',
+        paddingInline: 'var(--layout-margin)',
         gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
         columnGap: 'var(--layout-gutter)',
       }"
     >
       <nav
         ref="railEl"
-        class="cases-rail col-span-12 md:col-span-2"
+        class="cases-rail col-span-12 md:col-span-2 md:col-start-1 md:row-start-1"
         aria-label="Кейсы"
       >
         <ul
@@ -1119,15 +812,11 @@ onBeforeUnmount(() => {
               class="cases-rail__btn"
               :class="{
                 'cases-rail__btn--active': item.id === activeId,
-                'cases-rail__btn--flash': item.id === activeId && hasSwitched,
               }"
               :aria-pressed="item.id === activeId"
               :aria-busy="switching"
               @click="onRailBtnClick(item)"
             >
-              <span class="chip-scale-bg" aria-hidden="true">
-                <span class="chip-scale-bg__fill" />
-              </span>
               <span class="cases-rail__label">{{ item.label }}</span>
             </button>
           </li>
@@ -1137,37 +826,13 @@ onBeforeUnmount(() => {
       <div
         v-if="activeCase"
         ref="stageEl"
-        class="cases-stage col-span-12 md:col-span-9 md:col-start-4"
+        class="cases-stage col-span-12 md:col-span-12 md:col-start-1 md:row-start-1"
         @pointerdown="onCaseStagePointerDown"
         @pointerup="onCaseStagePointerUp"
         @pointercancel="onCaseStagePointerCancel"
         @click.capture="onCaseStageClickCapture"
       >
         <div class="cases-stage__visual">
-          <h2 class="cases-title">
-            <a
-              class="cases-title__link"
-              :href="homeCaseDetailPath(activeCase)"
-              :aria-label="`Открыть кейс ${activeCase.title}`"
-              @click="onCaseDetailLink(activeCase, $event)"
-            >
-              <span class="cases-title__icon-frame" aria-hidden="true">
-                <svg
-                  class="cases-title__icon"
-                  viewBox="0 0 32 32"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M5 5v10a6 6 0 0 0 6 6h16" />
-                  <path d="m21 15 6 6-6 6" />
-                </svg>
-              </span>
-              <span>{{ activeCase.title }}</span>
-            </a>
-          </h2>
           <figure
             ref="mediaEl"
             class="cases-media"
@@ -1202,49 +867,17 @@ onBeforeUnmount(() => {
         </div>
 
         <aside class="cases-aside">
-          <div class="cases-aside__top">
-            <div class="cases-tags-motion cases-tags-motion--focus">
-              <p class="cases-tags">
-                <template
-                  v-for="(tag, i) in activeCase.focusTags"
-                  :key="`f-${tag}`"
-                >
-                  <span
-                    v-if="i"
-                    class="cases-tags__sep"
-                    aria-hidden="true"
-                  >·</span>
-                  <span class="cases-tags__item">{{ tag }}</span>
-                </template>
-              </p>
-            </div>
-            <p
-              ref="blurbEl"
-              class="cases-blurb"
-              :class="{ 'cases-blurb--natural': mobileCases && !mobileBlurbBreak }"
-            >
-              <span
-                v-for="(line, i) in blurbLines"
-                :key="i"
-                class="cases-blurb__line"
-              >{{ line }}</span>
-            </p>
-          </div>
-          <div class="cases-tags-motion cases-tags-motion--role">
-            <p class="cases-tags cases-tags--role">
-              <template
-                v-for="(tag, i) in activeCase.roleTags"
-                :key="`r-${tag}`"
-              >
-                <span
-                  v-if="i"
-                  class="cases-tags__sep"
-                  aria-hidden="true"
-                >·</span>
-                <span class="cases-tags__item">{{ tag }}</span>
-              </template>
-            </p>
-          </div>
+          <p
+            ref="blurbEl"
+            class="cases-blurb"
+            :class="{ 'cases-blurb--natural': mobileCases && !mobileBlurbBreak }"
+          >
+            <span
+              v-for="(line, i) in blurbLines"
+              :key="i"
+              class="cases-blurb__line"
+            >{{ line }}</span>
+          </p>
         </aside>
       </div>
     </div>
@@ -1290,6 +923,13 @@ onBeforeUnmount(() => {
   padding-bottom: var(--space-section);
 }
 
+@media (min-width: 768px) {
+  .cases-inner {
+    padding-top: 120px;
+    padding-bottom: 120px;
+  }
+}
+
 .cases-rail {
   display: flex;
   align-items: center;
@@ -1332,45 +972,23 @@ onBeforeUnmount(() => {
 }
 
 .cases-rail__btn {
-  position: relative;
-  z-index: 0;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   width: auto;
   max-width: 100%;
-  min-height: 2.75rem;
-  padding: 0.65rem 1.15rem;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background-color: color-mix(in srgb, currentColor 12%, transparent);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
-  font-size: var(--type-nav);
+  font-size: calc(var(--type-nav) * 1.5);
   letter-spacing: -0.02em;
   line-height: 1.2;
   cursor: pointer;
   opacity: 0.5;
-  isolation: isolate;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   transition:
-    background-color 0.35s var(--motion-ease, ease),
-    border-color 0.35s var(--motion-ease, ease),
     color 0.35s var(--motion-ease, ease),
-    opacity 0.35s var(--motion-ease, ease),
-    backdrop-filter 0.35s var(--motion-ease, ease);
-}
-
-.cases-rail__btn .chip-scale-bg {
-  transform: scale(0);
-  transform-origin: 50% 50%;
-  transition: none;
-}
-
-.cases-rail__btn .chip-scale-bg__fill {
-  background-color: #ffffff;
+    opacity 0.35s var(--motion-ease, ease);
 }
 
 .cases-rail__btn:hover:not(.cases-rail__btn--active) {
@@ -1384,51 +1002,7 @@ onBeforeUnmount(() => {
 }
 
 .cases-rail__btn--active {
-  background-color: transparent;
-  border-color: currentColor;
-  color: inherit;
   opacity: 1;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.cases-rail__btn--active:not(.cases-rail__btn--flash) .chip-scale-bg {
-  display: none;
-}
-
-.cases-rail__btn--flash .chip-scale-bg {
-  animation: case-rail-scale-fade 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-.cases-rail__btn--flash .cases-rail__label {
-  animation: case-rail-label-contrast 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes case-rail-scale-fade {
-  0% {
-    transform: scale(0);
-    opacity: 0;
-  }
-  42% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 0;
-  }
-}
-
-@keyframes case-rail-label-contrast {
-  0% {
-    color: #0a0a0a;
-  }
-  42% {
-    color: #0a0a0a;
-  }
-  100% {
-    color: inherit;
-  }
 }
 
 .cases-gesture-hint {
@@ -1585,6 +1159,56 @@ onBeforeUnmount(() => {
     grid-column: 1 / span 5;
     align-self: end;
     justify-content: flex-end;
+  }
+
+  /* Audience: the title sits in the lower-right fifth of the mockup and
+     deliberately crosses 20% of its width, instead of taking a separate row. */
+  .home-cases[data-case-id='audience'] .cases-stage__visual {
+    position: relative;
+    display: block;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-stage {
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: clamp(2rem, 4vw, 3.5rem);
+  }
+
+  .home-cases[data-case-id='audience'] .cases-title {
+    position: absolute;
+    z-index: 3;
+    bottom: 20%;
+    left: calc(var(--layout-span-4) * 0.8);
+    white-space: nowrap;
+  }
+
+  /* Audience metadata has its own lower line after the visual and blurb. */
+  .home-cases[data-case-id='audience'] .cases-aside,
+  .home-cases[data-case-id='audience'] .cases-aside__top {
+    display: contents;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-tags-motion--focus {
+    grid-column: 1 / span 4;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-tags-motion--focus .cases-tags {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-tags-motion--role {
+    grid-column: 6 / -1;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-blurb {
+    grid-column: 6 / -1;
+    grid-row: 1;
+    align-self: end;
+    width: 100%;
   }
 
   /* Keys Store uses the right side as one reading column. The tag rows keep
@@ -1925,6 +1549,102 @@ onBeforeUnmount(() => {
   content: ' ';
 }
 
+/* Editorial case poses. Navigation and media share one 12-column field. */
+@media (min-width: 768px) {
+  .cases-inner {
+    min-height: calc(100svh + var(--layout-surface-top));
+    min-height: calc(100dvh + var(--layout-surface-top));
+    box-sizing: border-box;
+    align-items: center;
+  }
+
+  .cases-rail {
+    position: sticky;
+    top: 50svh;
+    z-index: 2;
+    height: auto;
+    align-self: start;
+    transform: translateY(-50%);
+    pointer-events: auto;
+  }
+
+  .cases-stage {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    min-height: 0;
+    align-self: center;
+  }
+
+  .home-cases[data-case-id] .cases-stage {
+    grid-template-rows: auto auto;
+    row-gap: 0;
+    min-height: 0;
+  }
+
+  .cases-stage__visual,
+  .cases-aside {
+    display: contents;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-stage__visual {
+    display: contents;
+  }
+
+  .cases-media {
+    grid-row: 1;
+    align-self: start;
+    margin: 0;
+  }
+
+  .cases-blurb {
+    grid-row: 1;
+    z-index: 1;
+    width: 100%;
+    margin: 0;
+  }
+
+  .home-cases[data-case-id='audience'] .cases-media { grid-column: 7 / span 5; }
+  .home-cases[data-case-id='audience'] .cases-blurb {
+    grid-column: 9 / span 3;
+    align-self: end;
+    margin-bottom: calc(var(--space-block) * 0.68);
+  }
+
+  .home-cases[data-case-id='keys-store'] .cases-media {
+    grid-column: 4 / span 7;
+    grid-row: 1;
+    margin-top: 0;
+  }
+  .home-cases[data-case-id='keys-store'] .cases-blurb {
+    grid-column: 5 / span 3;
+    grid-row: 2;
+    align-self: start;
+    margin-top: clamp(2rem, 2.1vw, 2.5rem);
+  }
+
+  .home-cases[data-case-id='baltika'] .cases-media {
+    grid-column: 8 / span 5;
+    justify-self: end;
+  }
+  .home-cases[data-case-id='baltika'] .cases-blurb {
+    grid-column: 4 / span 3;
+    align-self: end;
+    margin-bottom: 0;
+  }
+
+  .home-cases[data-case-id='schmidt'] .cases-media {
+    grid-column: 4 / span 8;
+    grid-row: 1;
+    margin-top: 0;
+  }
+  .home-cases[data-case-id='schmidt'] .cases-blurb {
+    grid-column: 8 / span 3;
+    grid-row: 2;
+    align-self: start;
+    margin-top: clamp(2rem, 2.1vw, 2.5rem);
+  }
+}
+
 @media (max-width: 767.98px) {
   .cases-rail__list > li,
   .cases-rail__btn {
@@ -1959,38 +1679,13 @@ onBeforeUnmount(() => {
 }
 </style>
 
-<!-- Teleported bg lives in #home-cases-bg-host — unscoped so classes apply. -->
+<!-- Colour is below FlowSurface; only the colour itself transitions. -->
 <style>
-.cases-bg-portal {
+.cases-colour-plate {
   position: absolute;
   left: 0;
   width: 100%;
-  overflow: hidden;
+  transition: background-color 0.72s cubic-bezier(0.65, 0.045, 0.355, 1);
   pointer-events: none;
-  will-change: transform;
-}
-
-.cases-bg-object {
-  position: absolute;
-  inset: -22% 0;
-  will-change: transform;
-}
-
-.cases-bg-parallax {
-  position: absolute;
-  inset: -14% 0;
-  will-change: transform;
-}
-
-.cases-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.cases-bg--layer {
-  opacity: 1;
-  transform-origin: center center;
-  will-change: transform, opacity;
 }
 </style>

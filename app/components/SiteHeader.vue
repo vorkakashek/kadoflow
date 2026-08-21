@@ -1044,6 +1044,7 @@ html.page-iris-lock:not(.page-canvas-surface) .site-header {
 html.page-iris-lock .header-chip,
 html.page-iris-lock .header-chip--scrolled {
   background-color: transparent !important;
+  color: var(--palette-ink, #171915) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   transition: none;
@@ -1170,7 +1171,8 @@ html.page-canvas-lock .menu-btn--float {
   padding: 8px 12px;
   margin: -8px -12px;
   border-radius: 8px;
-  background-color: var(--palette-sand);
+  background-color: var(--palette-ink, #171915);
+  color: var(--palette-milk, #f5f1e8);
   transition: background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
@@ -1190,13 +1192,13 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .header-chip--scrolled {
-  background-color: var(--palette-sand);
+  background-color: var(--palette-ink, #171915);
 }
 
 /* backdrop-filter is a scroll-compositor tax on mobile Chrome too — solid only. */
 @media (max-width: 767px) {
   .header-chip--scrolled {
-    background-color: var(--palette-sand);
+    background-color: var(--palette-ink, #171915);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1214,7 +1216,7 @@ html.page-canvas-lock .menu-btn--float {
     }
 
     .header-chip--scrolled {
-      background-color: var(--palette-sand);
+      background-color: var(--palette-ink, #171915);
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
     }
@@ -1364,12 +1366,12 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   cursor: pointer;
   appearance: none;
   font: inherit;
-  color: var(--palette-ink);
+  color: var(--palette-milk, #f5f1e8);
   border-radius: 9999px;
   padding: 10px 24px;
   opacity: 1;
   visibility: visible;
-  background-color: var(--palette-sand);
+  background-color: var(--palette-ink, #171915);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -1377,12 +1379,17 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
 .header-nav .chip-scale-bg__fill,
 .menu-btn--float .chip-scale-bg__fill,
 .menu-fab .chip-scale-bg__fill {
-  background-color: var(--palette-ink, #171915);
+  background-color: color-mix(
+    in srgb,
+    var(--palette-ink, #171915) 86%,
+    var(--palette-milk, #f5f1e8)
+  );
 }
 
 .nav-link,
 .menu-btn--float,
 .menu-fab {
+  color: var(--palette-milk, #f5f1e8) !important;
   transition: color 0.3s var(--motion-ease, ease);
 }
 

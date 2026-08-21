@@ -33,6 +33,7 @@ const { suppressed } = useSiteCursor()
 const rootEl = ref<HTMLElement | null>(null)
 const enabled = ref(false)
 const hot = ref(false)
+const caseOpen = ref(false)
 const away = ref(true)
 const textOver = ref(false)
 const chipFade = ref(false)
@@ -60,6 +61,7 @@ function probe(x: number, y: number) {
   const node = document.elementFromPoint(x, y)
   if (!(node instanceof Element)) {
     hot.value = false
+    caseOpen.value = false
     chipFade.value = false
     setTextOver(false)
     return
@@ -67,8 +69,10 @@ function probe(x: number, y: number) {
   const overText = !!node.closest(TEXT_SEL)
   setTextOver(overText)
   const overChip = !!node.closest(CHIP_FADE_SEL)
+  const overCaseMedia = !!node.closest('.cases-media__link')
   chipFade.value = overChip
-  hot.value = !overText && !overChip && !!node.closest(HOT_SEL)
+  caseOpen.value = !overText && overCaseMedia
+  hot.value = !overText && !overChip && !overCaseMedia && !!node.closest(HOT_SEL)
 }
 
 function flushMove() {
@@ -94,6 +98,7 @@ function onDocLeave(e: PointerEvent) {
   }
   away.value = true
   hot.value = false
+  caseOpen.value = false
   chipFade.value = false
 }
 
@@ -121,11 +126,14 @@ onUnmounted(() => {
       class="site-cursor"
       :class="{
         'site-cursor--hot': hot,
+        'site-cursor--case-open': caseOpen,
         'site-cursor--hide': suppressed || away || textOver || chipFade,
       }"
       aria-hidden="true"
     >
-      <span class="site-cursor__dot" />
+      <span class="site-cursor__dot">
+        <span class="site-cursor__label">Открыть</span>
+      </span>
     </div>
   </Teleport>
 </template>
@@ -162,6 +170,20 @@ onUnmounted(() => {
     border-width 0.24s var(--motion-ease, ease);
 }
 
+.site-cursor__label {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #fff;
+  font-size: var(--type-nav);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.18s var(--motion-ease, ease);
+}
+
 .site-cursor--hot {
   width: 16px;
   height: 16px;
@@ -170,6 +192,22 @@ onUnmounted(() => {
 .site-cursor--hot .site-cursor__dot {
   border-width: 2px;
   background-color: transparent;
+}
+
+.site-cursor--case-open {
+  width: clamp(7.5rem, 10vw, 10rem);
+  height: clamp(7.5rem, 10vw, 10rem);
+  mix-blend-mode: normal;
+}
+
+.site-cursor--case-open .site-cursor__dot {
+  border-width: 0;
+  background-color: var(--palette-ink, #171915);
+}
+
+.site-cursor--case-open .site-cursor__label {
+  color: var(--palette-milk, #f5f1e8);
+  opacity: 1;
 }
 
 .site-cursor--hide {

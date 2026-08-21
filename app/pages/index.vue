@@ -30,13 +30,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <!--
-    Stacking (same page context — do NOT teleport cases bg to body):
-    z-1  cases bg host  → under surface
-    z-5  FlowSurfaceHost
-    z-10 main content
-    Body z-4 portals sit above .pc-live-stack (z-1) and bury everything.
-  -->
+  <!-- Flow Surface sits under the page content and morphs into case media. -->
   <div class="relative isolate bg-sand text-ink">
     <div
       id="home-cases-bg-host"

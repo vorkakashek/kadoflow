@@ -1,5 +1,7 @@
 export type CaseDetailTransitionRequest = {
   direction: 'open' | 'close'
+  /** A browser-history return keeps its original entry instead of pushing one. */
+  historyBack?: boolean
   to: string
   src: string
   alt: string
