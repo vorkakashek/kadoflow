@@ -80,7 +80,13 @@ const SURFACE_MORPH_EPSILON = 0.0008
 const MOBILE_CASE_REVERSE_HANDOFF_P = 0.12
 /** Parked / fill fully opaque once lagged progress passes this. */
 const CASE_PARK_P = 0.85
-/** Once the morph is complete, move the frame into the case figure. */
+/**
+ * Start a short geometry settle once the mobile surface visually reaches the
+ * media. The settle follows the live card box, then pins at the exact endpoint.
+ */
+const MOBILE_CASE_SETTLE_P = 0.96
+const MOBILE_CASE_SETTLE_DURATION = 0.18
+/** Pin only at the true endpoint; pinning at 96% caused a visible 4% jump. */
 const CASE_PIN_P = 0.999
 /** Surface tone → case photo crossfade starts later in the case corridor. */
 const CASE_FILL_FADE_START = 0.25
@@ -124,6 +130,8 @@ const props = withDefaults(
 
 /** Shared with HomeCases — surface owns the case photo once docked. */
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
+/** True only once the frame is physically pinned to the current case media. */
+const caseSurfaceReady = useState('home-case-surface-ready', () => false)
 type CaseSurfaceMedia = {
   src: string
   alt: string
@@ -216,6 +224,7 @@ let trigger: { kill: () => void; progress: number } | null = null
 let caseTrigger: { kill: () => void; progress: number } | null = null
 let mobileTriggers: { kill: () => void }[] = []
 let hopTween: { kill: () => void } | null = null
+let caseMediaMorphTween: { kill: () => void } | null = null
 let target = { h: 0, v: 0 }
 let live = { h: 0, v: 0 }
 let fromDoc: SurfaceBox | null = null
@@ -236,6 +245,9 @@ let mobileActive = false
 /** Mobile center-square → case-media scrub progress. */
 let mobileCaseProgress = 0
 let mobileCaseTargetProgress = 0
+let caseSettleTween: { kill: () => void } | null = null
+/** Stays latched across case layout refreshes; clears only on a real reverse. */
+let mobileCaseArrived = false
 /** Frozen real box at the moment the mobile case corridor begins. */
 let mobileCaseFromBox: SurfaceBox | null = null
 /** Smooth bridge from a skipped mobile waypoint back into the Hero scrub. */
@@ -513,6 +525,7 @@ function paintHeroToKadoSegment(t: number) {
     caseFillOpacity.value = 0
     caseMediaActive = false
     caseSurfaceDocked.value = false
+    caseSurfaceReady.value = false
   }
 
   const { h, v } = targetsFromScrollProgress(props.plan, t, parseEase ?? ((_) => (u) => u))
@@ -568,6 +581,7 @@ function paintKadoToCasesSegment(t: number) {
     pinCaseFrame()
     return
   }
+  caseSurfaceReady.value = false
   if (caseFramePinned()) unpinFrame()
   // t===1 -> live photo; t===0 -> live stone. Same path both ways, no seam.
   paintBox(lerpBox(from, to, t), 1)
@@ -582,6 +596,9 @@ function paintMobileCaseSegment(t: number) {
   }
 
   const p = Math.min(1, Math.max(0, t))
+  if (p < CASE_PARK_P && mobileCaseTargetProgress < CASE_PARK_P) {
+    mobileCaseArrived = false
+  }
   const docked = p >= CASE_PARK_P
   if (docked !== caseMediaActive) {
     caseMediaActive = docked
@@ -592,6 +609,9 @@ function paintMobileCaseSegment(t: number) {
     1,
     Math.max(0, (p - CASE_FILL_FADE_START) / (1 - CASE_FILL_FADE_START)),
   )
+
+  // A case switch owns the geometry until its live destination is reached.
+  if (caseMediaMorphTween) return
 
   if (!mobileCaseFromBox) {
     mobileCaseFromBox = liveBox
@@ -609,22 +629,69 @@ function paintMobileCaseSegment(t: number) {
     paintBox(to, 1)
     return
   }
+  if (caseSettleTween) return
   if (p >= CASE_PIN_P) {
+    mobileCaseArrived = true
+    paintBox(to, 1)
     pinCaseFrame()
+    return
+  }
+  if (
+    p >= MOBILE_CASE_SETTLE_P
+    && mobileCaseTargetProgress >= 1 - SURFACE_MORPH_EPSILON
+  ) {
+    settleMobileCaseFrame(to)
     return
   }
   // Fast reverse scrolling can fire the skipped term/word threshold callbacks
   // while this corridor still owns the visual. Release any pin, not only the
   // case-media pin, otherwise paintBox() is blocked and the surface freezes at
   // that stale waypoint until the corridor ends.
+  caseSurfaceReady.value = false
   if (pinTo.value) unpinFrame()
   paintBox(lerpBox(from, to, p), 1)
+}
+
+/** Smooth the last few pixels into the live media box before Teleport pins it. */
+function settleMobileCaseFrame(initialDest: SurfaceBox) {
+  if (!gsapMod || !frame.value || caseSettleTween || caseFramePinned()) return
+
+  const start = liveBox ? { ...liveBox } : { ...initialDest }
+  let fallbackDest = { ...initialDest }
+  const proxy = { t: 0 }
+  caseSurfaceReady.value = false
+  caseSettleTween = gsapMod.default.to(proxy, {
+    t: 1,
+    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? 0
+      : MOBILE_CASE_SETTLE_DURATION,
+    ease: 'power2.out',
+    onUpdate: () => {
+      const liveDest = caseMediaPose()
+      if (liveDest) fallbackDest = { ...liveDest }
+      paintBox(lerpBox(start, fallbackDest, proxy.t), 1)
+    },
+    onComplete: () => {
+      caseSettleTween = null
+      mobileCaseProgress = 1
+      mobileCaseArrived = true
+      caseMediaActive = true
+      caseSurfaceDocked.value = true
+      paintBox(caseMediaPose() ?? fallbackDest, 1)
+      pinCaseFrame()
+    },
+  })
+}
+
+function killCaseSettleTween() {
+  caseSettleTween?.kill()
+  caseSettleTween = null
 }
 
 function paintDesktop(s = desktopLiveS) {
   if (mobileActive) return
   // Case<->case morph in flight — onUpdate owns paint.
-  if (hopTween) return
+  if (hopTween || caseMediaMorphTween) return
 
   const { segmentIndex, localT } = resolveCorridorSegment(s, 2)
   if (segmentIndex === 1) {
@@ -638,7 +705,7 @@ function paintDesktop(s = desktopLiveS) {
 function morphParkedCaseMedia(animate: boolean) {
   if (
     (!mobileActive && desktopLiveS < (1 + CASE_PARK_P))
-    || (mobileActive && mobileCaseProgress < CASE_PARK_P)
+    || (mobileActive && !mobileCaseArrived && mobileCaseProgress < CASE_PARK_P)
     || !gsapMod
     || !frame.value
   ) return
@@ -660,29 +727,28 @@ function morphParkedCaseMedia(animate: boolean) {
   }
 
   // Don't fight mobile hop / other tweens.
-  if (hopTween) return
+  if (hopTween || caseMediaMorphTween) return
 
-  hopFromBox = { ...from }
-  hopProgress = 0
+  caseSurfaceReady.value = false
+
+  const morphFrom = { ...from }
   const gsap = gsapMod.default
   const proxy = { t: 0 }
   let fallbackDest = { ...dest }
-  hopTween = gsap.to(proxy, {
+  caseMediaMorphTween = gsap.to(proxy, {
     t: 1,
     duration: CASE_MORPH_DURATION,
     ease: CASE_MORPH_EASE,
     onUpdate: () => {
-      hopProgress = proxy.t
       const liveDest = caseMediaPose()
       if (liveDest) fallbackDest = { ...liveDest }
-      paintBox(lerpBox(hopFromBox!, fallbackDest, hopProgress), 1)
+      paintBox(lerpBox(morphFrom, fallbackDest, proxy.t), 1)
     },
     onComplete: () => {
-      hopTween = null
-      hopFromBox = null
-      hopProgress = 0
+      caseMediaMorphTween = null
       paintBox((caseMediaPose() ?? fallbackDest), 1)
       caseMediaActive = true
+      caseSurfaceDocked.value = true
       // A case switch temporarily releases the Teleport so the frame can
       // interpolate between two card geometries. Reattach it immediately once
       // the morph has finished instead of waiting for another scroll update.
@@ -878,7 +944,7 @@ function caseFramePinned() {
 /** The frame may only re-enter the card once this corridor has fully arrived. */
 function caseFrameShouldBePinned() {
   return mobileActive
-    ? mobileCaseProgress >= CASE_PIN_P
+    ? mobileCaseArrived || mobileCaseProgress >= CASE_PIN_P
     : desktopLiveS >= 1 + CASE_PIN_P
 }
 
@@ -889,6 +955,7 @@ function pinCaseFrame() {
   if (!host || !el) return
   if (pinTo.value === host) {
     syncPinnedMask()
+    caseSurfaceReady.value = true
     return
   }
 
@@ -907,7 +974,10 @@ function pinCaseFrame() {
   pinRo?.disconnect()
   pinRo = new ResizeObserver(() => syncPinnedMask())
   pinRo.observe(host)
-  void nextTick(() => syncPinnedMask())
+  void nextTick(() => {
+    syncPinnedMask()
+    caseSurfaceReady.value = pinTo.value === host
+  })
 }
 
 function unpinFrame() {
@@ -1287,7 +1357,7 @@ function reconcileFromScroll() {
   lastScrollY = y
 
   // The case corridor owns the frame after the center-square stage.
-  if (mobileCaseProgress > 0.005) return
+  if (mobileCaseArrived || mobileCaseProgress > 0.005) return
 
   if (mobileScrubBridge) {
     scrubTargetP = scrubProgressAt(y)
@@ -1449,13 +1519,18 @@ function killMorph() {
   desktopLiveS = 0
   mobileCaseProgress = 0
   mobileCaseTargetProgress = 0
+  mobileCaseArrived = false
   mobileCaseFromBox = null
   mobileScrubBridge = null
   caseMediaActive = false
   setCaseSurfaceDocked(false)
+  caseSurfaceReady.value = false
   for (const t of mobileTriggers) t.kill()
   mobileTriggers = []
   killHopTween()
+  caseMediaMorphTween?.kill()
+  caseMediaMorphTween = null
+  killCaseSettleTween()
   unpinFrame()
   pinRo?.disconnect()
   pinRo = null
@@ -1554,16 +1629,25 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
         end: CASE_SCRUB_END,
         invalidateOnRefresh: true,
         onEnter: () => {
+          if (caseMediaMorphTween) return
           const current = readBox(frame.value) ?? liveBox
           mobileCaseFromBox = current ? { ...current } : null
           // A waypoint hop may still be settling when a fast swipe reaches cases.
           // From here the scroll corridor owns the frame, exactly like desktop.
           killHopTween()
+          killCaseSettleTween()
           unpinFrame()
+          caseSurfaceReady.value = false
           if (mobileCaseFromBox) paintBox(mobileCaseFromBox, 1)
         },
         onUpdate: (self) => {
           mobileCaseTargetProgress = self.progress
+          if (
+            caseSettleTween
+            && mobileCaseTargetProgress < MOBILE_CASE_SETTLE_P
+          ) {
+            killCaseSettleTween()
+          }
           ensureTick()
         },
         onRefresh: (self) => {
@@ -1836,7 +1920,7 @@ function onCaseMediaScroll() {
     syncPinnedMask()
     return
   }
-  if (mobileActive || hopTween) return
+  if (mobileActive || hopTween || caseMediaMorphTween) return
   ensureTick()
 }
 
@@ -1938,9 +2022,15 @@ watch(caseMediaMorphNonce, () => {
 })
 
 watch(caseMediaPrepareNonce, () => {
+  caseMediaMorphTween?.kill()
+  caseMediaMorphTween = null
+  killCaseSettleTween()
   // A pinned frame follows its host's size synchronously. Freeze it in viewport
   // coordinates first; the following case switch will tween it to the new host.
-  if (caseFramePinned()) unpinFrame()
+  if (caseFramePinned()) {
+    caseSurfaceReady.value = false
+    unpinFrame()
+  }
 })
 
 watch(

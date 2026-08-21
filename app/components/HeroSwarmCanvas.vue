@@ -212,6 +212,8 @@ const isMobileMotionClient = computed(
 )
 const motionEnabled = ref(false)
 const motionIntroVisible = ref(false)
+/** The intro is hero-local even though its control layer is teleported. */
+const motionIntroInHero = ref(false)
 const motionEnableRequested = ref(false)
 const gyroPermissionReady = ref(false)
 const motionControlVisible = computed(
@@ -234,6 +236,8 @@ const motionIntroText = computed(() =>
 )
 let gyroUnlockFn: (() => void) | null = null
 let removeMotionControlScroll: (() => void) | null = null
+let motionIntroHeroObserver: IntersectionObserver | null = null
+let motionIntroPointerUpAt = 0
 let desktopMotionNoticeTimer = 0
 let androidHapticExitTimer = 0
 let desktopIconMorph: gsap.core.Tween | null = null
@@ -246,6 +250,36 @@ function hasMotionIntroCookie() {
 
 function rememberMotionIntro() {
   document.cookie = `${MOTION_INTRO_COOKIE}=1; Max-Age=${MOTION_INTRO_MAX_AGE}; Path=/; SameSite=Lax`
+}
+
+function syncMotionIntroHero() {
+  const hero = document.querySelector<HTMLElement>('.hero')
+  if (!hero) {
+    motionIntroInHero.value = window.scrollY <= 2
+    return
+  }
+  const box = hero.getBoundingClientRect()
+  motionIntroInHero.value = box.bottom > 0 && box.top < window.innerHeight
+}
+
+function observeMotionIntroHero() {
+  motionIntroHeroObserver?.disconnect()
+  motionIntroHeroObserver = null
+
+  const hero = document.querySelector<HTMLElement>('.hero')
+  if (!hero) {
+    syncMotionIntroHero()
+    return
+  }
+
+  motionIntroHeroObserver = new IntersectionObserver(
+    ([entry]) => {
+      motionIntroInHero.value = entry.isIntersecting
+    },
+    { threshold: 0.01 },
+  )
+  motionIntroHeroObserver.observe(hero)
+  syncMotionIntroHero()
 }
 
 function finishMotionIntro() {
@@ -263,6 +297,19 @@ function onMotionIntroTap() {
     return
   }
   gyroUnlockFn?.()
+}
+
+/** Pointer-up keeps the iOS permission request inside a real user gesture. */
+function onMotionIntroPointerUp(event: PointerEvent) {
+  if (!event.isPrimary) return
+  motionIntroPointerUpAt = performance.now()
+  onMotionIntroTap()
+}
+
+/** Keyboard activation and browsers without Pointer Events still use click. */
+function onMotionIntroClick() {
+  if (performance.now() - motionIntroPointerUpAt < 450) return
+  onMotionIntroTap()
 }
 
 function onMotionControlTap() {
@@ -467,6 +514,7 @@ onMounted(() => {
   motionIntroVisible.value = isMobileMotionClient.value && !introSeen
   motionEnabled.value = isMobileMotionClient.value && !motionIntroVisible.value
   motionEnableRequested.value = motionEnabled.value
+  observeMotionIntroHero()
   const syncMotionControlRest = () => {
     motionControlAtRest.value = window.scrollY <= 2
   }
@@ -505,6 +553,8 @@ onUnmounted(() => {
   removeWindowResize = null
   removeMotionControlScroll?.()
   removeMotionControlScroll = null
+  motionIntroHeroObserver?.disconnect()
+  motionIntroHeroObserver = null
   window.clearTimeout(desktopMotionNoticeTimer)
   window.clearTimeout(androidHapticExitTimer)
   disposeScene()
@@ -1942,10 +1992,11 @@ async function bootScene() {
     </button>
 
     <button
-      v-if="motionIntroVisible"
+      v-if="motionIntroVisible && motionIntroInHero"
       type="button"
       class="motion-intro"
-      @click="onMotionIntroTap"
+      @pointerup="onMotionIntroPointerUp"
+      @click="onMotionIntroClick"
     >
       <span class="motion-intro__content">
         <img

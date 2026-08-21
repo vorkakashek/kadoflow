@@ -50,6 +50,7 @@
 - Respect `prefers-reduced-motion`, pause WebGL/animation when hidden or out of view, and keep iOS motion permission behind a user gesture.
 - Start development with `npm run dev` (`--host` is required). iOS device-motion QA needs an HTTPS tunnel, not plain LAN HTTP.
 - If a development server is already running for the user, reuse it and leave it running unless the user explicitly asks to stop/restart it.
+- Do not run browser-based visual scenario QA or invoke the browser visual-check skill after changes unless the user explicitly asks for visual/browser verification. Continue to run proportionate non-visual checks such as builds and static validation.
 - Keep mobile touch scrolling native. Do not re-enable Lenis `syncTouch`, clamp touch deltas, reduce `touchMultiplier`, or otherwise trade finger-to-page response for story pacing without explicit user approval and real-device comparison. Control pacing in the animation/morph layer instead.
 - Preserve the page/overlay stacking model documented in `app/pages/index.vue`; careless Teleports or visibility changes can drop the Android WebGL buffer or break the closing iris.
 - The desktop Kado↔Cases soft scrub was accepted on 2026-08-20. Tap haptics are still not authorized by that acceptance; keep them deferred unless the user asks.

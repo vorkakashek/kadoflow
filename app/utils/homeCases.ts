@@ -10,6 +10,8 @@ export type HomeCase = {
   /** Short description under focus tags (≈2 lines). */
   blurb: string
   /** Case-detail metadata; it is intentionally hidden on the home stage. */
+  client: string
+  year: string
   focusTags: string[]
   roleTags: string[]
   /** Page / section wash color. */
@@ -39,6 +41,8 @@ export const homeCases: HomeCase[] = [
     id: 'audience',
     label: 'Audience',
     title: 'Audience',
+    client: 'HookahPlace Audience',
+    year: '2026',
     blurb: 'Цифровое расширение пространства\nв японской эстетике.',
     focusTags: ['тишина', 'ритм', 'японская пластика'],
     roleTags: ['арт-дирекция', 'UX/UI-дизайн', 'под ключ'],
@@ -55,6 +59,8 @@ export const homeCases: HomeCase[] = [
     id: 'keys-store',
     label: 'Keys Store',
     title: 'Keys Store',
+    client: 'Keys Store',
+    year: '2025',
     blurb: 'Игры, подписки и Steam-предметы\nв единой торговой системе.',
     focusTags: ['система', 'скорость', 'доверие'],
     roleTags: ['дизайн-система', 'адаптивный веб', 'под ключ'],
@@ -71,6 +77,8 @@ export const homeCases: HomeCase[] = [
     id: 'baltika',
     label: 'Балтика Brew',
     title: 'Балтика Brew',
+    client: 'Балтика',
+    year: '2025',
     blurb: 'Одна форма,\nнесколько характеров,\nраскрытых через движение.',
     focusTags: ['объект', 'движение', 'трансформация'],
     roleTags: ['веб-дизайн', '3D-графика', 'анимация'],
@@ -93,6 +101,8 @@ export const homeCases: HomeCase[] = [
     id: 'schmidt',
     label: 'SCHMIDT',
     title: 'SCHMIDT',
+    client: 'SCHMIDT',
+    year: '2024',
     blurb: 'История премиального продукта,\nвыстроенная в горизонтальном ритме.',
     focusTags: ['ритм', 'контраст', 'материальность'],
     roleTags: ['арт-дирекция', 'веб-дизайн', 'фронтенд'],

@@ -69,7 +69,7 @@ function probe(x: number, y: number) {
   const overText = !!node.closest(TEXT_SEL)
   setTextOver(overText)
   const overChip = !!node.closest(CHIP_FADE_SEL)
-  const overCaseMedia = !!node.closest('.cases-media__link')
+  const overCaseMedia = !!node.closest('.cases-case-link')
   chipFade.value = overChip
   caseOpen.value = !overText && overCaseMedia
   hot.value = !overText && !overChip && !overCaseMedia && !!node.closest(HOT_SEL)
@@ -132,7 +132,7 @@ onUnmounted(() => {
       aria-hidden="true"
     >
       <span class="site-cursor__dot">
-        <span class="site-cursor__label">Открыть</span>
+        <span class="site-cursor__label">открыть</span>
       </span>
     </div>
   </Teleport>

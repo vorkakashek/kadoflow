@@ -74,16 +74,26 @@ useHead(() => ({
     <div class="case-detail__inner">
       <section class="case-detail__hero">
         <h1>{{ item.title }}</h1>
+        <div class="case-detail__focus" aria-label="фокус">
+          <template v-for="(tag, index) in item.focusTags" :key="tag">
+            <span class="case-detail__focus-tag">{{ tag }}</span>
+            <PhDot v-if="index < item.focusTags.length - 1" :size="8" />
+          </template>
+        </div>
       </section>
 
       <section class="case-detail__content">
         <div class="case-detail__meta">
           <div>
-            <p class="case-detail__eyebrow">Фокус внимания</p>
-            <p class="case-detail__tags">{{ item.focusTags.join(' · ') }}</p>
+            <p class="case-detail__eyebrow">клиент</p>
+            <p class="case-detail__tags">{{ item.client }}</p>
           </div>
           <div>
-            <p class="case-detail__eyebrow">Участие КАДОФЛОУ</p>
+            <p class="case-detail__eyebrow">год</p>
+            <p class="case-detail__tags">{{ item.year }}</p>
+          </div>
+          <div>
+            <p class="case-detail__eyebrow">участие</p>
             <p class="case-detail__tags">{{ item.roleTags.join(' · ') }}</p>
           </div>
         </div>
@@ -140,9 +150,27 @@ useHead(() => ({
   /* Keep the opening mark compact so the case itself starts in the first view. */
   box-sizing: border-box;
   min-height: 60svh;
+  align-content: center;
+  row-gap: 2rem;
   place-items: center;
   padding-block: calc(var(--layout-surface-top) + clamp(1rem, 2vw, 2rem)) clamp(1rem, 2vw, 2rem);
   text-align: center;
+}
+
+.case-detail__focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: clamp(0.75rem, 1.8vw, 1.5rem);
+  row-gap: 0.5rem;
+  margin: 0;
+  font-size: var(--type-nav);
+  letter-spacing: -0.02em;
+}
+
+.case-detail__focus-tag {
+  white-space: nowrap;
 }
 
 .case-detail__content {
@@ -166,7 +194,7 @@ useHead(() => ({
 
   .case-detail__meta {
     grid-column: 2 / -2;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--layout-gutter);
   }
 
@@ -213,7 +241,7 @@ h1 {
 }
 
 .case-detail__media {
-  margin-top: 1.25rem;
+  margin-top: 2.5rem;
   /* Reserve the media’s lowest parallax position. */
   margin-bottom: clamp(4rem, 18vw, 22rem);
 }

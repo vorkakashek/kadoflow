@@ -68,10 +68,6 @@ const menuSlotEl = ref<HTMLElement | null>(null)
 const fabBottomExtra = ref(0)
 const thumbNav = ref(false)
 const introPending = ref(true)
-if (import.meta.client) {
-  thumbNav.value = isThumbNav()
-  mobileHeader.value = window.matchMedia('(max-width: 767px)').matches
-}
 
 let lastFabScrollY = 0
 const FAB_LABEL_DIR_PX = 8
@@ -840,27 +836,29 @@ onUnmounted(() => {
           >
         </NuxtLink>
 
-        <button
-          v-if="detailCase"
-          type="button"
-          class="case-header-back site-nav pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
-          aria-label="Назад на главную"
-          @click="onCaseDetailBack"
-        >
-          <span class="case-header-back__frame" aria-hidden="true">
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M27 16H5" />
-              <path d="m12 9-7 7 7 7" />
-            </svg>
-          </span>
-          <span class="case-header-back__label">назад</span>
-          <span class="case-header-back__frame case-header-back__frame--after" aria-hidden="true">
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M27 16H5" />
-              <path d="m12 9-7 7 7 7" />
-            </svg>
-          </span>
-        </button>
+        <Transition name="case-header-back">
+          <button
+            v-if="detailCase"
+            type="button"
+            class="case-header-back site-nav pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
+            aria-label="Назад на главную"
+            @click="onCaseDetailBack"
+          >
+            <span class="case-header-back__frame" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M27 16H5" />
+                <path d="m12 9-7 7 7 7" />
+              </svg>
+            </span>
+            <span class="case-header-back__label">назад</span>
+            <span class="case-header-back__frame case-header-back__frame--after" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M27 16H5" />
+                <path d="m12 9-7 7 7 7" />
+              </svg>
+            </span>
+          </button>
+        </Transition>
 
         <nav
           ref="navEl"
@@ -1110,6 +1108,19 @@ html.page-canvas-lock .menu-btn--float {
     color 0.35s var(--motion-ease, ease);
 }
 
+.case-header-back-enter-active,
+.case-header-back-leave-active {
+  transition:
+    opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.case-header-back-enter-from,
+.case-header-back-leave-to {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+}
+
 .case-header-back__frame {
   position: absolute;
   left: 0.75rem;
@@ -1166,12 +1177,21 @@ html.page-canvas-lock .menu-btn--float {
   }
 }
 
+.header-chip,
+.menu-fab {
+  --header-chip-bg: color-mix(
+    in srgb,
+    var(--palette-ink, #171915) 82%,
+    var(--palette-ash, #666a61)
+  );
+}
+
 .header-chip {
   /* 8dp chrome: 8 / 12 */
   padding: 8px 12px;
   margin: -8px -12px;
   border-radius: 8px;
-  background-color: var(--palette-ink, #171915);
+  background-color: var(--header-chip-bg);
   color: var(--palette-milk, #f5f1e8);
   transition: background-color 0.58s cubic-bezier(0.645, 0.045, 0.355, 1);
 }
@@ -1183,6 +1203,8 @@ html.page-canvas-lock .menu-btn--float {
     padding-right: 4px;
     margin-left: -4px;
     margin-right: -4px;
+    background-color: var(--palette-sand);
+    color: var(--palette-ink, #171915);
   }
 }
 
@@ -1192,13 +1214,13 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .header-chip--scrolled {
-  background-color: var(--palette-ink, #171915);
+  background-color: var(--header-chip-bg);
 }
 
 /* backdrop-filter is a scroll-compositor tax on mobile Chrome too — solid only. */
 @media (max-width: 767px) {
   .header-chip--scrolled {
-    background-color: var(--palette-ink, #171915);
+    background-color: var(--header-chip-bg);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1216,7 +1238,7 @@ html.page-canvas-lock .menu-btn--float {
     }
 
     .header-chip--scrolled {
-      background-color: var(--palette-ink, #171915);
+      background-color: var(--header-chip-bg);
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
     }
@@ -1371,7 +1393,7 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   padding: 10px 24px;
   opacity: 1;
   visibility: visible;
-  background-color: var(--palette-ink, #171915);
+  background-color: var(--header-chip-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -1386,11 +1408,27 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   );
 }
 
+/* The link group stays a light editorial surface; only its active hover inverts. */
+.header-nav .chip-scale-bg__fill {
+  background-color: var(--palette-ink, #171915);
+}
+
 .nav-link,
 .menu-btn--float,
 .menu-fab {
   color: var(--palette-milk, #f5f1e8) !important;
   transition: color 0.3s var(--motion-ease, ease);
+}
+
+.header-nav .nav-link {
+  color: var(--palette-ink, #171915) !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .header-nav .nav-link:hover,
+  .header-nav .nav-link:focus-visible {
+    color: var(--palette-milk, #f5f1e8) !important;
+  }
 }
 
 .menu-fab:hover .menu-dots,

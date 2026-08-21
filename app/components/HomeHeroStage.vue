@@ -796,7 +796,7 @@ onUnmounted(() => {
 @media (min-width: 768px) {
   .hero-copy {
     padding-inline: 0;
-    padding-top: var(--space-block);
+    padding-top: calc(var(--space-block) * 1.5);
     padding-bottom: var(--space-block);
   }
 }

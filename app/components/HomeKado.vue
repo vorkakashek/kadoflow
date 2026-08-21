@@ -362,7 +362,7 @@ onUnmounted(() => {
     :style="{
       paddingInline: 'var(--layout-margin-content)',
       paddingTop: 'var(--space-section)',
-      paddingBottom: 'var(--space-block)',
+      paddingBottom: 'var(--kado-bottom-space, var(--space-block))',
     }"
   >
     <div
@@ -443,6 +443,12 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+@media (max-width: 767.98px) {
+  .kado {
+    --kado-bottom-space: calc(var(--space-block) * 2);
+  }
+}
+
 .kado-surface-target {
   /* Mobile: +4 cols vs desktop rest pose (4 → 8). */
   width: var(--layout-span-8);

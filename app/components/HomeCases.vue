@@ -15,6 +15,7 @@ import {
   isCoarsePointer,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
+import { onNavWaveEnter } from '~/utils/navWaveHover'
 
 const rootEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
@@ -42,6 +43,9 @@ const showCaseGestureHint = computed(
 const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
+/** Restarted for every case; appears only after the surface/media have settled. */
+const showCaseArrow = ref(false)
+let caseArrowTimer = 0
 const caseSurfaceMedia = useState<{
   src: string
   alt: string
@@ -227,6 +231,52 @@ function scrollActiveCaseLinkIntoView(behavior: ScrollBehavior = 'smooth') {
   list.scrollTo({ left: target, behavior })
 }
 
+/** Center the incoming mobile label before it grows into the active state. */
+function railTargetForCase(caseId: string) {
+  const list = railListEl.value
+  const button = list?.querySelector<HTMLElement>(
+    `.cases-rail__btn[data-case-id="${caseId}"]`,
+  )
+  if (!list || !button) return null
+
+  const listBox = list.getBoundingClientRect()
+  const buttonBox = button.getBoundingClientRect()
+  return Math.max(
+    0,
+    Math.min(
+      list.scrollWidth - list.clientWidth,
+      list.scrollLeft + buttonBox.left - listBox.left - (list.clientWidth - buttonBox.width) / 2,
+    ),
+  )
+}
+
+async function tweenRailToCase(
+  gsap: typeof import('gsap').default,
+  caseId: string,
+) {
+  if (!mobileCases.value || !railListEl.value) return
+  const target = railTargetForCase(caseId)
+  if (target == null || Math.abs(target - railListEl.value.scrollLeft) < 1) return
+
+  const tween = gsap.to(railListEl.value, {
+    scrollLeft: target,
+    duration: 0.36,
+    ease: 'power2.inOut',
+    overwrite: true,
+  })
+  switchTl = tween
+  await waitTimeline(tween)
+}
+
+function revealActiveCaseUnderline() {
+  if (!mobileCases.value) return
+  const active = railListEl.value?.querySelector<HTMLElement>(
+    '.cases-rail__btn--active',
+  )
+  if (!active) return
+  void onNavWaveEnter({ currentTarget: active } as Event)
+}
+
 function selectAdjacentCase(direction: 1 | -1) {
   const from = homeCases.findIndex((item) => item.id === targetCaseId)
   const index = from >= 0 ? from : 0
@@ -367,7 +417,9 @@ function railAnimTargets(): HTMLElement[] {
 
 const COPY_IN = {
   blurbY: 20,
-  dur: 0.75,
+  delay: 0.4,
+  // The description should settle after the media, not compete with its morph.
+  dur: 0.75 * 1.75,
 } as const
 
 const COPY_OUT = {
@@ -405,7 +457,7 @@ function tweenCopyIn(
     tl.to(
       parts.blurb,
       { opacity: 1, y: 0, duration: COPY_IN.dur, ease: 'power3.out' },
-      at + 0.1,
+      at + COPY_IN.delay,
     )
   }
 }
@@ -577,6 +629,32 @@ let switchGen = 0
 let targetCaseId = activeId.value
 let heightTl: { kill: () => void } | null = null
 
+function clearCaseArrow() {
+  showCaseArrow.value = false
+  if (caseArrowTimer) {
+    window.clearTimeout(caseArrowTimer)
+    caseArrowTimer = 0
+  }
+}
+
+function scheduleCaseArrow(delay = 300) {
+  clearCaseArrow()
+  if (!mobileCases.value || !caseSurfaceDocked.value || switching.value) return
+  caseArrowTimer = window.setTimeout(() => {
+    caseArrowTimer = 0
+    if (mobileCases.value && caseSurfaceDocked.value && !switching.value) {
+      showCaseArrow.value = true
+    }
+  }, delay)
+}
+
+watch([caseSurfaceDocked, switching], ([docked, isSwitching]) => {
+  if (!docked || isSwitching) clearCaseArrow()
+  else scheduleCaseArrow()
+})
+
+watch(activeId, () => clearCaseArrow())
+
 function onMediaLayoutReady() {
   if (!caseSurfaceDocked.value) return
   requestAnimationFrame(() => {
@@ -620,6 +698,8 @@ async function selectCase(item: HomeCase) {
     if (caseSurfaceDocked.value) caseMediaMorphNonce.value += 1
     await nextTick()
     scrollActiveCaseLinkIntoView('auto')
+    revealActiveCaseUnderline()
+    scheduleCaseArrow()
     return
   }
 
@@ -632,6 +712,10 @@ async function selectCase(item: HomeCase) {
   switchTl = null
   heightTl?.kill()
   heightTl = null
+
+  // On mobile, move the rail before activating the incoming link.
+  await tweenRailToCase(gsap, item.id)
+  if (gen !== switchGen) return
 
   // Animate old copy out before the next figure changes its dimensions.
   const parts = stageCopyParts()
@@ -654,11 +738,11 @@ async function selectCase(item: HomeCase) {
   activeId.value = item.id
   await nextTick()
   if (gen !== switchGen) return
+  revealActiveCaseUnderline()
   // The figure now has its next dimensions. Only now start the photo handoff,
   // so the surface can resize before the outgoing image is wiped.
   publishSurfaceMedia(item)
   caseMediaMorphNonce.value += 1
-  scrollActiveCaseLinkIntoView()
   if (root && fromH) {
     root.style.height = 'auto'
     const toH = root.offsetHeight
@@ -690,6 +774,7 @@ onMounted(async () => {
   }
   await setupEnterMotion()
   scrollActiveCaseLinkIntoView('auto')
+  revealActiveCaseUnderline()
   window.addEventListener('resize', syncColorPlate, { passive: true })
   window.addEventListener('resize', refreshMobileCases, { passive: true })
 
@@ -706,6 +791,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearCaseArrow()
   if (suppressCaseLinkClickTimer) {
     window.clearTimeout(suppressCaseLinkClickTimer)
     suppressCaseLinkClickTimer = 0
@@ -809,6 +895,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="cases-rail__btn"
+              :data-case-id="item.id"
               :class="{
                 'cases-rail__btn--active': item.id === activeId,
               }"
@@ -817,6 +904,7 @@ onBeforeUnmount(() => {
               @click="onRailBtnClick(item)"
             >
               <span class="cases-rail__label">{{ item.label }}</span>
+              <TextLinkWave v-if="mobileCases && item.id === activeId" />
             </button>
           </li>
         </ul>
@@ -831,6 +919,12 @@ onBeforeUnmount(() => {
         @pointercancel="onCaseStagePointerCancel"
         @click.capture="onCaseStageClickCapture"
       >
+        <a
+          class="cases-case-link"
+          :href="homeCaseDetailPath(activeCase)"
+          :aria-label="`Открыть кейс ${activeCase.title}`"
+          @click="onCaseDetailLink(activeCase, $event)"
+        />
         <div class="cases-stage__visual">
           <figure
             ref="mediaEl"
@@ -856,12 +950,13 @@ onBeforeUnmount(() => {
               decoding="async"
               @load="onMediaLayoutReady"
             >
-            <a
-              class="cases-media__link"
-              :href="homeCaseDetailPath(activeCase)"
-              :aria-label="`Открыть кейс ${activeCase.title}`"
-              @click="onCaseDetailLink(activeCase, $event)"
-            ></a>
+            <span
+              v-if="showCaseArrow"
+              :key="activeCase.id"
+              class="cases-case-link__icon"
+            >
+              <PhArrowRight :size="26" />
+            </span>
           </figure>
         </div>
 
@@ -918,8 +1013,8 @@ onBeforeUnmount(() => {
     Top: header chrome + extra section gap so copy clears the fixed nav.
     Bottom: section rhythm from the fluid scale.
   */
-  padding-top: calc(var(--layout-surface-top) + var(--space-section));
-  padding-bottom: var(--space-section);
+  padding-top: calc((var(--layout-surface-top) + var(--space-section)) * 0.5);
+  padding-bottom: calc(var(--space-section) * 0.5);
   padding-inline: var(--layout-margin-content);
 }
 
@@ -958,9 +1053,8 @@ onBeforeUnmount(() => {
 
 @media (min-width: 768px) {
   .cases-rail {
-    /* Viewport-stage height, not the growing content row — rail stays put. */
-    align-self: start;
-    height: var(--cases-stage-h);
+    align-self: center;
+    height: auto;
   }
 
   .cases-rail__list {
@@ -973,6 +1067,7 @@ onBeforeUnmount(() => {
 }
 
 .cases-rail__btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   width: auto;
@@ -1085,6 +1180,7 @@ onBeforeUnmount(() => {
 }
 
 .cases-stage {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1097,9 +1193,8 @@ onBeforeUnmount(() => {
   }
 
   .cases-rail {
-    position: sticky;
-    top: var(--layout-header-inset);
-    z-index: 2;
+    position: static;
+    z-index: 3;
     align-self: start;
     width: calc(100% + var(--layout-margin-content) + var(--layout-margin-content));
     margin-left: calc(-1 * var(--layout-margin-content));
@@ -1108,9 +1203,22 @@ onBeforeUnmount(() => {
   }
 
   .cases-rail__list {
-    gap: 0.325rem;
+    gap: 0.65rem;
+    align-items: baseline;
     padding-inline: var(--layout-margin-content);
+    padding-bottom: 0.62em;
     scroll-padding-inline: var(--layout-margin-content);
+  }
+
+  .cases-rail__btn {
+    font-size: calc(var(--type-nav) * 1.5);
+    transition:
+      color 0.35s var(--motion-ease, ease),
+      opacity 0.35s var(--motion-ease, ease);
+  }
+
+  .cases-rail__btn :deep(.text-link-wave) {
+    bottom: -0.5em;
   }
 
   /* One mobile reading order: media → title → description → mood → role. */
@@ -1426,10 +1534,49 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.cases-media__link {
+.cases-case-link {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   inset: 0;
+}
+
+.cases-case-link__icon {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  .cases-case-link__icon {
+    position: absolute;
+    z-index: 4;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    display: inline-flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--palette-ink, #171915);
+    color: var(--palette-milk, #f5f1e8);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, -0.5rem, 0) scale(0.88);
+    animation: case-link-icon-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes case-link-icon-in {
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (min-width: 768px) {
+  .cases-case-link {
+    /* The first two columns belong solely to the case switcher. */
+    inset-inline-start: calc(var(--layout-span-2) + var(--layout-gutter));
+  }
 }
 
 .cases-media__img {
@@ -1560,12 +1707,11 @@ onBeforeUnmount(() => {
   }
 
   .cases-rail {
-    position: sticky;
-    top: 50svh;
+    position: static;
     z-index: 2;
     height: auto;
-    align-self: start;
-    transform: translateY(-50%);
+    align-self: center;
+    transform: none;
     pointer-events: auto;
   }
 
@@ -1604,7 +1750,7 @@ onBeforeUnmount(() => {
     margin: 0;
   }
 
-  .home-cases[data-case-id='audience'] .cases-media { grid-column: 7 / span 5; }
+  .home-cases[data-case-id='audience'] .cases-media { grid-column: 6 / span 5; }
   .home-cases[data-case-id='audience'] .cases-blurb {
     grid-column: 9 / span 3;
     align-self: end;
