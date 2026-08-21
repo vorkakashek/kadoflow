@@ -5,11 +5,31 @@ const route = useRoute()
 const item = computed(() =>
   homeCases.find((caseItem) => caseItem.id === route.params.id),
 )
-const { detailContentVisible } = useCaseDetailTransition()
+const {
+  request: detailTransitionRequest,
+  active: detailTransitionActive,
+  detailContentVisible,
+} = useCaseDetailTransition()
+const brandPreload = useBrandPreload()
 const mediaEnterEl = ref<HTMLElement | null>(null)
 const mediaParallaxEl = ref<HTMLElement | null>(null)
 
 let mediaParallaxCtx: { revert: () => void } | null = null
+let directRevealFrame = 0
+let stopDirectRevealWatch: (() => void) | null = null
+
+// A direct request has no fullscreen cover to stage the page underneath. Start
+// it from the same hidden pose and release it after the hydrated DOM has painted.
+const isDirectEntry = !detailTransitionRequest.value && !detailTransitionActive.value
+if (isDirectEntry) detailContentVisible.value = false
+
+function releaseDirectEntry() {
+  directRevealFrame = requestAnimationFrame(() => {
+    directRevealFrame = requestAnimationFrame(() => {
+      detailContentVisible.value = true
+    })
+  })
+}
 
 async function setupMediaParallax() {
   const media = mediaParallaxEl.value
@@ -45,9 +65,27 @@ onMounted(() => {
   // the fullscreen cover without a route-chunk pause.
   void preloadRouteComponents('/')
   void nextTick(setupMediaParallax)
+
+  if (isDirectEntry) {
+    if (brandPreload.revealed.value) releaseDirectEntry()
+    else {
+      stopDirectRevealWatch = watch(
+        () => brandPreload.revealed.value,
+        (revealed) => {
+          if (!revealed) return
+          stopDirectRevealWatch?.()
+          stopDirectRevealWatch = null
+          releaseDirectEntry()
+        },
+      )
+    }
+  }
 })
 
 onBeforeUnmount(() => {
+  if (directRevealFrame) cancelAnimationFrame(directRevealFrame)
+  stopDirectRevealWatch?.()
+  stopDirectRevealWatch = null
   mediaParallaxCtx?.revert()
   mediaParallaxCtx = null
 })
@@ -83,7 +121,10 @@ useHead(() => ({
       </section>
 
       <section class="case-detail__content">
-        <div class="case-detail__meta">
+        <div
+          class="case-detail__meta"
+          :class="{ 'case-detail__meta--with-collaboration': item.collaboration }"
+        >
           <div>
             <p class="case-detail__eyebrow">клиент</p>
             <p class="case-detail__tags">{{ item.client }}</p>
@@ -94,7 +135,13 @@ useHead(() => ({
           </div>
           <div>
             <p class="case-detail__eyebrow">участие</p>
-            <p class="case-detail__tags">{{ item.roleTags.join(' · ') }}</p>
+            <p class="case-detail__tags case-detail__role-tags">
+              <span v-for="tag in item.roleTags" :key="tag">{{ tag }}</span>
+            </p>
+          </div>
+          <div v-if="item.collaboration">
+            <p class="case-detail__eyebrow">в коллаборации</p>
+            <p class="case-detail__tags">{{ item.collaboration }}</p>
           </div>
         </div>
         <div
@@ -198,6 +245,10 @@ useHead(() => ({
     gap: var(--layout-gutter);
   }
 
+  .case-detail__meta--with-collaboration {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .case-detail__media {
     grid-column: 1 / -1;
   }
@@ -221,6 +272,18 @@ useHead(() => ({
 
 .case-detail__tags {
   margin-top: 0.6rem;
+  font-weight: 500;
+}
+
+.case-detail__role-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.case-detail__role-tags span {
+  white-space: nowrap;
 }
 
 h1 {
@@ -231,6 +294,12 @@ h1 {
   letter-spacing: -0.05em;
   line-height: 0.95;
   transition: opacity 2.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.case-detail__focus {
+  transition:
+    opacity 1.5s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 1.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .case-detail__blurb {
@@ -270,17 +339,23 @@ h1 {
 }
 
 .case-detail--entering h1,
+.case-detail--entering .case-detail__focus,
 .case-detail--entering .case-detail__meta,
 .case-detail--entering .case-detail__media {
   opacity: 0;
 }
 
+.case-detail--entering .case-detail__focus,
 .case-detail--entering .case-detail__meta,
 .case-detail--entering .case-detail__media {
   transform: translateY(2rem);
 }
 
 /* Once the fullscreen image has cleared, bring the page in as a short cascade. */
+.case-detail:not(.case-detail--entering) .case-detail__focus {
+  transition-delay: 0.9s;
+}
+
 .case-detail:not(.case-detail--entering) .case-detail__meta {
   transition-delay: 0.2s;
 }
@@ -291,6 +366,7 @@ h1 {
 
 @media (prefers-reduced-motion: reduce) {
   h1,
+  .case-detail__focus,
   .case-detail__meta,
   .case-detail__media {
     transition: none;

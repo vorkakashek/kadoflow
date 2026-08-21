@@ -12,6 +12,7 @@ export type HomeCase = {
   /** Case-detail metadata; it is intentionally hidden on the home stage. */
   client: string
   year: string
+  collaboration?: string
   focusTags: string[]
   roleTags: string[]
   /** Page / section wash color. */
@@ -79,6 +80,7 @@ export const homeCases: HomeCase[] = [
     title: 'Балтика Brew',
     client: 'Балтика',
     year: '2025',
+    collaboration: 'BOSON GROUP',
     blurb: 'Одна форма,\nнесколько характеров,\nраскрытых через движение.',
     focusTags: ['объект', 'движение', 'трансформация'],
     roleTags: ['веб-дизайн', '3D-графика', 'анимация'],
@@ -103,6 +105,7 @@ export const homeCases: HomeCase[] = [
     title: 'SCHMIDT',
     client: 'SCHMIDT',
     year: '2024',
+    collaboration: 'PAIR',
     blurb: 'История премиального продукта,\nвыстроенная в горизонтальном ритме.',
     focusTags: ['ритм', 'контраст', 'материальность'],
     roleTags: ['арт-дирекция', 'веб-дизайн', 'фронтенд'],
