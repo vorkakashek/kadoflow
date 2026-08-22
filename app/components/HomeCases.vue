@@ -49,6 +49,8 @@ const showCaseGestureHint = computed(
 const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
+/** True only after FlowSurface has finished its final settle and is pinned to media. */
+const caseSurfaceReady = useState('home-case-surface-ready', () => false)
 /** Restarted for every case; appears only after the surface/media have settled. */
 const showCaseArrow = ref(false)
 let caseArrowTimer = 0
@@ -702,17 +704,17 @@ function clearCaseArrow() {
 
 function scheduleCaseArrow(delay = 300) {
   clearCaseArrow()
-  if (!mobileCases.value || !caseSurfaceDocked.value || switching.value) return
+  if (!mobileCases.value || !caseSurfaceReady.value || switching.value) return
   caseArrowTimer = window.setTimeout(() => {
     caseArrowTimer = 0
-    if (mobileCases.value && caseSurfaceDocked.value && !switching.value) {
+    if (mobileCases.value && caseSurfaceReady.value && !switching.value) {
       showCaseArrow.value = true
     }
   }, delay)
 }
 
-watch([caseSurfaceDocked, switching], ([docked, isSwitching]) => {
-  if (!docked || isSwitching) clearCaseArrow()
+watch([caseSurfaceReady, switching], ([ready, isSwitching]) => {
+  if (!ready || isSwitching) clearCaseArrow()
   else scheduleCaseArrow()
 })
 
@@ -1615,7 +1617,8 @@ onBeforeUnmount(() => {
 @media (max-width: 767.98px) {
   .cases-case-link__icon {
     position: absolute;
-    z-index: 4;
+    /* FlowSurface's pinned media layer uses z-10 inside this isolated figure. */
+    z-index: 20;
     right: 0.75rem;
     bottom: 0.75rem;
     display: inline-flex;
