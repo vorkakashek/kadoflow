@@ -1017,13 +1017,15 @@ onBeforeUnmount(() => {
               decoding="async"
               @load="onMediaLayoutReady"
             >
-            <span
-              v-if="showCaseArrow"
-              :key="activeCase.id"
-              class="cases-case-link__icon"
-            >
-              <PhArrowRight :size="26" />
-            </span>
+            <Transition name="case-link-icon">
+              <span
+                v-if="showCaseArrow"
+                :key="activeCase.id"
+                class="cases-case-link__icon"
+              >
+                <PhArrowRight :size="26" />
+              </span>
+            </Transition>
           </figure>
         </div>
 
@@ -1641,6 +1643,16 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }
+}
+
+.case-link-icon-leave-active {
+  animation: none;
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.case-link-icon-leave-to {
+  opacity: 0;
+  transform: translate3d(0, -0.3rem, 0) scale(0.94);
 }
 
 @media (min-width: 768px) {
