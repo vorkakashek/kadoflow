@@ -27,14 +27,17 @@ const headerCollapsed = computed(
 )
 /** Expand with morph after PageIris finishes (stay compact under the sand). */
 let pendingExpand = false
+/** A case cover can hide the route swap; reveal a compact mobile FAB only after it lifts. */
+let pendingFabExpandAfterCaseTransition = false
 const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
 const fabEl = ref<HTMLElement | null>(null)
 const logoEl = ref<HTMLElement | null>(null)
 const logoImgEl = ref<HTMLImageElement | null>(null)
 const isOverCases = ref(false)
+const mobileMarkOverCases = ref(false)
 const mobileHeader = ref(false)
-const mobileLogoCasesProgress = ref(0)
+const mobileScrollMarkOn = ref(false)
 const caseInverse = useState('home-case-inverse', () => false)
 const { closeCaseDetail, active: caseDetailTransitionActive } = useCaseDetailTransition()
 const detailCase = computed(() => {
@@ -54,12 +57,13 @@ const fabStyle = computed(() => ({
 }))
 const logoInverted = computed(
   () => detailInverse.value
-    || (!mobileHeader.value && isOverCases.value && caseInverse.value),
+    || (isOverCases.value && caseInverse.value),
 )
-const mobileLogoStyle = computed(() =>
-  mobileHeader.value && route.path === '/'
-    ? { opacity: String(1 - mobileLogoCasesProgress.value) }
-    : undefined,
+const mobileScrollMarkVisible = computed(
+  () => mobileHeader.value && mobileScrollMarkOn.value && !canvasForced.value,
+)
+const mobileScrollMarkInverted = computed(
+  () => detailInverse.value || (mobileMarkOverCases.value && caseInverse.value),
 )
 const navEl = ref<HTMLElement | null>(null)
 const menuBtnEl = ref<HTMLElement | null>(null)
@@ -73,6 +77,7 @@ let lastFabScrollY = 0
 const FAB_LABEL_DIR_PX = 8
 /** After menu close, ignore the scroll restoration jump so the word stays visible. */
 let fabLabelHoldUntil = 0
+let lastMobileLogoScrollY: number | null = null
 
 function onChipPointer(e: PointerEvent) {
   const el = e.currentTarget
@@ -148,23 +153,11 @@ let collapseTimer = 0
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let logoCasesSt: { kill: () => void } | null = null
+let mobileMarkCasesSt: { kill: () => void } | null = null
 let logoToneTries = 0
 let logoToneSyncRaf = 0
 let fabFitTl: { kill: () => void } | null = null
 let fabFitResolve: (() => void) | null = null
-
-function syncMobileLogoCasesProgress(cases: HTMLElement, logo: HTMLElement) {
-  if (!mobileHeader.value || route.path !== '/') {
-    mobileLogoCasesProgress.value = 0
-    return
-  }
-  const caseBox = cases.getBoundingClientRect()
-  const logoBox = logo.getBoundingClientRect()
-  const distance = Math.max(1, logoBox.height)
-  const enter = Math.min(1, Math.max(0, (logoBox.bottom - caseBox.top) / distance))
-  const exit = Math.min(1, Math.max(0, (caseBox.bottom - logoBox.top) / distance))
-  mobileLogoCasesProgress.value = Math.min(enter, exit)
-}
 
 /**
  * ScrollTrigger is useful for regular scrolling, but its `isActive` can be
@@ -174,7 +167,7 @@ function syncMobileLogoCasesProgress(cases: HTMLElement, logo: HTMLElement) {
 function syncLogoCasesToneFromLayout() {
   if (route.path !== '/') {
     isOverCases.value = false
-    mobileLogoCasesProgress.value = 0
+    mobileMarkOverCases.value = false
     return
   }
   const cases = document.getElementById('cases')
@@ -184,16 +177,18 @@ function syncLogoCasesToneFromLayout() {
   const caseBox = cases.getBoundingClientRect()
   const logoBox = logo.getBoundingClientRect()
   isOverCases.value = caseBox.top <= logoBox.bottom && caseBox.bottom >= logoBox.top
-  syncMobileLogoCasesProgress(cases, logo)
+  mobileMarkOverCases.value = caseBox.top < window.innerHeight && caseBox.bottom > 0
 }
 
 async function setupLogoCasesTrigger() {
   logoCasesSt?.kill()
   logoCasesSt = null
+  mobileMarkCasesSt?.kill()
+  mobileMarkCasesSt = null
 
   if (route.path !== '/') {
     isOverCases.value = false
-    mobileLogoCasesProgress.value = 0
+    mobileMarkOverCases.value = false
     logoToneTries = 0
     return
   }
@@ -203,6 +198,7 @@ async function setupLogoCasesTrigger() {
   const logo = logoImgEl.value
   if (!logo) return
   if (!cases) {
+    mobileMarkOverCases.value = false
     if (logoToneTries < 24) {
       logoToneTries += 1
       requestAnimationFrame(() => {
@@ -233,14 +229,21 @@ async function setupLogoCasesTrigger() {
     invalidateOnRefresh: true,
     onToggle: (self) => {
       isOverCases.value = self.isActive
-      syncMobileLogoCasesProgress(cases, logo)
-    },
-    onUpdate: () => {
-      syncMobileLogoCasesProgress(cases, logo)
     },
     onRefresh: (self) => {
       isOverCases.value = self.isActive
-      syncMobileLogoCasesProgress(cases, logo)
+    },
+  })
+  mobileMarkCasesSt = stMod.create({
+    trigger: cases,
+    start: 'top bottom',
+    end: 'bottom top',
+    invalidateOnRefresh: true,
+    onToggle: (self) => {
+      mobileMarkOverCases.value = self.isActive
+    },
+    onRefresh: (self) => {
+      mobileMarkOverCases.value = self.isActive
     },
   })
   syncLogoCasesToneFromLayout()
@@ -274,6 +277,7 @@ function scheduleLogoCasesToneSync(refresh = false) {
 }
 
 function onPageShow() {
+  onScroll()
   scheduleLogoCasesToneSync(true)
 }
 
@@ -441,23 +445,28 @@ async function morph(animate: boolean) {
   })
 }
 
-function resetHeaderWide(animate: boolean) {
+function resetHeaderWide(animate: boolean, deferFabExpand = false) {
   if (collapseTimer) {
     window.clearTimeout(collapseTimer)
     collapseTimer = 0
   }
   pendingExpand = false
   scrolled.value = false
-  fabLabelOn.value = true
   window.scrollTo(0, 0)
   lastFabScrollY = 0
-  void fitFabLabel(true, true)
+  if (deferFabExpand) {
+    pendingFabExpandAfterCaseTransition = true
+  } else {
+    fabLabelOn.value = true
+    void fitFabLabel(true, true)
+  }
   void morph(animate)
 }
 
 function onScroll() {
   syncMenuFloat()
   syncFabLabel()
+  syncMobileScrollMark()
   if (canvasLocksScroll()) return
 
   const past = window.scrollY > 8
@@ -484,6 +493,27 @@ function onScroll() {
       void morph(true)
     }
   }, COLLAPSE_DELAY_MS)
+}
+
+/** Mobile logo visibility follows scroll direction only, never page position. */
+function syncMobileScrollMark() {
+  if (!mobileHeader.value) {
+    mobileScrollMarkOn.value = false
+    lastMobileLogoScrollY = null
+    return
+  }
+  if (canvasLocksScroll()) return
+
+  const y = Math.max(0, window.scrollY || 0)
+  if (lastMobileLogoScrollY == null) {
+    lastMobileLogoScrollY = y
+    return
+  }
+
+  const dy = y - lastMobileLogoScrollY
+  lastMobileLogoScrollY = y
+  if (dy === 0) return
+  mobileScrollMarkOn.value = dy > 0
 }
 
 function syncFabLabel() {
@@ -524,6 +554,10 @@ async function fitFabLabel(on: boolean, instant = false) {
   document.documentElement.style.setProperty(
     '--menu-fab-expanded-width',
     `${labelW + 68}px`,
+  )
+  document.documentElement.style.setProperty(
+    '--menu-fab-current-width',
+    `${on ? labelW + 68 : 40}px`,
   )
   fabFitTl?.kill()
   fabFitTl = null
@@ -631,7 +665,8 @@ function syncFabViewport() {
 
 function syncThumbNav() {
   thumbNav.value = isThumbNav()
-  mobileHeader.value = window.matchMedia('(max-width: 767px)').matches
+  mobileHeader.value = thumbNav.value
+  syncMobileScrollMark()
 }
 
 onMounted(() => {
@@ -639,8 +674,8 @@ onMounted(() => {
   refreshTokens()
   void gsap()
   void morph(false)
-  onScroll()
   syncThumbNav()
+  onScroll()
   syncFabViewport()
   void nextTick(() => {
     void fitFabLabel(fabLabelOn.value, true)
@@ -704,7 +739,10 @@ onMounted(() => {
         pendingExpand = true
         return
       }
-      resetHeaderWide(wasCollapsed)
+      resetHeaderWide(
+        wasCollapsed,
+        thumbNav.value && caseDetailTransitionActive.value,
+      )
     },
   )
 
@@ -712,6 +750,12 @@ onMounted(() => {
     if (was && !live && pendingExpand) {
       resetHeaderWide(true)
     }
+  })
+
+  watch(caseDetailTransitionActive, (active, was) => {
+    if (!was || active || !pendingFabExpandAfterCaseTransition) return
+    pendingFabExpandAfterCaseTransition = false
+    applyFabLabel(true)
   })
 
   const preload = useBrandPreload()
@@ -768,6 +812,8 @@ onUnmounted(() => {
   logoToneSyncRaf = 0
   logoCasesSt?.kill()
   logoCasesSt = null
+  mobileMarkCasesSt?.kill()
+  mobileMarkCasesSt = null
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('pageshow', onPageShow)
   window.removeEventListener('resize', onResize)
@@ -778,6 +824,7 @@ onUnmounted(() => {
   fabFitTl?.kill()
   registerFabFit(null)
   document.documentElement.style.removeProperty('--menu-fab-expanded-width')
+  document.documentElement.style.removeProperty('--menu-fab-current-width')
   tokenProbe?.remove()
   tokenProbe = null
   tokenCache = null
@@ -817,7 +864,7 @@ onUnmounted(() => {
           ref="logoEl"
           to="/"
           class="header-logo-link pointer-events-auto row-start-1 col-span-12 col-start-1 justify-self-center md:col-span-3 md:justify-self-start"
-          :class="{ 'header-logo-link--cases-fading': mobileLogoCasesProgress > 0.01 }"
+          :class="{ 'header-logo-link--mobile-scrolled': mobileScrollMarkVisible }"
           aria-label="Kadoflow — на главную"
           :tabindex="canvasSurface ? -1 : 0"
           @pointerenter="preloadHomeSceneAssets"
@@ -828,7 +875,6 @@ onUnmounted(() => {
             alt="Kadoflow"
             class="header-logo"
             :class="{ 'header-logo--inverted': logoInverted }"
-            :style="mobileLogoStyle"
             width="206"
             height="40"
             decoding="sync"
@@ -945,6 +991,33 @@ onUnmounted(() => {
 
   <!-- Mobile thumb-zone menu — pinned to visual viewport bottom (matches right inset). -->
   <Teleport to="body">
+    <Transition name="mobile-scroll-mark">
+      <NuxtLink
+        v-if="mobileScrollMarkVisible && !canvasSurface"
+        to="/"
+        class="mobile-scroll-mark pointer-events-auto"
+        :class="{ 'mobile-scroll-mark--inverted': mobileScrollMarkInverted }"
+        :style="fabStyle"
+        aria-label="КАДОФЛОУ — на главную"
+        @pointerenter="preloadHomeSceneAssets"
+      >
+        <img src="/brand/kado-logo-ru-o.svg" alt="" width="32" height="32">
+      </NuxtLink>
+    </Transition>
+    <button
+      v-if="detailCase && !canvasSurface"
+      type="button"
+      class="case-mobile-back site-nav pointer-events-auto"
+      :class="{ 'case-mobile-back--transitioning': caseDetailTransitionActive }"
+      :style="fabStyle"
+      aria-label="Назад на главную"
+      @click="onCaseDetailBack"
+    >
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M27 16H5" />
+        <path d="m12 9-7 7 7 7" />
+      </svg>
+    </button>
     <button
       ref="fabEl"
       type="button"
@@ -1007,15 +1080,59 @@ onUnmounted(() => {
 .site-header--case-transitioning .header-nav,
 .site-header--case-transitioning .case-header-back,
 .menu-btn--case-transitioning,
-.menu-fab--case-transitioning {
+.menu-fab--case-transitioning,
+.case-mobile-back--transitioning {
   pointer-events: none !important;
+  opacity: 0;
+  transform: translateY(0.5rem);
 }
 
 .header-nav,
 .case-header-back,
+.case-mobile-back,
 .menu-btn--float,
 .menu-fab {
   transition: opacity 0.28s var(--motion-ease, ease);
+}
+
+/* Mobile case return mirrors the thumb-zone menu: an icon-only companion on
+   its left, with the same viewport-safe lower inset. */
+.case-mobile-back {
+  --header-chip-bg: color-mix(
+    in srgb,
+    var(--palette-ink, #171915) 82%,
+    var(--palette-ash, #666a61)
+  );
+  position: fixed;
+  right: calc(
+    2 * var(--layout-margin) + var(--safe-right, 0px)
+    + var(--menu-fab-current-width, 40px) + 8px
+  );
+  bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
+  z-index: 114;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* A small optical lift keeps the circular control equal to the menu pill. */
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  cursor: pointer;
+  color: var(--palette-milk, #f5f1e8);
+  background-color: var(--header-chip-bg);
+  transition:
+    right 0.52s cubic-bezier(0.645, 0.045, 0.355, 1),
+    opacity 0.28s var(--motion-ease, ease),
+    transform 0.28s var(--motion-ease, ease);
+}
+
+.case-mobile-back svg {
+  width: 22px;
+  height: 22px;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1065,8 +1182,42 @@ html.page-canvas-lock .menu-btn--float {
   cursor: pointer;
 }
 
-.header-logo-link--cases-fading {
-  pointer-events: none;
+.mobile-scroll-mark {
+  position: fixed;
+  left: calc(2 * var(--layout-margin) + var(--safe-left, 0px));
+  z-index: 114;
+  display: flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  transition:
+    opacity 0.28s var(--motion-ease, ease),
+    transform 0.28s var(--motion-ease, ease);
+}
+
+.mobile-scroll-mark img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  transition: filter 0.35s var(--motion-ease, ease);
+}
+
+.mobile-scroll-mark--inverted img {
+  filter: brightness(0) invert(1);
+}
+
+.mobile-scroll-mark-enter-active,
+.mobile-scroll-mark-leave-active {
+  transition:
+    opacity 0.28s var(--motion-ease, ease),
+    transform 0.28s var(--motion-ease, ease);
+}
+
+.mobile-scroll-mark-enter-from,
+.mobile-scroll-mark-leave-to {
+  opacity: 0;
+  transform: translateY(calc(100% + 0.75rem));
 }
 
 .header-logo {
@@ -1089,7 +1240,7 @@ html.page-canvas-lock .menu-btn--float {
   justify-content: center;
   border: 0;
   width: 8.5rem;
-  min-height: 3rem;
+  min-height: 0;
   /* Match the menu chip’s optical top/bottom balance. */
   padding: 7px 0.9rem 9px;
   overflow: hidden;
@@ -1171,6 +1322,20 @@ html.page-canvas-lock .menu-btn--float {
   }
 }
 
+.header-logo-link {
+  transition:
+    opacity 0.28s var(--motion-ease, ease),
+    transform 0.28s var(--motion-ease, ease);
+}
+
+/* The intro timeline leaves inline opacity/transform on this element. The
+   direction state must win over those inline values on thumb navigation. */
+.header-logo-link--mobile-scrolled {
+  pointer-events: none;
+  opacity: 0 !important;
+  transform: translateY(calc(-100% - var(--layout-header-inset))) !important;
+}
+
 @media (max-width: 767px) {
   .header-logo {
     height: calc(var(--layout-header-content) * 1.1);
@@ -1198,6 +1363,17 @@ html.page-canvas-lock .menu-btn--float {
 
 /* Desktop nav pill: small inline chrome so hover fills sit inside the group. */
 @media (min-width: 768px) {
+  /* One desktop control height: nav pill, back action and floating menu.
+     Keep link boxes untouched so their radial hover fills still cover the
+     same individual hit areas. */
+  .case-header-back,
+  .header-nav.header-chip,
+  .header-desk-menu.menu-btn {
+    box-sizing: border-box;
+    height: calc(1.25em + 16px);
+    min-height: 0;
+  }
+
   .header-nav.header-chip {
     padding-left: 4px;
     padding-right: 4px;
@@ -1382,6 +1558,8 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
   z-index: 114;
   display: flex;
+  box-sizing: border-box;
+  height: 42px;
   margin: 0;
   gap: 8px;
   border: 0;
@@ -1421,6 +1599,13 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   transition: color 0.3s var(--motion-ease, ease);
 }
 
+.menu-fab {
+  transition:
+    color 0.3s var(--motion-ease, ease),
+    opacity 0.28s var(--motion-ease, ease),
+    transform 0.28s var(--motion-ease, ease);
+}
+
 .header-nav .nav-link {
   color: var(--palette-ink, #171915) !important;
 }
@@ -1442,6 +1627,10 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
 /* Desktop + mouse: header chip owns «меню». Phones keep the FAB even in landscape. */
 @media (min-width: 768px) and (pointer: fine) {
   .menu-fab {
+    display: none;
+  }
+
+  .case-mobile-back {
     display: none;
   }
 }

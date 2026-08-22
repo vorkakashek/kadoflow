@@ -34,6 +34,7 @@ function releaseDirectEntry() {
 async function setupMediaParallax() {
   const media = mediaParallaxEl.value
   if (!media || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const audience = item.value?.id === 'audience'
 
   const gsap = (await import('gsap')).default
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
@@ -45,11 +46,16 @@ async function setupMediaParallax() {
       media,
       { yPercent: 0 },
       {
-        yPercent: 30,
+        // Audience uses a shorter crop window. Its oversized image travels
+        // upward inside that window until the frame's lower edge clears the
+        // top of the viewport; other cases retain their existing page drift.
+        yPercent: audience ? -55 : 30,
         ease: 'none',
         scrollTrigger: {
           trigger: mediaEnterEl.value ?? media,
-          start: () => `top top+=${Math.round(media.offsetHeight * 0.3)}px`,
+          start: audience
+            ? 'top bottom'
+            : () => `top top+=${Math.round(media.offsetHeight * 0.3)}px`,
           end: 'bottom top',
           scrub: 0.65,
           invalidateOnRefresh: true,
@@ -110,68 +116,69 @@ useHead(() => ({
     :style="{ backgroundColor: item.wash }"
   >
     <div class="case-detail__inner">
-      <section class="case-detail__hero">
-        <h1>{{ item.title }}</h1>
-        <div class="case-detail__focus" aria-label="фокус">
-          <template v-for="(tag, index) in item.focusTags" :key="tag">
-            <span class="case-detail__focus-tag">{{ tag }}</span>
-            <PhDot v-if="index < item.focusTags.length - 1" :size="8" />
-          </template>
-        </div>
-      </section>
+      <div class="case-detail__first-screen">
+        <section class="case-detail__hero">
+          <h1>
+            <span>{{ item.title }},</span>
+            <span class="case-detail__summary">{{ item.blurb.replace('\n', ' ') }}</span>
+          </h1>
+        </section>
 
-      <section class="case-detail__content">
-        <div
-          class="case-detail__meta"
-          :class="{ 'case-detail__meta--with-collaboration': item.collaboration }"
-        >
-          <div>
-            <p class="case-detail__eyebrow">клиент</p>
-            <p class="case-detail__tags">{{ item.client }}</p>
+        <section class="case-detail__content">
+          <div
+            class="case-detail__meta"
+            :class="{ 'case-detail__meta--with-collaboration': item.collaboration }"
+          >
+            <div>
+              <p class="case-detail__eyebrow">клиент</p>
+              <p class="case-detail__tags">{{ item.client }}</p>
+            </div>
+            <div>
+              <p class="case-detail__eyebrow">год</p>
+              <p class="case-detail__tags">{{ item.year }}</p>
+            </div>
+            <div>
+              <p class="case-detail__eyebrow">участие</p>
+              <p class="case-detail__tags case-detail__role-tags">
+                <span v-for="tag in item.roleTags" :key="tag">{{ tag }}</span>
+              </p>
+            </div>
+            <div v-if="item.collaboration">
+              <p class="case-detail__eyebrow">в коллаборации</p>
+              <p class="case-detail__tags">{{ item.collaboration }}</p>
+            </div>
           </div>
-          <div>
-            <p class="case-detail__eyebrow">год</p>
-            <p class="case-detail__tags">{{ item.year }}</p>
+          <div
+            ref="mediaEnterEl"
+            class="case-detail__media"
+            :class="{
+              'case-detail__media--audience': item.id === 'audience',
+              'case-detail__media--video': item.id === 'baltika' && item.media.video,
+            }"
+          >
+            <div ref="mediaParallaxEl" class="case-detail__media-parallax">
+              <BaltikaScrollFilm
+                v-if="item.id === 'baltika' && item.media.video"
+                :webm="item.media.video.webm"
+                :mp4="item.media.video.mp4"
+                :mobile-webm="item.media.video.mobileWebm"
+                :mobile-mp4="item.media.video.mobileMp4"
+                :poster="item.media.video.poster"
+                :alt="item.media.alt"
+              />
+              <img
+                v-else
+                :src="item.media.src"
+                :alt="item.media.alt"
+                class="case-detail__image"
+                loading="eager"
+                fetchpriority="high"
+                decoding="async"
+              >
+            </div>
           </div>
-          <div>
-            <p class="case-detail__eyebrow">участие</p>
-            <p class="case-detail__tags case-detail__role-tags">
-              <span v-for="tag in item.roleTags" :key="tag">{{ tag }}</span>
-            </p>
-          </div>
-          <div v-if="item.collaboration">
-            <p class="case-detail__eyebrow">в коллаборации</p>
-            <p class="case-detail__tags">{{ item.collaboration }}</p>
-          </div>
-        </div>
-        <div
-          ref="mediaEnterEl"
-          class="case-detail__media"
-          :class="{ 'case-detail__media--video': item.id === 'baltika' && item.media.video }"
-        >
-          <div ref="mediaParallaxEl" class="case-detail__media-parallax">
-            <BaltikaScrollFilm
-              v-if="item.id === 'baltika' && item.media.video"
-              :webm="item.media.video.webm"
-              :mp4="item.media.video.mp4"
-              :mobile-webm="item.media.video.mobileWebm"
-              :mobile-mp4="item.media.video.mobileMp4"
-              :poster="item.media.video.poster"
-              :alt="item.media.alt"
-            />
-            <img
-              v-else
-              :src="item.media.src"
-              :alt="item.media.alt"
-              class="case-detail__image"
-              loading="eager"
-              fetchpriority="high"
-              decoding="async"
-            >
-          </div>
-        </div>
-        <p class="case-detail__blurb">{{ item.blurb.replace('\n', ' ') }}</p>
-      </section>
+        </section>
+      </div>
     </div>
   </main>
 </template>
@@ -199,25 +206,9 @@ useHead(() => ({
   min-height: 60svh;
   align-content: center;
   row-gap: 2rem;
-  place-items: center;
+  place-items: start;
   padding-block: calc(var(--layout-surface-top) + clamp(1rem, 2vw, 2rem)) clamp(1rem, 2vw, 2rem);
-  text-align: center;
-}
-
-.case-detail__focus {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  column-gap: clamp(0.75rem, 1.8vw, 1.5rem);
-  row-gap: 0.5rem;
-  margin: 0;
-  font-size: var(--type-nav);
-  letter-spacing: -0.02em;
-}
-
-.case-detail__focus-tag {
-  white-space: nowrap;
+  text-align: left;
 }
 
 .case-detail__content {
@@ -231,9 +222,19 @@ useHead(() => ({
 .case-detail__meta {
   display: grid;
   gap: 1.25rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
 }
 
 @media (min-width: 768px) {
+  .case-detail__hero {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: var(--layout-gutter);
+  }
+
+  .case-detail__hero h1 {
+    grid-column: 2 / -2;
+  }
+
   .case-detail__content {
     grid-template-columns: repeat(12, minmax(0, 1fr));
     column-gap: var(--layout-gutter);
@@ -253,10 +254,6 @@ useHead(() => ({
     grid-column: 1 / -1;
   }
 
-  .case-detail__blurb {
-    grid-column: 2 / -2;
-    max-width: none;
-  }
 }
 
 .case-detail__eyebrow,
@@ -279,15 +276,17 @@ useHead(() => ({
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.2rem;
+  gap: 0;
+  line-height: 1.1;
 }
 
 .case-detail__role-tags span {
+  font-weight: 500;
   white-space: nowrap;
 }
 
 h1 {
-  max-width: 12ch;
+  width: 100%;
   margin: 0;
   font-size: clamp(3rem, 8vw, 8rem);
   font-weight: 400;
@@ -296,17 +295,60 @@ h1 {
   transition: opacity 2.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.case-detail__focus {
-  transition:
-    opacity 1.5s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 1.5s cubic-bezier(0.22, 1, 0.36, 1);
+.case-detail__summary {
+  display: block;
 }
 
-.case-detail__blurb {
-  max-width: 34rem;
-  margin: clamp(2.5rem, 6vw, 4rem) 0 0;
-  font-size: var(--type-lead);
-  line-height: 1.35;
+@media (max-width: 767.98px) {
+  .case-detail__first-screen {
+    box-sizing: border-box;
+    display: flex;
+    min-height: var(--app-screen);
+    flex-direction: column;
+    padding-bottom: clamp(1rem, 3svh, 1.5rem);
+  }
+
+  .case-detail__hero {
+    min-height: 0;
+    row-gap: 1rem;
+    padding-block: calc(var(--layout-surface-top) + 1rem) 3.5rem;
+  }
+
+  h1 {
+    font-size: var(--type-hero);
+  }
+
+  .case-detail__content {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    padding-top: 0;
+  }
+
+  .case-detail__meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--layout-gutter);
+    row-gap: 0.75rem;
+    padding-top: 1rem;
+  }
+
+  .case-detail__meta:not(.case-detail__meta--with-collaboration) > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .case-detail__tags {
+    margin-top: 0;
+  }
+
+  .case-detail__media {
+    margin-top: auto;
+    margin-bottom: 0;
+  }
+
+  .case-detail__image {
+    aspect-ratio: auto;
+  }
 }
 
 .case-detail__media {
@@ -331,6 +373,26 @@ h1 {
   object-fit: cover;
 }
 
+.case-detail__media--audience .case-detail__image {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+}
+
+/* Audience keeps its full portrait image behind the shortened frame. The
+   frame is another 25% lower than the previous 4:3 crop; the inner element
+   preserves the full raster height for the longer parallax travel. */
+.case-detail__media--audience {
+  aspect-ratio: 16 / 9;
+  margin-bottom: clamp(2rem, 6vw, 6rem);
+  overflow: hidden;
+}
+
+.case-detail__media--audience .case-detail__media-parallax {
+  height: 222.222%;
+}
+
 .case-detail__meta,
 .case-detail__media {
   transition:
@@ -339,21 +401,14 @@ h1 {
 }
 
 .case-detail--entering h1,
-.case-detail--entering .case-detail__focus,
 .case-detail--entering .case-detail__meta,
 .case-detail--entering .case-detail__media {
   opacity: 0;
 }
 
-.case-detail--entering .case-detail__focus,
 .case-detail--entering .case-detail__meta,
 .case-detail--entering .case-detail__media {
   transform: translateY(2rem);
-}
-
-/* Once the fullscreen image has cleared, bring the page in as a short cascade. */
-.case-detail:not(.case-detail--entering) .case-detail__focus {
-  transition-delay: 0.9s;
 }
 
 .case-detail:not(.case-detail--entering) .case-detail__meta {
@@ -366,7 +421,6 @@ h1 {
 
 @media (prefers-reduced-motion: reduce) {
   h1,
-  .case-detail__focus,
   .case-detail__meta,
   .case-detail__media {
     transition: none;

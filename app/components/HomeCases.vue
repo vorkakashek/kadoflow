@@ -287,7 +287,6 @@ async function tweenRailToCase(
 }
 
 function revealActiveCaseUnderline() {
-  if (!mobileCases.value) return
   const active = railListEl.value?.querySelector<HTMLElement>(
     '.cases-rail__btn--active',
   )
@@ -975,7 +974,7 @@ onBeforeUnmount(() => {
               @click="onRailBtnClick(item)"
             >
               <span class="cases-rail__label">{{ item.label }}</span>
-              <TextLinkWave v-if="mobileCases && item.id === activeId" />
+              <TextLinkWave v-if="item.id === activeId" />
             </button>
           </li>
         </ul>
@@ -1130,8 +1129,15 @@ onBeforeUnmount(() => {
     flex-direction: column;
     flex-wrap: nowrap;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: 1rem;
     width: auto;
+    overflow: visible;
+  }
+
+  /* Match the mobile active-link rhythm: the wave sits below the glyphs,
+     not directly on their baseline. */
+  .cases-rail__btn :deep(.text-link-wave) {
+    bottom: -0.5em;
   }
 }
 
@@ -1770,6 +1776,15 @@ onBeforeUnmount(() => {
 /* Editorial case poses. Navigation and media share one 12-column field. */
 @media (min-width: 768px) {
   .cases-inner {
+    --cases-inner-pad-block: 120px;
+    --cases-rail-center: calc(
+      (100svh + var(--layout-surface-top)) * 0.5
+      - var(--cases-inner-pad-block)
+    );
+    --cases-rail-center: calc(
+      (100dvh + var(--layout-surface-top)) * 0.5
+      - var(--cases-inner-pad-block)
+    );
     min-height: calc(100svh + var(--layout-surface-top));
     min-height: calc(100dvh + var(--layout-surface-top));
     box-sizing: border-box;
@@ -1780,8 +1795,11 @@ onBeforeUnmount(() => {
     position: static;
     z-index: 2;
     height: auto;
-    align-self: center;
-    transform: none;
+    /* The stage changes height from case to case. Pin the rail to the
+       viewport-centered baseline instead of centering it in that live row. */
+    align-self: start;
+    margin-top: var(--cases-rail-center);
+    transform: translateY(-50%);
     pointer-events: auto;
   }
 

@@ -2108,7 +2108,9 @@ watch(
               <img
                 v-if="caseMediaReady"
                 class="case-surface-fill__asset"
-                :class="{ 'case-surface-fill__asset--behind-video': showCaseFill && fillFrontVideo }"
+                :class="{
+                  'case-surface-fill__asset--behind-video': showCaseFill && fillFrontVideo,
+                }"
                 :src="fillFrontSrc"
                 :alt="fillFrontAlt"
                 decoding="async"
@@ -2151,7 +2153,9 @@ watch(
               <img
                 v-if="caseMediaReady"
                 class="case-surface-fill__asset"
-                :class="{ 'case-surface-fill__asset--behind-video': showCaseFill && fillBackVideo }"
+                :class="{
+                  'case-surface-fill__asset--behind-video': showCaseFill && fillBackVideo,
+                }"
                 :src="fillBackSrc"
                 :alt="fillBackAlt"
                 decoding="async"
@@ -2225,4 +2229,5 @@ watch(
 .case-surface-fill__asset--behind-video {
   opacity: 0;
 }
+
 </style>
