@@ -641,8 +641,11 @@ async function bootScene() {
   }
 
   const texLoader = new THREE.TextureLoader(manager)
-  // Same studio HDRI on phone + desktop (was studioWarm on narrow).
-  const hdrUrl = HDRI_PRESETS[ACTIVE_HDRI]
+  // A 2K HDR costs ~6 MB. Narrow devices get the matching 1K studio map;
+  // the reduced screen footprint makes the visual difference imperceptible.
+  const hdrUrl = wide
+    ? HDRI_PRESETS[ACTIVE_HDRI]
+    : HDRI_PRESETS.studioWarm
   const assetLoads: Promise<THREE.DataTexture | THREE.Texture>[] = [
     new HDRLoader(manager).loadAsync(hdrUrl),
   ]

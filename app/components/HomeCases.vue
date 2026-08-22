@@ -30,6 +30,12 @@ const gestureHintEl = ref<HTMLElement | null>(null)
 /** Avoid SSR Teleport into the page-local colour host. */
 const mountBgPortal = ref(false)
 const mobileCases = ref(false)
+/**
+ * Freeze the largest mobile viewport once per page load. The browser toolbar can
+ * then move without shrinking the Cases colour field or exposing the section
+ * above it.
+ */
+const mobileCasesHeight = ref<number | null>(null)
 const caseGestureHintSeen = useCookie<boolean>('kadoflow-case-gesture-hint-v2', {
   default: () => false,
   maxAge: 60 * 60 * 24 * 7,
@@ -64,6 +70,13 @@ const caseSurfaceMedia = useState<{
 const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
 /** Ask FlowSurface to freeze its pinned frame before this card changes size. */
 const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
+/**
+ * The first case image should not compete with the hero's initial payload.
+ * Once the brand reveal is complete, warm and decode it while the browser is idle
+ * so the Kado → Cases handoff has a ready raster.
+ */
+const caseMediaReady = useState('home-case-media-ready', () => false)
+const preload = useBrandPreload()
 const caseInverse = useState('home-case-inverse', () => !!homeCases[0]?.inverse)
 const { openCaseDetail } = useCaseDetailTransition()
 
@@ -173,7 +186,10 @@ function onCaseStagePointerDown(e: PointerEvent) {
   if (!mobileCases.value || !e.isPrimary) return
   // Links remain normal tap targets. We still capture their pointer sequence so
   // a horizontal drag across either the title or the image can switch cases.
-  if (e.target instanceof Element && e.target.closest('button')) return
+  if (
+    e.target instanceof Element
+    && e.target.closest('button, .cases-gesture-hint')
+  ) return
   caseSwipeStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
   if (e.currentTarget instanceof HTMLElement) {
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -300,6 +316,15 @@ function refreshMobileCases() {
   scheduleMobileBlurbBreak()
 }
 
+function captureMobileCasesHeight() {
+  if (!mobileCases.value || mobileCasesHeight.value != null) return
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:fixed;inset:0;visibility:hidden;pointer-events:none;height:100lvh;'
+  document.body.appendChild(probe)
+  mobileCasesHeight.value = Math.ceil(probe.getBoundingClientRect().height)
+  probe.remove()
+}
+
 function syncMobileBlurbBreak() {
   const el = blurbEl.value
   const firstLine = blurbLines.value[0]
@@ -356,6 +381,44 @@ watch(
 )
 
 watch([activeCase, mobileCases], scheduleMobileBlurbBreak, { flush: 'post' })
+
+let firstCaseWarmImage: HTMLImageElement | null = null
+let firstCaseWarmScheduled = false
+
+function warmFirstCaseMedia() {
+  if (caseMediaReady.value || firstCaseWarmImage) return
+  const src = homeCases[0]?.media.src
+  if (!src) return
+
+  const image = new Image()
+  firstCaseWarmImage = image
+  image.src = src
+  const finish = () => {
+    void image.decode().catch(() => undefined).finally(() => {
+      caseMediaReady.value = true
+    })
+  }
+  if (image.complete) finish()
+  else image.addEventListener('load', finish, { once: true })
+  image.addEventListener('error', () => {
+    caseMediaReady.value = true
+  }, { once: true })
+}
+
+watch(
+  () => preload.revealed.value,
+  (revealed) => {
+    if (!revealed || firstCaseWarmScheduled) return
+    firstCaseWarmScheduled = true
+    const warm = () => warmFirstCaseMedia()
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(warm, { timeout: 1200 })
+    } else {
+      window.setTimeout(warm, 250)
+    }
+  },
+  { immediate: true },
+)
 
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
@@ -765,6 +828,7 @@ async function selectCase(item: HomeCase) {
 
 onMounted(async () => {
   refreshMobileCases()
+  captureMobileCasesHeight()
   mountBgPortal.value = true
   await nextTick()
   syncColorPlate()
@@ -824,6 +888,11 @@ onBeforeUnmount(() => {
     }"
     :data-case-id="activeCase?.id"
     :aria-label="`Кейс: ${activeCase?.title ?? ''}`"
+    :style="mobileCasesHeight ? { '--cases-mobile-h': `${mobileCasesHeight}px` } : undefined"
+    @pointerdown="onCaseStagePointerDown"
+    @pointerup="onCaseStagePointerUp"
+    @pointercancel="onCaseStagePointerCancel"
+    @click.capture="onCaseStageClickCapture"
   >
     <Teleport v-if="mountBgPortal" to="#home-cases-bg-host">
       <div
@@ -914,10 +983,6 @@ onBeforeUnmount(() => {
         v-if="activeCase"
         ref="stageEl"
         class="cases-stage col-span-12 md:col-span-12 md:col-start-1 md:row-start-1"
-        @pointerdown="onCaseStagePointerDown"
-        @pointerup="onCaseStagePointerUp"
-        @pointercancel="onCaseStagePointerCancel"
-        @click.capture="onCaseStageClickCapture"
       >
         <a
           class="cases-case-link"
@@ -941,12 +1006,12 @@ onBeforeUnmount(() => {
             "
           >
             <img
+              v-if="caseMediaReady"
               ref="mediaImgFrontEl"
               :src="activeCase.media.src"
               alt=""
               class="cases-media__img cases-media__img--ghost"
               aria-hidden="true"
-              loading="eager"
               decoding="async"
               @load="onMediaLayoutReady"
             >
@@ -999,9 +1064,10 @@ onBeforeUnmount(() => {
 }
 
 .home-cases--mobile {
-  /* Mobile cases grow with their copy and full-width media, not the viewport. */
+  /* Captured once at page load; browser-chrome motion must not resize this field. */
   --cases-stage-h: auto;
-  min-height: var(--app-screen);
+  min-height: var(--cases-mobile-h, 100lvh);
+  touch-action: pan-y;
 }
 
 .home-cases--inverse {
@@ -1042,7 +1108,9 @@ onBeforeUnmount(() => {
   list-style: none;
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }

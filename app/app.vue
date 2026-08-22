@@ -31,7 +31,6 @@ onMounted(() => {
       <PageIris />
       <SiteCursor />
       <CustomScrollbar />
-      <FpsMeter />
     </ClientOnly>
   </div>
 </template>

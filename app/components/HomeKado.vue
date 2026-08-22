@@ -383,7 +383,7 @@ onUnmounted(() => {
           />
           <img
             ref="stoneEl"
-            src="/home/rock.png"
+            src="/home/rock.webp"
             alt="Камень"
             class="kado-focus kado-stone relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
             width="854"

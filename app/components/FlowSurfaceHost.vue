@@ -132,6 +132,8 @@ const props = withDefaults(
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
 /** True only once the frame is physically pinned to the current case media. */
 const caseSurfaceReady = useState('home-case-surface-ready', () => false)
+/** Set by HomeCases after the first case raster has been decoded off the critical path. */
+const caseMediaReady = useState('home-case-media-ready', () => false)
 type CaseSurfaceMedia = {
   src: string
   alt: string
@@ -2104,6 +2106,7 @@ watch(
               }"
             >
               <img
+                v-if="caseMediaReady"
                 class="case-surface-fill__asset"
                 :class="{ 'case-surface-fill__asset--behind-video': showCaseFill && fillFrontVideo }"
                 :src="fillFrontSrc"
@@ -2146,6 +2149,7 @@ watch(
               }"
             >
               <img
+                v-if="caseMediaReady"
                 class="case-surface-fill__asset"
                 :class="{ 'case-surface-fill__asset--behind-video': showCaseFill && fillBackVideo }"
                 :src="fillBackSrc"

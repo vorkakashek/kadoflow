@@ -1211,15 +1211,6 @@ onMounted(() => {
   syncFrameAspect()
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('resize', syncFrameAspect, { passive: true })
-  for (const frame of canvasFrames) {
-    const srcs = isThumb.value
-      ? []
-      : [frame.preview, frame.previewBw]
-    for (const src of srcs) {
-      const img = new Image()
-      img.src = src
-    }
-  }
   void gsap()
 
   onUnmounted(() => {
@@ -1371,19 +1362,20 @@ onUnmounted(() => {
             aria-hidden="true"
           >
             <div class="pc-preview__sheet">
-              <img
-                v-for="frame in canvasFrames"
-                :key="frame.id"
-                class="pc-preview__shot"
-                :class="{
-                  'is-visible': previewId === frame.id,
-                  'is-shown': previewShotShown(frame.id),
-                }"
-                :src="frameShot(frame)"
-                alt=""
-                draggable="false"
-                @error="onShotError"
-              >
+              <template v-for="frame in canvasFrames" :key="frame.id">
+                <img
+                  v-if="previewShotShown(frame.id)"
+                  class="pc-preview__shot"
+                  :class="{
+                    'is-visible': previewId === frame.id,
+                    'is-shown': previewShotShown(frame.id),
+                  }"
+                  :src="frameShot(frame)"
+                  alt=""
+                  draggable="false"
+                  @error="onShotError"
+                >
+              </template>
             </div>
           </div>
         </div>

@@ -50,7 +50,7 @@ export const homeCases: HomeCase[] = [
     wash: '#0A0501',
     inverse: true,
     media: {
-      src: '/home/cases/audience-img.png',
+      src: '/home/cases/audience-img.webp',
       alt: 'Audience — мобильный мокап сайта',
       orientation: 'portrait',
       cols: 5,
@@ -68,7 +68,7 @@ export const homeCases: HomeCase[] = [
     wash: '#3f2b95',
     inverse: true,
     media: {
-      src: '/home/cases/keys-1.png',
+      src: '/home/cases/keys-1.webp',
       alt: 'Keys Store — витрина',
       orientation: 'portrait',
       cols: 7,
@@ -111,7 +111,7 @@ export const homeCases: HomeCase[] = [
     roleTags: ['арт-дирекция', 'веб-дизайн', 'фронтенд'],
     wash: '#fafafa',
     media: {
-      src: '/home/cases/schmidt.png',
+      src: '/home/cases/schmidt.webp',
       alt: 'SCHMIDT — премиальная водка',
       orientation: 'landscape',
       cols: 12,
