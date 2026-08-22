@@ -1017,15 +1017,12 @@ onBeforeUnmount(() => {
               decoding="async"
               @load="onMediaLayoutReady"
             >
-            <Transition name="case-link-icon">
-              <span
-                v-if="showCaseArrow"
-                :key="activeCase.id"
-                class="cases-case-link__icon"
-              >
-                <PhArrowRight :size="26" />
-              </span>
-            </Transition>
+            <span
+              class="cases-case-link__icon"
+              :class="{ 'is-visible': showCaseArrow }"
+            >
+              <PhArrowRight :size="26" />
+            </span>
           </figure>
         </div>
 
@@ -1634,25 +1631,15 @@ onBeforeUnmount(() => {
     opacity: 0;
     pointer-events: none;
     transform: translate3d(0, -0.5rem, 0) scale(0.88);
-    animation: case-link-icon-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
   }
-}
 
-@keyframes case-link-icon-in {
-  to {
+  .cases-case-link__icon.is-visible {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
+    transition-duration: 0.45s;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
-}
-
-.case-link-icon-leave-active {
-  animation: none;
-  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
-}
-
-.case-link-icon-leave-to {
-  opacity: 0;
-  transform: translate3d(0, -0.3rem, 0) scale(0.94);
 }
 
 @media (min-width: 768px) {
