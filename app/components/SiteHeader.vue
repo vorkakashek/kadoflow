@@ -1390,7 +1390,8 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   font: inherit;
   color: var(--palette-milk, #f5f1e8);
   border-radius: 9999px;
-  padding: 10px 24px;
+  /* Keep the text/dots pair optically centered; this font sits low in its line box. */
+  padding: 9px 24px 11px;
   opacity: 1;
   visibility: visible;
   background-color: var(--header-chip-bg);
