@@ -19,12 +19,15 @@ export function useCaseDetailTransition() {
   )
   const active = useState('case-detail-transition-active', () => false)
   const origin = useState<CaseDetailOrigin>('case-detail-origin', () => 'home')
+  /** Consumed by FlowSurface after a detail → home overlay has handed off. */
+  const homeReturnPending = useState('case-detail-home-return-pending', () => false)
   const homeCaseId = useState('home-active-case-id', () => 'audience')
   /** Detail content stays staged behind the fullscreen transition until it ends. */
   const detailContentVisible = useState('case-detail-content-visible', () => true)
 
   function openCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction'> & { origin: CaseDetailOrigin }) {
     if (active.value) return
+    homeReturnPending.value = false
     origin.value = next.origin
     if (next.origin === 'home') homeCaseId.value = next.to.split('/').at(-1) ?? homeCaseId.value
     detailContentVisible.value = false
@@ -34,6 +37,7 @@ export function useCaseDetailTransition() {
   function closeCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction' | 'to' | 'targetSelector'>) {
     if (active.value) return
     const returningHome = origin.value === 'home'
+    homeReturnPending.value = returningHome
     request.value = {
       ...next,
       direction: 'close',
@@ -44,5 +48,14 @@ export function useCaseDetailTransition() {
     }
   }
 
-  return { request, active, origin, homeCaseId, detailContentVisible, openCaseDetail, closeCaseDetail }
+  return {
+    request,
+    active,
+    origin,
+    homeReturnPending,
+    homeCaseId,
+    detailContentVisible,
+    openCaseDetail,
+    closeCaseDetail,
+  }
 }

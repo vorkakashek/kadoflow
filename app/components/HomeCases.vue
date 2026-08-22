@@ -51,6 +51,7 @@ const switching = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
 /** True only after FlowSurface has finished its final settle and is pinned to media. */
 const caseSurfaceReady = useState('home-case-surface-ready', () => false)
+const caseSurfaceReturning = useState('home-case-surface-returning', () => false)
 /** Restarted for every case; appears only after the surface/media have settled. */
 const showCaseArrow = ref(false)
 let caseArrowTimer = 0
@@ -425,6 +426,10 @@ let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let enterCtx: { revert: () => void } | null = null
 let enterTl: { kill: () => void } | null = null
+let playCasesEnterMotion: (() => void) | null = null
+let resetCasesEnterMotion: (() => void) | null = null
+/** Deduplicate ScrollTrigger entry and the later FlowSurface dock signal. */
+let casesEnterMotionVisible = false
 let switchTl: { kill: () => void } | null = null
 let bgPortalRo: ResizeObserver | null = null
 let blurbRo: ResizeObserver | null = null
@@ -555,6 +560,9 @@ function tweenCopyOut(
 async function setupEnterMotion() {
   enterCtx?.revert()
   enterCtx = null
+  playCasesEnterMotion = null
+  resetCasesEnterMotion = null
+  casesEnterMotionVisible = false
 
   const section = rootEl.value
   if (!section) return
@@ -573,12 +581,13 @@ async function setupEnterMotion() {
   let localEnter: { kill: () => void } | null = null
 
   const playIn = () => {
-    if (switching.value) return
+    if (switching.value || casesEnterMotionVisible) return
     localEnter?.kill()
     enterTl?.kill()
     const rail = railAnimTargets()
     const parts = stageCopyParts()
     if (!rail.length && !parts.all.length) return
+    casesEnterMotionVisible = true
 
     if (rail.length) {
       gsap.set(
@@ -609,7 +618,8 @@ async function setupEnterMotion() {
   }
 
   const resetOut = () => {
-    if (switching.value) return
+    if (switching.value || !casesEnterMotionVisible) return
+    casesEnterMotionVisible = false
     localEnter?.kill()
     enterTl?.kill()
     const rail = railAnimTargets()
@@ -635,6 +645,9 @@ async function setupEnterMotion() {
     tweenCopyOut(tl, parts, 0)
   }
 
+  playCasesEnterMotion = playIn
+  resetCasesEnterMotion = resetOut
+
   enterCtx = gsap.context(() => {
     const rail = railAnimTargets()
     const parts = stageCopyParts()
@@ -656,11 +669,23 @@ async function setupEnterMotion() {
       onEnter: playIn,
       onEnterBack: playIn,
       onLeave: resetOut,
-      onLeaveBack: resetOut,
+      // Mobile reverse exit is owned by FlowSurface when Cases top reaches 90%.
+      onLeaveBack: () => {
+        if (!mobileCases.value) resetOut()
+      },
     })
-    if (st.isActive) playIn()
+    if (st.isActive) {
+      if (mobileCases.value && caseSurfaceReturning.value) resetOut()
+      else playIn()
+    }
   }, section)
 }
+
+watch([caseSurfaceReturning, caseSurfaceDocked], ([returning, docked]) => {
+  if (!mobileCases.value) return
+  if (returning) resetCasesEnterMotion?.()
+  else if (docked) playCasesEnterMotion?.()
+}, { flush: 'sync' })
 
 function waitTimeline(tl: {
   totalDuration?: () => number
@@ -869,6 +894,9 @@ onBeforeUnmount(() => {
   enterTl = null
   enterCtx?.revert()
   enterCtx = null
+  playCasesEnterMotion = null
+  resetCasesEnterMotion = null
+  casesEnterMotionVisible = false
   bgPortalRo?.disconnect()
   bgPortalRo = null
   blurbRo?.disconnect()

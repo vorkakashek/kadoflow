@@ -5,8 +5,8 @@
  * directions via ScrollTrigger onUpdate — no one-shot hop between 2↔3).
  * Case photo paints inside the surface while parked.
  * Mobile: scrub hero→stone with a light lag (not 1:1), box+morph on one live P
- * so stage glue / copy / GL stay in phase; then hop to term/word and pin.
- * Center stays viewport-fixed.
+ * so stage glue / copy / GL stay in phase; then hop to term/word and continue
+ * directly from Kadoflow into Cases with one reversible timed transition.
  */
 import {
   applyBox,
@@ -23,7 +23,6 @@ import {
   scrollYForTopAt,
   targetsFromScrollProgress,
   updateContinuousProgress,
-  viewportCenterSquare,
   type SurfaceBox,
   type SurfaceMorphPlan,
 } from '~/utils/flowSurfaceMorph'
@@ -46,14 +45,13 @@ import {
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 
-type MobileHop = 'term' | 'word' | 'center'
+type MobileHop = 'term' | 'word'
 type MobileStage = 'scrub' | MobileHop
 
 const STAGE_RANK: Record<MobileStage, number> = {
   scrub: 0,
   term: 1,
   word: 2,
-  center: 3,
 }
 
 const HOP_DURATION = 0.42
@@ -68,32 +66,37 @@ const CASE_MORPH_EASE = 'power2.inOut'
  */
 const CASE_SCRUB_START = 'top 60%'
 const CASE_SCRUB_END = 'top 18%'
-/** Scroll-follow softness for the final Kado/center → case-media approach. */
+/** Desktop scroll-follow softness for the final Kado → case-media approach. */
 const CASE_SCRUB_LAG = 0.13
 /**
- * Global scroll-driven surface morph limit, in normalized morph segments/sec.
- * The route stays continuous through waypoints; only its velocity is clamped.
+ * Desktop scroll-driven surface morph limit, in normalized morph segments/sec.
+ * Mobile uses a much shorter tail below to stay close to native touch scroll.
  */
 const SURFACE_MORPH_MAX_VELOCITY = 1.55
 const SURFACE_MORPH_EPSILON = 0.0008
-/** Hand off just before the mobile case segment asymptotically settles at Kado. */
-const MOBILE_CASE_REVERSE_HANDOFF_P = 0.12
 /** Parked / fill fully opaque once lagged progress passes this. */
 const CASE_PARK_P = 0.85
-/**
- * Start a short geometry settle once the mobile surface visually reaches the
- * media. The settle follows the live card box, then pins at the exact endpoint.
- */
-const MOBILE_CASE_SETTLE_P = 0.96
-const MOBILE_CASE_SETTLE_DURATION = 0.18
+/** Kadoflow → Cases forward handoff and Cases → Kadoflow return marker. */
+const MOBILE_CASE_HOP_FORWARD = 'top 30%'
+const MOBILE_CASE_HOP_REVERSE = 'top 90%'
+const MOBILE_CASE_HOP_DURATION = 0.9
+const MOBILE_CASE_HOP_EASE = 'sine.inOut'
+const MOBILE_CASE_HOP_MIN_DURATION = 0.08
+const MOBILE_CASE_DIRECTION_REVERSAL_PX = 10
+const MOBILE_CASE_PHOTO_FADE_OUT_DURATION = 0.14
+const MOBILE_CASE_PHOTO_REVEAL_DURATION = 0.75
 /** Pin only at the true endpoint; pinning at 96% caused a visible 4% jump. */
 const CASE_PIN_P = 0.999
 /** Surface tone → case photo crossfade starts later in the case corridor. */
 const CASE_FILL_FADE_START = 0.25
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
-/** Mobile hero→stone scrub lag (seconds) — soft follow, not 1:1. Keep box+morph on same live P. */
-const MOBILE_SCRUB_LAG = 0.08
+/** Mobile hero→stone scrub keeps only a tiny smoothing tail. */
+const MOBILE_SCRUB_LAG = 0.018
+const MOBILE_SCRUB_MAX_VELOCITY = 10
+/** Short release from a pinned Kado waypoint back into the live scrub corridor. */
+const MOBILE_SCRUB_BRIDGE_LAG = 0.045
+const MOBILE_SCRUB_BRIDGE_MAX_VELOCITY = 4.5
 
 const props = withDefaults(
   defineProps<{
@@ -103,9 +106,9 @@ const props = withDefaults(
     stoneEl?: HTMLElement | null
     /** Title + phonetic — hop after stone `top 10%`. */
     termEl?: HTMLElement | null
-    /** “Kadoflow” word — hop at stone `center top`; square hop at word `top 20%`. */
+    /** “Kadoflow” word — hop at stone `center top`; Cases handoff at word `top 20%`. */
     wordEl?: HTMLElement | null
-    /** Body block — layout / capture; square hop uses wordEl when present. */
+    /** Body block — layout / capture; Cases handoff uses wordEl when present. */
     bodyEl?: HTMLElement | null
     /** Cases section — desktop kado→case scrub trigger. */
     caseSectionEl?: HTMLElement | null
@@ -128,10 +131,28 @@ const props = withDefaults(
   },
 )
 
+const {
+  request: caseDetailTransitionRequest,
+  active: caseDetailTransitionActive,
+  origin: caseDetailTransitionOrigin,
+  homeReturnPending: caseDetailHomeReturnPending,
+} = useCaseDetailTransition()
+
+function returningHomeFromCaseDetail() {
+  return caseDetailHomeReturnPending.value
+    || (
+      caseDetailTransitionActive.value
+      && caseDetailTransitionRequest.value?.direction === 'close'
+      && caseDetailTransitionOrigin.value === 'home'
+    )
+}
+
 /** Shared with HomeCases — surface owns the case photo once docked. */
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
 /** True only once the frame is physically pinned to the current case media. */
 const caseSurfaceReady = useState('home-case-surface-ready', () => false)
+/** Shared with HomeCases so its mobile rail exits on the exact same frame. */
+const caseSurfaceReturning = useState('home-case-surface-returning', () => false)
 /** Set by HomeCases after the first case raster has been decoded off the critical path. */
 const caseMediaReady = useState('home-case-media-ready', () => false)
 type CaseSurfaceMedia = {
@@ -186,16 +207,21 @@ function setFillLayer(layer: 0 | 1, media: CaseSurfaceMedia) {
 }
 let activeFillLayer = 0
 let photoSwitchTl: { kill: () => void } | null = null
+let mobileCaseFillTween: { kill: () => void } | null = null
+let mobileCasePhotoRevealTl: { kill: () => void } | null = null
 let lastSwitchedSrc = ''
 
 const caseFillOpacity = ref(0)
+const mobileCasePhotoRevealKeepsTone = ref(false)
 const surfaceToneOpacity = computed(() => {
+  if (mobileCasePhotoRevealKeepsTone.value) return 1
   if (!showCaseFill.value) return 1
   return Math.max(0, Math.min(1, 1 - caseFillOpacity.value))
 })
 
 function setCaseSurfaceDocked(on: boolean) {
   caseSurfaceDocked.value = on
+  if (on) caseSurfaceReturning.value = false
   showCaseFill.value = on
   if (on) {
     const media = caseSurfaceMedia.value
@@ -244,14 +270,14 @@ let stMod: typeof import('gsap/ScrollTrigger') | null = null
 
 /** Mobile corridor state */
 let mobileActive = false
-/** Mobile center-square → case-media scrub progress. */
+/** Reversible mobile Kadoflow → Cases hop progress. */
 let mobileCaseProgress = 0
-let mobileCaseTargetProgress = 0
 let caseSettleTween: { kill: () => void } | null = null
+let caseHopGen = 0
+let caseHopDirection: 'forward' | 'reverse' | null = null
+let caseHopOppositePx = 0
 /** Stays latched across case layout refreshes; clears only on a real reverse. */
 let mobileCaseArrived = false
-/** Frozen real box at the moment the mobile case corridor begins. */
-let mobileCaseFromBox: SurfaceBox | null = null
 /** Smooth bridge from a skipped mobile waypoint back into the Hero scrub. */
 let mobileScrubBridge: {
   from: SurfaceBox
@@ -261,9 +287,15 @@ let mobileScrubBridge: {
 let mobileStage: MobileStage = 'scrub'
 let heroPose: SurfaceBox | null = null
 let stonePose: SurfaceBox | null = null
-let centerPose: SurfaceBox | null = null
 let scrubStartY = 0
 let scrubEndY = 0
+/** Frozen to the stable 100svh Hero height; mobile browser chrome must not move thresholds. */
+let mobileTriggerViewportHeight = 0
+let mobileTriggerViewportWidth = 0
+let mobileCaseHandoffY: { forwardY: number } | null = null
+/** Reverse fires only after the Cases section has entered, then crossed 90% upward. */
+let mobileCaseReverseArmed = false
+let lastCaseSectionTop: number | null = null
 /** Scroll scrub progress target / live (lagged) — 0…1 along hero→stone. */
 let scrubTargetP = 0
 let scrubLiveP = 0
@@ -302,19 +334,22 @@ function sectionOf(el: HTMLElement) {
   return (el.closest('section') as HTMLElement | null) ?? el
 }
 
+function stableMobileTriggerViewportHeight() {
+  const width = window.innerWidth
+  if (!mobileTriggerViewportHeight || width !== mobileTriggerViewportWidth) {
+    const heroSection = props.fromEl ? sectionOf(props.fromEl) : null
+    const heroHeight = heroSection?.getBoundingClientRect().height ?? 0
+    mobileTriggerViewportHeight = Math.max(1, heroHeight || window.innerHeight)
+    mobileTriggerViewportWidth = width
+  }
+  return mobileTriggerViewportHeight
+}
+
 function syncStageRest(pose: SurfaceBox) {
   stageRest.top = pose.top
   stageRest.left = pose.left
   stageRest.w = Math.max(1, pose.width)
   stageRest.h = Math.max(1, pose.height)
-}
-
-function layoutMarginPx() {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue('--layout-margin')
-    .trim()
-  const n = Number.parseFloat(raw)
-  return Number.isFinite(n) ? n : 8
 }
 
 function roundBox(box: SurfaceBox): SurfaceBox {
@@ -394,19 +429,13 @@ function captureMobilePoses() {
   heroPose = poseAtScrollY(heroDoc, scrubStartY)
   stonePose = poseAtScrollY(stoneDoc, scrubEndY)
 
-  const pad = layoutMarginPx()
-  const squareSize = Math.min(
-    window.innerWidth - pad * 2,
-    Math.max(stoneDoc.width, window.innerWidth * 0.72),
-  )
-  centerPose = viewportCenterSquare(squareSize)
-
   const wordDoc = readDocBox(props.wordEl)
   if (wordDoc) lastWordDoc = wordDoc
+  mobileCaseHandoffY = null
 
   mobileActive = true
   fromPose = heroPose
-  toPose = centerPose
+  toPose = stonePose
   syncStageRest(heroPose)
   return true
 }
@@ -589,105 +618,321 @@ function paintKadoToCasesSegment(t: number) {
   paintBox(lerpBox(from, to, t), 1)
 }
 
-/** Mobile continues from its final center square into the case figure. */
-function paintMobileCaseSegment(t: number) {
-  const media = caseSurfaceMedia.value
-  if (media && !photoSwitchTl) {
-    setFillLayer(activeFillLayer, media)
-    lastSwitchedSrc = media.src
+function stopMobileCasePhotoReveal(complete = false) {
+  mobileCasePhotoRevealTl?.kill()
+  mobileCasePhotoRevealTl = null
+  if (complete && gsapMod) {
+    const el = activeFillLayer === 0 ? fillFrontEl.value : fillBackEl.value
+    if (el) {
+      gsapMod.default.set(el, {
+        clipPath: 'inset(0 0% 0 0)',
+        autoAlpha: 1,
+      })
+    }
   }
-
-  const p = Math.min(1, Math.max(0, t))
-  if (p < CASE_PARK_P && mobileCaseTargetProgress < CASE_PARK_P) {
-    mobileCaseArrived = false
-  }
-  const docked = p >= CASE_PARK_P
-  if (docked !== caseMediaActive) {
-    caseMediaActive = docked
-    caseSurfaceDocked.value = docked
-  }
-  showCaseFill.value = p > 0.005
-  caseFillOpacity.value = Math.min(
-    1,
-    Math.max(0, (p - CASE_FILL_FADE_START) / (1 - CASE_FILL_FADE_START)),
-  )
-
-  // A case switch owns the geometry until its live destination is reached.
-  if (caseMediaMorphTween) return
-
-  if (!mobileCaseFromBox) {
-    mobileCaseFromBox = liveBox
-      ? { ...liveBox }
-      : (centerPose ? { ...centerPose } : kadoLivePose())
-  }
-  const from = mobileCaseFromBox
-  const to = caseMediaPose()
-  if (!from && !to) return
-  if (!to) {
-    paintBox(from!, 1)
-    return
-  }
-  if (!from) {
-    paintBox(to, 1)
-    return
-  }
-  if (caseSettleTween) return
-  if (p >= CASE_PIN_P) {
-    mobileCaseArrived = true
-    paintBox(to, 1)
-    pinCaseFrame()
-    return
-  }
-  if (
-    p >= MOBILE_CASE_SETTLE_P
-    && mobileCaseTargetProgress >= 1 - SURFACE_MORPH_EPSILON
-  ) {
-    settleMobileCaseFrame(to)
-    return
-  }
-  // Fast reverse scrolling can fire the skipped term/word threshold callbacks
-  // while this corridor still owns the visual. Release any pin, not only the
-  // case-media pin, otherwise paintBox() is blocked and the surface freezes at
-  // that stale waypoint until the corridor ends.
-  caseSurfaceReady.value = false
-  if (pinTo.value) unpinFrame()
-  paintBox(lerpBox(from, to, p), 1)
+  mobileCasePhotoRevealKeepsTone.value = false
 }
 
-/** Smooth the last few pixels into the live media box before Teleport pins it. */
-function settleMobileCaseFrame(initialDest: SurfaceBox) {
+function hideMobileCasePhoto(animate: boolean) {
+  stopMobileCasePhotoReveal()
+  mobileCaseFillTween?.kill()
+  mobileCaseFillTween = null
+
+  if (
+    !animate
+    || !showCaseFill.value
+    || !gsapMod
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    caseFillOpacity.value = 0
+    showCaseFill.value = false
+    mobileCasePhotoRevealKeepsTone.value = false
+    return
+  }
+
+  // Keep the gray surface under the image while the raster quickly dissolves.
+  mobileCasePhotoRevealKeepsTone.value = true
+  const proxy = { opacity: caseFillOpacity.value }
+  mobileCaseFillTween = gsapMod.default.to(proxy, {
+    opacity: 0,
+    duration: MOBILE_CASE_PHOTO_FADE_OUT_DURATION,
+    ease: 'power1.inOut',
+    onUpdate: () => {
+      caseFillOpacity.value = proxy.opacity
+    },
+    onComplete: () => {
+      mobileCaseFillTween = null
+      caseFillOpacity.value = 0
+      showCaseFill.value = false
+      mobileCasePhotoRevealKeepsTone.value = false
+    },
+  })
+}
+
+/** Same left-to-right reveal used for the incoming layer on a case switch. */
+function revealMobileCasePhoto() {
+  const media = caseSurfaceMedia.value
+  if (!media) return
+
+  mobileCaseFillTween?.kill()
+  mobileCaseFillTween = null
+  stopMobileCasePhotoReveal()
+  setFillLayer(activeFillLayer, media)
+  lastSwitchedSrc = media.src
+  showCaseFill.value = true
+  caseFillOpacity.value = 1
+
+  if (
+    !gsapMod
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    mobileCasePhotoRevealKeepsTone.value = false
+    return
+  }
+
+  const gsap = gsapMod.default
+  const revealEl = activeFillLayer === 0 ? fillFrontEl.value : fillBackEl.value
+  const otherEl = activeFillLayer === 0 ? fillBackEl.value : fillFrontEl.value
+  if (!revealEl) {
+    mobileCasePhotoRevealKeepsTone.value = false
+    return
+  }
+
+  mobileCasePhotoRevealKeepsTone.value = true
+  gsap.set(revealEl, {
+    clipPath: 'inset(0 100% 0 0)',
+    autoAlpha: 1,
+  })
+  if (otherEl) {
+    gsap.set(otherEl, {
+      clipPath: 'inset(0 100% 0 0)',
+      autoAlpha: 0,
+    })
+  }
+
+  mobileCasePhotoRevealTl = gsap.to(revealEl, {
+    clipPath: 'inset(0 0% 0 0)',
+    duration: MOBILE_CASE_PHOTO_REVEAL_DURATION,
+    ease: 'power2.out',
+    onComplete: () => {
+      mobileCasePhotoRevealTl = null
+      mobileCasePhotoRevealKeepsTone.value = false
+    },
+  })
+}
+
+/** Autonomous live-target hop into the case media, followed by a Teleport pin. */
+function settleMobileCaseFrame(
+  initialDest: SurfaceBox,
+  duration: number,
+  startProgress: number,
+) {
   if (!gsapMod || !frame.value || caseSettleTween || caseFramePinned()) return
 
   const start = liveBox ? { ...liveBox } : { ...initialDest }
   let fallbackDest = { ...initialDest }
   const proxy = { t: 0 }
+  const media = caseSurfaceMedia.value
+  if (media && !photoSwitchTl) {
+    setFillLayer(activeFillLayer, media)
+    lastSwitchedSrc = media.src
+  }
+  // The case raster stays hidden for the whole geometry flight.
+  hideMobileCasePhoto(caseFillOpacity.value > 0)
   caseSurfaceReady.value = false
   caseSettleTween = gsapMod.default.to(proxy, {
     t: 1,
     duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
       ? 0
-      : MOBILE_CASE_SETTLE_DURATION,
-    ease: 'power2.out',
+      : duration,
+    ease: MOBILE_CASE_HOP_EASE,
     onUpdate: () => {
       const liveDest = caseMediaPose()
       if (liveDest) fallbackDest = { ...liveDest }
+      mobileCaseProgress = startProgress + (1 - startProgress) * proxy.t
       paintBox(lerpBox(start, fallbackDest, proxy.t), 1)
     },
     onComplete: () => {
       caseSettleTween = null
+      caseHopDirection = null
+      caseHopOppositePx = 0
       mobileCaseProgress = 1
       mobileCaseArrived = true
+      const sectionTop = props.caseSectionEl?.getBoundingClientRect().top
+      lastCaseSectionTop = typeof sectionTop === 'number' && Number.isFinite(sectionTop)
+        ? sectionTop
+        : null
+      mobileCaseReverseArmed = lastCaseSectionTop != null
+        && lastCaseSectionTop <= stableMobileTriggerViewportHeight() * 0.9
       caseMediaActive = true
       caseSurfaceDocked.value = true
-      paintBox(caseMediaPose() ?? fallbackDest, 1)
+      const dest = caseMediaPose() ?? fallbackDest
+      paintBox(dest, 1)
       pinCaseFrame()
+      void nextTick(() => {
+        if (mobileCaseArrived && caseFramePinned()) {
+          revealMobileCasePhoto()
+        }
+      })
     },
   })
+}
+
+/**
+ * The fullscreen detail-return image already performs the visible flight.
+ * Prepare the final FlowSurface underneath it so the overlay can dissolve into
+ * an identical, fully docked photo instead of exposing a second gray morph.
+ */
+function dockMobileCaseFrameUnderDetailReturn(dest: SurfaceBox) {
+  caseDetailHomeReturnPending.value = false
+  caseHopGen += 1
+  killHopTween()
+  killCaseSettleTween()
+  mobileCaseFillTween?.kill()
+  mobileCaseFillTween = null
+  stopMobileCasePhotoReveal(true)
+  unpinFrame()
+
+  caseHopDirection = null
+  caseHopOppositePx = 0
+  mobileCaseProgress = 1
+  mobileCaseArrived = true
+  mobileCaseReverseArmed = false
+  lastCaseSectionTop = null
+  caseMediaActive = true
+  caseSurfaceReturning.value = false
+  caseSurfaceReady.value = false
+  setCaseSurfaceDocked(true)
+  paintBox(dest, 1)
+  pinCaseFrame()
+}
+
+/**
+ * Crossing the Cases endpoint uses the same bounded live-target hop as the
+ * term/word pins. A fast fling must not wait for lagged scrub progress to reach
+ * 96% while the card keeps moving with native scroll.
+ */
+function enterMobileCaseFrame() {
+  if (mobileCaseArrived || caseMediaMorphTween) return
+  if (caseHopDirection === 'forward' && caseSettleTween) return
+  const dest = caseMediaPose()
+  if (!dest) return
+  if (returningHomeFromCaseDetail()) {
+    dockMobileCaseFrameUnderDetailReturn(dest)
+    return
+  }
+  const startProgress = Math.min(1, Math.max(0, mobileCaseProgress))
+  const duration = Math.max(
+    MOBILE_CASE_HOP_MIN_DURATION,
+    MOBILE_CASE_HOP_DURATION * (1 - startProgress),
+  )
+  const current = readBox(frame.value) ?? liveBox
+  const wasPinned = !!pinTo.value
+  const gen = ++caseHopGen
+  killHopTween()
+  killCaseSettleTween()
+  caseHopDirection = 'forward'
+  caseSurfaceReturning.value = false
+  mobileCaseReverseArmed = false
+  lastCaseSectionTop = null
+  caseHopOppositePx = 0
+  unpinFrame()
+  mobileCaseProgress = Math.max(startProgress, SURFACE_MORPH_EPSILON)
+  mobileCaseArrived = false
+  caseMediaActive = true
+  caseSurfaceDocked.value = false
+  caseSurfaceReady.value = false
+  const startEnter = () => {
+    if (gen !== caseHopGen) return
+    if (current) {
+      liveBox = { ...current }
+      paintBox(current, 1)
+    }
+    settleMobileCaseFrame(caseMediaPose() ?? dest, duration, startProgress)
+  }
+  if (wasPinned) void nextTick(startEnter)
+  else startEnter()
+}
+
+/** Reverse threshold hop: detach from Cases and return directly to Kadoflow. */
+function leaveMobileCaseFrame() {
+  if (!gsapMod || !frame.value || !wordPose() || caseMediaMorphTween) return
+  if (caseHopDirection === 'reverse' && caseSettleTween) return
+  const startProgress = mobileCaseArrived
+    ? 1
+    : Math.min(1, Math.max(0, mobileCaseProgress))
+  if (startProgress <= SURFACE_MORPH_EPSILON && !caseSettleTween) return
+  const duration = Math.max(
+    MOBILE_CASE_HOP_MIN_DURATION,
+    MOBILE_CASE_HOP_DURATION * startProgress,
+  )
+  const from = readBox(frame.value) ?? liveBox
+  if (!from) return
+
+  const gen = ++caseHopGen
+  killCaseSettleTween()
+  caseHopDirection = 'reverse'
+  caseSurfaceReturning.value = true
+  mobileCaseReverseArmed = false
+  caseHopOppositePx = 0
+  const wasPinned = caseFramePinned()
+  unpinFrame()
+  mobileCaseArrived = false
+  mobileCaseProgress = Math.max(startProgress, SURFACE_MORPH_EPSILON)
+  caseSurfaceReady.value = false
+  hideMobileCasePhoto(true)
+
+  const startReverse = () => {
+    if (gen !== caseHopGen) return
+    if (!gsapMod || !frame.value) return
+    const start = { ...from }
+    const proxy = { t: 0 }
+    caseSettleTween = gsapMod.default.to(proxy, {
+      t: 1,
+      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 0
+        : duration,
+      ease: MOBILE_CASE_HOP_EASE,
+      onUpdate: () => {
+        const dest = wordPose() ?? start
+        mobileCaseProgress = startProgress * (1 - proxy.t)
+        paintBox(lerpBox(start, dest, proxy.t), 1)
+      },
+      onComplete: () => {
+        caseSettleTween = null
+        caseHopDirection = null
+        caseHopOppositePx = 0
+        mobileCaseProgress = 0
+        caseMediaActive = false
+        caseSurfaceDocked.value = false
+        hideMobileCasePhoto(false)
+        const dest = wordPose()
+        if (dest) paintBox(dest, 1)
+        mobileStage = 'word'
+        const next = stageChangesAllowed() ? stageFromScroll() : 'word'
+        if (next === 'word') pinFrame('word')
+        else if (next === 'scrub') enterScrub(true, dest)
+        else tweenToHop(next, true)
+      },
+    })
+  }
+
+  if (wasPinned) void nextTick(startReverse)
+  else startReverse()
 }
 
 function killCaseSettleTween() {
   caseSettleTween?.kill()
   caseSettleTween = null
+  caseHopDirection = null
+  caseHopOppositePx = 0
+}
+
+function mobileCaseHopOwnsFrame() {
+  return !!caseHopDirection
+    || !!caseSettleTween
+    || mobileCaseArrived
+    || mobileCaseProgress > SURFACE_MORPH_EPSILON
 }
 
 function paintDesktop(s = desktopLiveS) {
@@ -766,6 +1011,7 @@ function morphParkedCaseMedia(animate: boolean) {
  * 3. After a short empty beat, the new photo expands left-to-right.
  */
 function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
+  stopMobileCasePhotoReveal(true)
   if (lastSwitchedSrc === media.src) {
     // A second nonce is emitted after the case DOM/image has committed.
     // The source is unchanged, but the figure's intrinsic height may not be.
@@ -904,7 +1150,7 @@ function paintScrub(scrollY = window.scrollY, snap = false) {
 }
 
 /** Pin slot inside a hop target (`[data-flow-pin]`), else the target itself. */
-function pinSlot(hop: Exclude<MobileHop, 'center'>): HTMLElement | null {
+function pinSlot(hop: MobileHop): HTMLElement | null {
   if (hop === 'term') {
     const term = props.termEl
     if (!term) return null
@@ -1009,7 +1255,7 @@ function unpinFrame() {
   })
 }
 
-function pinFrame(hop: Exclude<MobileHop, 'center'>) {
+function pinFrame(hop: MobileHop) {
   if (!stageChangesAllowed()) {
     return
   }
@@ -1040,7 +1286,7 @@ function pinFrame(hop: Exclude<MobileHop, 'center'>) {
 }
 
 function settleHop(hop: MobileHop) {
-  if (hop === 'term' || hop === 'word') pinFrame(hop)
+  pinFrame(hop)
 }
 
 /** Live viewport box for “Kadoflow” — pin slot already includes margin pad. */
@@ -1059,8 +1305,7 @@ function wordPose(): SurfaceBox | null {
 /** Live viewport box for the hop destination. */
 function hopPose(hop: MobileHop): SurfaceBox | null {
   if (hop === 'term') return readBox(pinSlot('term')) ?? readBox(props.termEl)
-  if (hop === 'word') return wordPose()
-  return centerPose
+  return wordPose()
 }
 
 function killHopTween() {
@@ -1077,6 +1322,7 @@ function killHopTween() {
  * intentional upward scroll clears the lock.
  */
 function requestStage(next: MobileStage, animate: boolean) {
+  if (mobileCaseHopOwnsFrame()) return
   if (!stageChangesAllowed() && next !== 'scrub') {
     // During quiet boot only allow snapping back to scrub paint — never pin.
     if (next === 'scrub' && mobileStage !== 'scrub') {
@@ -1167,7 +1413,7 @@ function tweenToHop(hop: MobileHop, animate: boolean) {
 
 /**
  * Hand control back to the scrub corridor. A skipped multi-waypoint reverse
- * uses the same normalized velocity cap instead of snapping center → Hero.
+ * uses the same normalized velocity cap instead of snapping a skipped pin → Hero.
  */
 function enterScrub(animate: boolean, fromOverride?: SurfaceBox | null) {
   const current = fromOverride ?? readBox(frame.value) ?? liveBox
@@ -1210,7 +1456,7 @@ function stageFromScroll(): MobileStage {
   if (!stoneMark || !body) return 'scrub'
 
   const y = window.scrollY
-  // Body needed for corridor capture; square hop prefers the Kadoflow word.
+  // Body is needed for corridor capture; the final handoff prefers Kadoflow.
   // During boot / unloaded stone image, markers sit near 0 and every hop looks “active”.
   if (!markersReliable()) {
     if (props.fromEl) {
@@ -1222,13 +1468,58 @@ function stageFromScroll(): MobileStage {
     return mobileStage
   }
 
-  // Kadoflow `top 20%` — start hop to unbound square (fallback: body center).
+  // Kadoflow `top 20%` is owned by the direct Cases handoff trigger.
   const squareMark = props.wordEl ?? body
   const squareAt = props.wordEl ? 0.2 : 0.5
-  if (y >= scrollYForTopAt(squareMark, squareAt)) return 'center'
+  if (y >= scrollYForTopAt(squareMark, squareAt)) return 'word'
   if (y >= scrollYForCenterTop(stoneMark)) return 'word'
   if (y >= scrollYForTopAt(stoneMark, 0.1)) return 'term'
   return 'scrub'
+}
+
+function mobileCaseHandoffBounds() {
+  if (mobileCaseHandoffY) return mobileCaseHandoffY
+  const mark = props.wordEl ?? props.bodyEl
+  if (!mark) return null
+  const fraction = (position: string, fallback: number) => {
+    const match = position.match(/(-?\d+(?:\.\d+)?)%$/)
+    const percent = match ? Number.parseFloat(match[1]!) : Number.NaN
+    return Number.isFinite(percent) ? percent / 100 : fallback
+  }
+  const markDoc = readDocBox(mark) ?? (props.wordEl ? lastWordDoc : null)
+  if (!markDoc) return null
+  const viewportHeight = stableMobileTriggerViewportHeight()
+  mobileCaseHandoffY = {
+    forwardY:
+      markDoc.top - viewportHeight * fraction(MOBILE_CASE_HOP_FORWARD, 0.3),
+  }
+  return mobileCaseHandoffY
+}
+
+/** Live crossing: Cases top reaches 90% of the stable viewport while scrolling upward. */
+function crossedMobileCaseReverseMarker(
+  scrollingUp: boolean,
+  scrollDelta: number,
+) {
+  if (!mobileCaseArrived || !props.caseSectionEl) return false
+  const top = props.caseSectionEl.getBoundingClientRect().top
+  const match = MOBILE_CASE_HOP_REVERSE.match(/(-?\d+(?:\.\d+)?)%$/)
+  const percent = match ? Number.parseFloat(match[1]!) / 100 : 0.9
+  const line = stableMobileTriggerViewportHeight() * percent
+  // If layout restored directly inside Cases, derive the prior live top from
+  // this native scroll delta so the first large upward step cannot skip 90%.
+  const previousTop = lastCaseSectionTop ?? (top + scrollDelta)
+
+  if (top <= line) mobileCaseReverseArmed = true
+  lastCaseSectionTop = top
+
+  return !!(
+    scrollingUp
+    && mobileCaseReverseArmed
+    && previousTop != null
+    && previousTop < line
+    && top >= line
+  )
 }
 
 function syncMobileStage(animate: boolean) {
@@ -1267,7 +1558,7 @@ function scheduleCaptureRetry() {
 function scheduleLayoutResync() {
   clearLayoutResync()
   // Fewer beats — each used to stack with a second full morph on SPA home entry.
-  const delays = [120, 500, 1400]
+  const delays = [120, 500, 2000]
   for (const ms of delays) {
     layoutResyncTimers.push(
       window.setTimeout(() => {
@@ -1316,12 +1607,16 @@ function resyncAfterLayout() {
     suppressStageCallbacks = true
     // Paint only — pin/Teleport here re-enters ST refresh and freezes the tab.
     if (mobileCaseProgress > 0.005) {
-      paintMobileCaseSegment(mobileCaseProgress)
+      if (caseSettleTween) {
+        // The active hop already tracks its live destination.
+      } else if (caseFramePinned()) syncPinnedMask()
+      else {
+        const dest = caseMediaPose()
+        if (dest) paintBox(dest, 1)
+      }
     } else if (mobileStage === 'scrub' || !stageChangesAllowed()) {
       if (heroPose && scrubProgressAt(window.scrollY) < 0.05) paintHeroRest()
       else paintScrub(window.scrollY, true)
-    } else if (mobileStage === 'center' && centerPose) {
-      paintBox(centerPose, 1)
     }
     // Soft resync during quiet window: paint only. Full ST refresh waits until settle.
     if (stageChangesAllowed()) {
@@ -1335,7 +1630,9 @@ function resyncAfterLayout() {
     // Stage hops only after quiet window — never from layout thrash mid-boot.
     if (stageChangesAllowed()) {
       requestAnimationFrame(() => {
-        if (stageChangesAllowed()) syncMobileStage(false)
+        if (!stageChangesAllowed()) return
+        reconcileFromScroll()
+        if (!mobileCaseHopOwnsFrame()) syncMobileStage(false)
       })
     }
   } else if (trigger) {
@@ -1346,20 +1643,63 @@ function resyncAfterLayout() {
 
 /** Scroll-driven stage reconcile — catches missed leaveBacks when scrolling up. */
 function reconcileFromScroll() {
+  const y = window.scrollY
+  const scrollDelta = y - lastScrollY
+  const scrollingUp = scrollDelta < -1
+  const scrollingDown = scrollDelta > 1
+  lastScrollY = y
+
+  // While the timed handoff is running, accumulate intentional movement in the
+  // opposite direction. This ignores 1px native-scroll jitter but still
+  // reverses promptly from the currently painted geometry.
+  if (caseHopDirection) {
+    const oppositeDelta = caseHopDirection === 'forward'
+      ? Math.max(0, -scrollDelta)
+      : Math.max(0, scrollDelta)
+    const continuing = caseHopDirection === 'forward' ? scrollingDown : scrollingUp
+    if (oppositeDelta > 0) caseHopOppositePx += oppositeDelta
+    else if (continuing) caseHopOppositePx = 0
+
+    if (caseHopOppositePx >= MOBILE_CASE_DIRECTION_REVERSAL_PX) {
+      stageLockUntil = 0
+      if (caseHopDirection === 'forward') leaveMobileCaseFrame()
+      else enterMobileCaseFrame()
+    }
+    return
+  }
+
+  if (crossedMobileCaseReverseMarker(scrollingUp, scrollDelta)) {
+    leaveMobileCaseFrame()
+    return
+  }
+
+  // Trigger callbacks are hints; layout-derived state is authoritative. If a
+  // callback is missed during a fast fling/refresh, the next scroll update
+  // repairs the handoff instead of leaving the surface stranded offscreen.
+  if (!morphBooting && !suppressStageCallbacks) {
+    const bounds = mobileCaseHandoffBounds()
+    if (
+      bounds
+      && y >= bounds.forwardY
+      && !mobileCaseArrived
+      && mobileCaseProgress <= SURFACE_MORPH_EPSILON
+    ) {
+      enterMobileCaseFrame()
+      return
+    }
+  }
+
   if (!stageChangesAllowed()) {
     if (mobileStage === 'scrub' && !hopTween) paintScrub()
     return
   }
-  const y = window.scrollY
-  const scrollingUp = y < lastScrollY - 1
   if (scrollingUp) {
     // Intentional upward scroll — don't let forward-lock trap the reverse path.
     stageLockUntil = 0
   }
-  lastScrollY = y
 
-  // The case corridor owns the frame after the center-square stage.
-  if (mobileCaseArrived || mobileCaseProgress > 0.005) return
+  // The direct Kadoflow ↔ Cases hop owns the frame in both directions.
+  if (caseSettleTween || mobileCaseArrived || mobileCaseProgress > 0.005) return
 
   if (mobileScrubBridge) {
     scrubTargetP = scrubProgressAt(y)
@@ -1370,7 +1710,6 @@ function reconcileFromScroll() {
   const next = stageFromScroll()
   if (next === mobileStage) {
     if (next === 'scrub' && !hopTween) paintScrub()
-    else if (next === 'center' && !hopTween && centerPose) paintBox(centerPose, 1)
     return
   }
 
@@ -1378,8 +1717,8 @@ function reconcileFromScroll() {
   // but do interrupt when the user is clearly scrolling up.
   if (hopTween && STAGE_RANK[next] < STAGE_RANK[mobileStage] && !scrollingUp) return
 
-  // Animate hop↔hop both directions (scrub entry stays a snap via enterScrub).
-  requestStage(next, next !== 'scrub')
+  // Reverse release into scrub must bridge from the actual pinned box.
+  requestStage(next, true)
 }
 
 function tick(now: number) {
@@ -1390,59 +1729,11 @@ function tick(now: number) {
 
   // Mobile scrub: light lag toward scroll target (box + morph share scrubLiveP).
   if (mobileActive) {
-    if (
-      mobileCaseFromBox
-      && (
-        mobileCaseProgress > SURFACE_MORPH_EPSILON
-        || mobileCaseTargetProgress > SURFACE_MORPH_EPSILON
-      )
-    ) {
-      mobileCaseProgress = updateContinuousProgress(
-        mobileCaseProgress,
-        mobileCaseTargetProgress,
-        dt,
-        {
-          lag: CASE_SCRUB_LAG,
-          maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
-          epsilon: SURFACE_MORPH_EPSILON,
-        },
-      )
-      paintMobileCaseSegment(mobileCaseProgress)
-      const handOffReverse =
-        mobileCaseTargetProgress <= SURFACE_MORPH_EPSILON
-        && mobileCaseProgress <= MOBILE_CASE_REVERSE_HANDOFF_P
-      if (handOffReverse) {
-        const handoffBox = liveBox ? { ...liveBox } : readBox(frame.value)
-        mobileCaseProgress = 0
-        mobileCaseFromBox = null
-        showCaseFill.value = false
-        caseFillOpacity.value = 0
-        // A fast reverse can cross every mobile waypoint while the case
-        // corridor still owns the frame. Resume from the current box without
-        // waiting for another touch/wheel event or decelerating to rest at Kado.
-        if (stageChangesAllowed()) {
-          const next = stageFromScroll()
-          // Threshold callbacks may already have changed `mobileStage` while
-          // the case corridor was still painting over them. Resume from the
-          // frame's real current box even when the logical stage already
-          // equals the destination.
-          if (next === 'scrub') enterScrub(true, handoffBox)
-          else tweenToHop(next, true)
-        }
-      } else if (
-        Math.abs(mobileCaseTargetProgress - mobileCaseProgress)
-        >= SURFACE_MORPH_EPSILON
-      ) {
-        raf = requestAnimationFrame(tick)
-      }
-      return
-    }
-
     if (mobileScrubBridge && heroPose && stonePose) {
       const bridge = mobileScrubBridge
       bridge.progress = updateContinuousProgress(bridge.progress, 1, dt, {
-        lag: MOBILE_SCRUB_LAG,
-        maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
+        lag: MOBILE_SCRUB_BRIDGE_LAG,
+        maxVelocity: MOBILE_SCRUB_BRIDGE_MAX_VELOCITY,
         epsilon: SURFACE_MORPH_EPSILON,
       })
       const p = scrubProgressAt(window.scrollY)
@@ -1463,7 +1754,7 @@ function tick(now: number) {
     if (mobileStage === 'scrub' && !hopTween && !pinTo.value && heroPose && stonePose) {
       scrubLiveP = updateContinuousProgress(scrubLiveP, scrubTargetP, dt, {
         lag: MOBILE_SCRUB_LAG,
-        maxVelocity: SURFACE_MORPH_MAX_VELOCITY,
+        maxVelocity: MOBILE_SCRUB_MAX_VELOCITY,
         epsilon: SURFACE_MORPH_EPSILON,
       })
       paintScrubAt(scrubLiveP)
@@ -1513,6 +1804,7 @@ function ensureTick() {
 }
 
 function killMorph() {
+  caseHopGen += 1
   trigger?.kill()
   trigger = null
   caseTrigger?.kill()
@@ -1520,11 +1812,16 @@ function killMorph() {
   desktopTargetS = 0
   desktopLiveS = 0
   mobileCaseProgress = 0
-  mobileCaseTargetProgress = 0
   mobileCaseArrived = false
-  mobileCaseFromBox = null
+  mobileCaseHandoffY = null
+  mobileCaseReverseArmed = false
+  lastCaseSectionTop = null
   mobileScrubBridge = null
   caseMediaActive = false
+  caseSurfaceReturning.value = false
+  mobileCaseFillTween?.kill()
+  mobileCaseFillTween = null
+  stopMobileCasePhotoReveal()
   setCaseSurfaceDocked(false)
   caseSurfaceReady.value = false
   for (const t of mobileTriggers) t.kill()
@@ -1609,64 +1906,6 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
   // refresh is what hard-froze the tab on logo→home navigations.
   suppressStageCallbacks = true
 
-  // Stage reconcile (missed leaveBacks when scrolling up).
-  mobileTriggers.push(
-    ScrollTrigger.create({
-      start: 0,
-      end: 'max',
-      onUpdate: () => {
-        if (!stageChangesAllowed()) return
-        reconcileFromScroll()
-      },
-    }),
-  )
-
-  // 5) Continue the final mobile surface square into the case image.
-  // The case figure is the destination, so it also follows dynamic content height.
-  if (props.caseSectionEl && props.caseMediaEl) {
-    mobileTriggers.push(
-      ScrollTrigger.create({
-        trigger: props.caseSectionEl,
-        start: CASE_SCRUB_START,
-        end: CASE_SCRUB_END,
-        invalidateOnRefresh: true,
-        onEnter: () => {
-          if (caseMediaMorphTween) return
-          const current = readBox(frame.value) ?? liveBox
-          mobileCaseFromBox = current ? { ...current } : null
-          // A waypoint hop may still be settling when a fast swipe reaches cases.
-          // From here the scroll corridor owns the frame, exactly like desktop.
-          killHopTween()
-          killCaseSettleTween()
-          unpinFrame()
-          caseSurfaceReady.value = false
-          if (mobileCaseFromBox) paintBox(mobileCaseFromBox, 1)
-        },
-        onUpdate: (self) => {
-          mobileCaseTargetProgress = self.progress
-          if (
-            caseSettleTween
-            && mobileCaseTargetProgress < MOBILE_CASE_SETTLE_P
-          ) {
-            killCaseSettleTween()
-          }
-          ensureTick()
-        },
-        onRefresh: (self) => {
-          // Layout refresh is not user motion: align immediately so a restored
-          // scroll position does not animate in from a stale box.
-          mobileCaseTargetProgress = self.progress
-          mobileCaseProgress = self.progress
-          if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
-        },
-        onLeaveBack: () => {
-          mobileCaseTargetProgress = 0
-          ensureTick()
-        },
-      }),
-    )
-  }
-
   // 1) Scrub hero → stone until stone `top 10%`.
   mobileTriggers.push(
     ScrollTrigger.create({
@@ -1697,7 +1936,7 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
     }),
   )
 
-  // 2–4) Threshold triggers (forward hops). Upward path also covered by reconcileFromScroll.
+  // 2–3) Stable stone threshold hops. Upward path is also covered by native-scroll reconcile.
   mobileTriggers.push(
     ScrollTrigger.create({
       trigger: stoneMark,
@@ -1709,7 +1948,7 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
       },
       onLeaveBack: () => {
         if (!stageChangesAllowed()) return
-        requestStage('scrub', false)
+        requestStage('scrub', true)
       },
     }),
   )
@@ -1730,26 +1969,8 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
     }),
   )
 
-  mobileTriggers.push(
-    ScrollTrigger.create({
-      trigger: props.wordEl ?? body,
-      start: props.wordEl ? 'top 20%' : 'center top',
-      invalidateOnRefresh: true,
-      onEnter: () => {
-        if (!stageChangesAllowed()) return
-        requestStage('center', true)
-      },
-      onLeaveBack: () => {
-        if (!stageChangesAllowed()) return
-        requestStage('word', true)
-      },
-    }),
-  )
-
   lastScrollY = window.scrollY
-  // Snap the currently active corridor only — never pin/Teleport while ST is refreshing.
-  if (mobileCaseProgress > 0.005) paintMobileCaseSegment(mobileCaseProgress)
-  else paintHeroRest()
+  paintHeroRest()
   mobileStage = 'scrub'
   // Defer refresh so logo→home first frame isn't blocked by ST measure.
   scheduleDeferredRefresh(ScrollTrigger)
@@ -1800,15 +2021,32 @@ function buildMorph() {
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reduced) {
-      if (mobileActive && centerPose) {
-        paintBox(centerPose, 1)
-      } else {
-        target.h = 1
-        target.v = 1
-        live.h = 1
-        live.v = 1
-        paintDesktop()
+      if (mobileActive) {
+        const handoffY = mobileCaseHandoffBounds()?.forwardY
+          ?? Number.POSITIVE_INFINITY
+        if (props.caseMediaEl && window.scrollY >= handoffY) {
+          mobileCaseProgress = 1
+          mobileCaseArrived = true
+          caseMediaActive = true
+          setCaseSurfaceDocked(true)
+          const dest = caseMediaPose()
+          if (dest) paintBox(dest, 1)
+          requestAnimationFrame(() => pinCaseFrame())
+        } else {
+          const stage = stageFromScroll()
+          if (stage === 'scrub') paintScrub(window.scrollY, true)
+          else {
+            const dest = hopPose(stage)
+            if (dest) paintBox(dest, 1)
+          }
+        }
+        return
       }
+      target.h = 1
+      target.v = 1
+      live.h = 1
+      live.v = 1
+      paintDesktop()
       return
     }
 
@@ -1822,6 +2060,13 @@ function buildMorph() {
 
     if (mobileActive) {
       buildMobileMorph(gsap, ScrollTrigger)
+      // A detail → home return already has its own fullscreen image flight.
+      // Dock the real surface immediately after the mobile corridor has painted
+      // its initial rest pose, while that overlay is still fully covering it.
+      if (returningHomeFromCaseDetail()) {
+        const dest = caseMediaPose()
+        if (dest) dockMobileCaseFrameUnderDetailReturn(dest)
+      }
       lastFromEl = props.fromEl ?? null
       lastToEl = props.toEl ?? null
       lastPlan = props.plan ?? null
@@ -1901,7 +2146,13 @@ function onResize() {
   capturePoses()
   if (mobileActive) {
     if (mobileCaseProgress > 0.005) {
-      paintMobileCaseSegment(mobileCaseProgress)
+      if (caseSettleTween) return
+      if (caseFramePinned()) syncPinnedMask()
+      else {
+        const dest = caseMediaPose()
+        if (dest) paintBox(dest, 1)
+        if (mobileCaseArrived) pinCaseFrame()
+      }
       return
     }
     if (pinTo.value) {
@@ -1918,6 +2169,11 @@ function onResize() {
 }
 
 function onCaseMediaScroll() {
+  if (mobileActive) {
+    if (stageChangesAllowed()) reconcileFromScroll()
+    if (caseFramePinned()) syncPinnedMask()
+    return
+  }
   if (caseFramePinned()) {
     syncPinnedMask()
     return
@@ -2014,16 +2270,19 @@ watch(
   (el) => {
     const doc = readDocBox(el)
     if (doc) lastWordDoc = doc
+    mobileCaseHandoffY = null
   },
 )
 
 watch(caseMediaMorphNonce, () => {
+  mobileCaseHandoffY = null
   if (caseSurfaceMedia.value) {
     switchCasePhoto(caseSurfaceMedia.value, true)
   }
 })
 
 watch(caseMediaPrepareNonce, () => {
+  mobileCaseHandoffY = null
   caseMediaMorphTween?.kill()
   caseMediaMorphTween = null
   killCaseSettleTween()
@@ -2034,6 +2293,25 @@ watch(caseMediaPrepareNonce, () => {
     unpinFrame()
   }
 })
+
+// The Cases media ref can arrive just after the corridor itself. Complete the
+// same hidden handoff then, but never consume it before a live mobile corridor
+// exists: a later buildMorph() would otherwise reset the prepared frame.
+watch(
+  [caseDetailHomeReturnPending, () => props.caseMediaEl],
+  ([pending, mediaEl]) => {
+    if (
+      !pending
+      || !mediaEl
+      || !mobileActive
+      || mobileTriggers.length === 0
+      || morphBooting
+    ) return
+    const dest = caseMediaPose()
+    if (dest) dockMobileCaseFrameUnderDetailReturn(dest)
+  },
+  { flush: 'post' },
+)
 
 watch(
   caseSurfaceMedia,
@@ -2046,7 +2324,14 @@ watch(
       setFillLayer(activeFillLayer, media)
       lastSwitchedSrc = media.src
     }
-    if (caseMediaActive || showCaseFill.value) caseFillOpacity.value = 1
+    if (mobileActive && !mobileCaseArrived) {
+      if (!mobileCaseFillTween) hideMobileCasePhoto(false)
+    } else if (
+      (caseMediaActive || showCaseFill.value)
+      && !mobileCaseFillTween
+    ) {
+      caseFillOpacity.value = 1
+    }
   },
   { deep: true },
 )
