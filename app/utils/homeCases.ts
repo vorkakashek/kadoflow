@@ -13,6 +13,10 @@ export type HomeCase = {
   client: string
   year: string
   collaboration?: string
+  /** Optional public destination shown in the case-detail metadata. */
+  projectUrl?: string
+  /** Domain label used for the public destination. */
+  projectLabel?: string
   focusTags: string[]
   roleTags: string[]
   /** Page / section wash color. */
@@ -47,6 +51,8 @@ export const homeCases: HomeCase[] = [
     blurb: 'Цифровое расширение пространства\nв японской эстетике.',
     focusTags: ['тишина', 'ритм', 'японская пластика'],
     roleTags: ['арт-дирекция', 'UX/UI-дизайн', 'под ключ'],
+    projectUrl: 'https://audience.moscow/',
+    projectLabel: 'audience.moscow',
     wash: '#0A0501',
     inverse: true,
     media: {
@@ -60,11 +66,13 @@ export const homeCases: HomeCase[] = [
     id: 'keys-store',
     label: 'Keys Store',
     title: 'Keys Store',
-    client: 'Keys Store',
+    client: 'Keys-Store.com',
     year: '2025',
     blurb: 'Игры, подписки и Steam-предметы\nв единой торговой системе.',
     focusTags: ['система', 'скорость', 'доверие'],
-    roleTags: ['дизайн-система', 'адаптивный веб', 'под ключ'],
+    roleTags: ['логотип', 'UX/UI-дизайн', 'дизайн-система', 'каталоги', 'checkout'],
+    projectUrl: 'https://keys-store.com/',
+    projectLabel: 'keys-store.com',
     wash: '#3f2b95',
     inverse: true,
     media: {
@@ -105,10 +113,12 @@ export const homeCases: HomeCase[] = [
     title: 'SCHMIDT',
     client: 'SCHMIDT',
     year: '2024',
-    collaboration: 'PAIR',
+    collaboration: 'PAIR GROUP',
     blurb: 'История премиального продукта,\nвыстроенная в горизонтальном ритме.',
     focusTags: ['ритм', 'контраст', 'материальность'],
-    roleTags: ['арт-дирекция', 'веб-дизайн', 'фронтенд'],
+    roleTags: ['арт-дирекция', 'веб-дизайн', 'фронтенд', 'интерактивная анимация'],
+    projectUrl: 'https://schmidtspirits.com/',
+    projectLabel: 'schmidtspirits.com',
     wash: '#fafafa',
     media: {
       src: '/home/cases/schmidt.webp',
