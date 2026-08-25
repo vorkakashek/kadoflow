@@ -33,11 +33,15 @@ const shellEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
 const fabEl = ref<HTMLElement | null>(null)
 const logoEl = ref<HTMLElement | null>(null)
-const logoImgEl = ref<HTMLImageElement | null>(null)
+const logoImgEl = ref<HTMLElement | null>(null)
+const logoLettersEl = ref<SVGGElement | null>(null)
+const logoMarkEl = ref<SVGUseElement | null>(null)
 const isOverCases = ref(false)
 const mobileMarkOverCases = ref(false)
 const mobileHeader = ref(false)
 const mobileScrollMarkOn = ref(false)
+/** Desktop keeps the compact mark while the reader moves down on any page. */
+const desktopScrollMarkOn = ref(false)
 const caseInverse = useState('home-case-inverse', () => false)
 const { closeCaseDetail, active: caseDetailTransitionActive } = useCaseDetailTransition()
 const detailCase = computed(() => {
@@ -50,7 +54,13 @@ function onCaseDetailBack(event: MouseEvent) {
   const item = detailCase.value
   if (!item) return
   event.preventDefault()
-  closeCaseDetail({ src: item.media.src, alt: item.media.alt, wash: item.wash })
+  closeCaseDetail({
+    src: item.media.src,
+    webpSrcset: item.media.webpSrcset,
+    avifSrcset: item.media.avifSrcset,
+    alt: item.media.alt,
+    wash: item.wash,
+  })
 }
 const fabStyle = computed(() => ({
   bottom: `calc(${fabBottomExtra.value}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
@@ -78,6 +88,7 @@ const FAB_LABEL_DIR_PX = 8
 /** After menu close, ignore the scroll restoration jump so the word stays visible. */
 let fabLabelHoldUntil = 0
 let lastMobileLogoScrollY: number | null = null
+let lastDesktopLogoScrollY: number | null = null
 
 function onChipPointer(e: PointerEvent) {
   const el = e.currentTarget
@@ -130,6 +141,28 @@ function onNavPointerDown(to: string, e: PointerEvent) {
   markNavHere(to, e)
 }
 
+async function onLogoClick(event: MouseEvent) {
+  if (
+    event.button !== 0
+    || event.metaKey
+    || event.ctrlKey
+    || event.shiftKey
+    || event.altKey
+    || route.path !== '/'
+  ) {
+    return
+  }
+
+  event.preventDefault()
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+
+  // Drop a stale section hash as well, so reload/back keeps the home hero.
+  if (route.fullPath !== '/') {
+    await navigateTo('/', { replace: true })
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
+}
+
 watch(() => route.path, (path) => {
   navHerePath.value = path
 })
@@ -156,6 +189,7 @@ let logoCasesSt: { kill: () => void } | null = null
 let mobileMarkCasesSt: { kill: () => void } | null = null
 let logoToneTries = 0
 let logoToneSyncRaf = 0
+let logoMorphTl: { kill: () => void } | null = null
 let fabFitTl: { kill: () => void } | null = null
 let fabFitResolve: (() => void) | null = null
 
@@ -176,7 +210,10 @@ function syncLogoCasesToneFromLayout() {
 
   const caseBox = cases.getBoundingClientRect()
   const logoBox = logo.getBoundingClientRect()
-  isOverCases.value = caseBox.top <= logoBox.bottom && caseBox.bottom >= logoBox.top
+  // Keep the inverse tone through the last half of the logo: at the lower
+  // boundary it switches exactly when the Cases bottom crosses logo centre.
+  const logoCenter = logoBox.top + logoBox.height / 2
+  isOverCases.value = caseBox.top <= logoBox.bottom && caseBox.bottom >= logoCenter
   mobileMarkOverCases.value = caseBox.top < window.innerHeight && caseBox.bottom > 0
 }
 
@@ -224,7 +261,7 @@ async function setupLogoCasesTrigger() {
     },
     end: () => {
       const r = logo.getBoundingClientRect()
-      return `bottom ${Math.round(r.top)}px`
+      return `bottom ${Math.round(r.top + r.height / 2)}px`
     },
     invalidateOnRefresh: true,
     onToggle: (self) => {
@@ -284,6 +321,70 @@ function onPageShow() {
 async function gsap() {
   if (!gsapMod) gsapMod = (await import('gsap')).default
   return gsapMod
+}
+
+/** The full wordmark's «о» centre in its 165px SVG viewBox. */
+const LOGO_MARK_CENTRE = 71.67 / 165
+
+function logoMarkExpandedX() {
+  // SVG transforms use viewBox units, not rendered CSS pixels. Move the
+  // original glyph centre (71.67) onto the compact 32×32 frame centre (16).
+  return 16 - LOGO_MARK_CENTRE * 165
+}
+
+async function animateDesktopLogo(compact: boolean, immediate = false) {
+  const frame = logoImgEl.value
+  const letters = logoLettersEl.value
+  const mark = logoMarkEl.value
+  if (!frame || !letters || !mark) return
+
+  const g = await gsap()
+  logoMorphTl?.kill()
+  logoMorphTl = null
+
+  const compactX = logoMarkExpandedX()
+  const compactWidth = frame.offsetHeight
+  const expandedWidth = frame.offsetHeight * 165 / 32
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (immediate || reduce) {
+    g.set(frame, { width: compact ? compactWidth : expandedWidth })
+    g.set(letters, { autoAlpha: compact ? 0 : 1 })
+    g.set(mark, {
+      attr: { x: compact ? compactX : 0 },
+      clearProps: 'transform',
+    })
+    return
+  }
+
+  const tl = g.timeline({ defaults: { overwrite: 'auto' } })
+  logoMorphTl = tl
+
+  if (compact) {
+    // Fade every other glyph, then let the original «о» claim the compact frame.
+    g.set(mark, { attr: { x: 0 }, clearProps: 'transform' })
+    tl.to(letters, { autoAlpha: 0, duration: 0.34, ease: 'power2.out' }, 0)
+      .to(
+        mark,
+        { attr: { x: compactX }, duration: 0.68, ease: 'power3.inOut' },
+        0.16,
+      )
+      .to(
+        frame,
+        { width: compactWidth, duration: 0.68, ease: 'power3.inOut' },
+        0.16,
+      )
+  } else {
+    // Expand the frame and return that same glyph before rebuilding the word.
+    g.set(letters, { autoAlpha: 0 })
+    g.set(mark, { attr: { x: compactX }, clearProps: 'transform' })
+    tl.to(
+      frame,
+      { width: expandedWidth, duration: 0.68, ease: 'power3.inOut' },
+      0,
+    )
+      .to(mark, { attr: { x: 0 }, duration: 0.68, ease: 'power3.inOut' }, 0)
+      .to(letters, { autoAlpha: 1, duration: 0.34, ease: 'power2.out' }, 0.52)
+  }
 }
 
 function canCollapseHeader() {
@@ -466,6 +567,7 @@ function resetHeaderWide(animate: boolean, deferFabExpand = false) {
 function onScroll() {
   syncMenuFloat()
   syncFabLabel()
+  syncDesktopScrollMark()
   syncMobileScrollMark()
   if (canvasLocksScroll()) return
 
@@ -493,6 +595,37 @@ function onScroll() {
       void morph(true)
     }
   }, COLLAPSE_DELAY_MS)
+}
+
+/**
+ * Once desktop scrolling begins, reduce the wordmark to the existing «о» mark;
+ * any intentional reverse scroll restores it. Mobile uses its separate
+ * thumb-zone mark below.
+ */
+const DESKTOP_LOGO_DIR_PX = 6
+function syncDesktopScrollMark() {
+  if (mobileHeader.value) {
+    desktopScrollMarkOn.value = false
+    lastDesktopLogoScrollY = null
+    return
+  }
+  if (canvasLocksScroll()) return
+
+  const y = Math.max(0, window.scrollY || 0)
+  if (y <= 8) {
+    desktopScrollMarkOn.value = false
+    lastDesktopLogoScrollY = y
+    return
+  }
+  if (lastDesktopLogoScrollY == null) {
+    lastDesktopLogoScrollY = y
+    return
+  }
+
+  const dy = y - lastDesktopLogoScrollY
+  if (Math.abs(dy) < DESKTOP_LOGO_DIR_PX) return
+  lastDesktopLogoScrollY = y
+  desktopScrollMarkOn.value = dy > 0
 }
 
 /** Mobile logo visibility follows scroll direction only, never page position. */
@@ -666,6 +799,7 @@ function syncFabViewport() {
 function syncThumbNav() {
   thumbNav.value = isThumbNav()
   mobileHeader.value = thumbNav.value
+  syncDesktopScrollMark()
   syncMobileScrollMark()
 }
 
@@ -695,6 +829,13 @@ onMounted(() => {
   window.addEventListener('resize', syncThumbNav, { passive: true })
   window.visualViewport?.addEventListener('resize', syncFabViewport)
   window.visualViewport?.addEventListener('scroll', syncFabViewport)
+
+  void nextTick(() => animateDesktopLogo(desktopScrollMarkOn.value, true))
+  watch(
+    desktopScrollMarkOn,
+    compact => void nextTick(() => animateDesktopLogo(compact)),
+    { flush: 'post' },
+  )
 
   watch(
     canvasForced,
@@ -814,6 +955,8 @@ onUnmounted(() => {
   logoCasesSt = null
   mobileMarkCasesSt?.kill()
   mobileMarkCasesSt = null
+  logoMorphTl?.kill()
+  logoMorphTl = null
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('pageshow', onPageShow)
   window.removeEventListener('resize', onResize)
@@ -838,6 +981,7 @@ onUnmounted(() => {
       'site-header--case': detailCase,
       'site-header--case-inverse': detailInverse,
       'site-header--case-transitioning': caseDetailTransitionActive,
+      'site-header--behind-mobile-cases': mobileHeader && isOverCases,
     }"
     :inert="canvasSurface"
   >
@@ -863,23 +1007,38 @@ onUnmounted(() => {
         <NuxtLink
           ref="logoEl"
           to="/"
+          data-home-top
           class="header-logo-link pointer-events-auto row-start-1 col-span-12 col-start-1 justify-self-center md:col-span-3 md:justify-self-start"
           :class="{ 'header-logo-link--mobile-scrolled': mobileScrollMarkVisible }"
           aria-label="Kadoflow — на главную"
           :tabindex="canvasSurface ? -1 : 0"
+          @click="onLogoClick"
           @pointerenter="preloadHomeSceneAssets"
         >
-          <img
+          <span
             ref="logoImgEl"
-            src="/brand/logo-ru-mini.svg"
-            alt="Kadoflow"
             class="header-logo"
             :class="{ 'header-logo--inverted': logoInverted }"
-            width="206"
-            height="40"
-            decoding="sync"
-            fetchpriority="high"
           >
+            <svg
+              class="header-logo__svg"
+              viewBox="0 0 165 32"
+              fill="none"
+              aria-hidden="true"
+            >
+              <g ref="logoLettersEl" class="header-logo__letters">
+                <use href="/brand/logo-ru.svg#logo-k" />
+                <use href="/brand/logo-ru.svg#logo-a" />
+                <use href="/brand/logo-ru.svg#logo-d" />
+                <use href="/brand/logo-ru.svg#logo-flow" />
+              </g>
+              <use
+                ref="logoMarkEl"
+                class="header-logo__mark"
+                href="/brand/logo-ru.svg#logo-o"
+              />
+            </svg>
+          </span>
         </NuxtLink>
 
         <Transition name="case-header-back">
@@ -1071,6 +1230,12 @@ onUnmounted(() => {
   transition: opacity 0.32s var(--motion-ease, ease), visibility 0.32s;
 }
 
+/* The sticky mobile case switcher occupies the logo row. Let the section sit
+   above the wordmark while keeping the teleported thumb-zone menu untouched. */
+.site-header--behind-mobile-cases {
+  z-index: 9;
+}
+
 .site-header--case {
   color: var(--palette-ink, #171915);
 }
@@ -1078,13 +1243,21 @@ onUnmounted(() => {
 /* Keep the full header as a stable navigation layer during case transitions.
    Interaction is paused while the cover owns the page, but nothing fades. */
 .site-header--case-transitioning .header-nav,
-.site-header--case-transitioning .case-header-back,
 .menu-btn--case-transitioning,
 .menu-fab--case-transitioning,
 .case-mobile-back--transitioning {
   pointer-events: none !important;
   opacity: 0;
   transform: translateY(0.5rem);
+}
+
+/* The desktop return action is the control that starts the cover. Moving it
+   down on that same click reads as a sharp layout jump, unlike the passive
+   header chrome. Keep its origin fixed while it fades under the transition. */
+.site-header--case-transitioning .case-header-back {
+  pointer-events: none !important;
+  opacity: 0;
+  transform: none;
 }
 
 .header-nav,
@@ -1221,13 +1394,34 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .header-logo {
+  position: relative;
   display: block;
-  width: auto;
+  width: calc(var(--layout-header-content) * 165 / 32);
   height: var(--layout-header-content);
-  /* Beat global `img { max-width: 100% }` so the mark doesn’t shrink in a grid col */
   max-width: none;
-  will-change: opacity;
+  overflow: hidden;
   transition: filter 0.35s var(--motion-ease, ease);
+  will-change: width;
+}
+
+.header-logo__svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: calc(var(--layout-header-content) * 165 / 32);
+  height: 100%;
+  max-width: none;
+  overflow: visible;
+}
+
+.header-logo__letters,
+.header-logo__mark {
+  will-change: opacity;
+}
+
+.header-logo__mark {
+  transform: none;
 }
 
 .header-logo--inverted {
@@ -1338,7 +1532,12 @@ html.page-canvas-lock .menu-btn--float {
 
 @media (max-width: 767px) {
   .header-logo {
+    width: calc(var(--layout-header-content) * 1.1 * 165 / 32);
     height: calc(var(--layout-header-content) * 1.1);
+  }
+
+  .header-logo__svg {
+    width: calc(var(--layout-header-content) * 1.1 * 165 / 32);
   }
 }
 

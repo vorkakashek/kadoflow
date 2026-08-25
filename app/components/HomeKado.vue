@@ -362,7 +362,7 @@ onUnmounted(() => {
     :style="{
       paddingInline: 'var(--layout-margin-content)',
       paddingTop: 'var(--space-section)',
-      paddingBottom: 'var(--kado-bottom-space, var(--space-block))',
+      paddingBottom: 'calc(var(--kado-bottom-space, var(--space-block)) * 2)',
     }"
   >
     <div

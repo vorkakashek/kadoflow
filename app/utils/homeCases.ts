@@ -25,7 +25,13 @@ export type HomeCase = {
   inverse?: boolean
   media: {
     src: string
+    /** Responsive modern-format candidates; `src` remains the PNG fallback. */
+    webpSrcset?: string
+    avifSrcset?: string
     alt: string
+    /** Intrinsic raster size reserves the final figure geometry before decode. */
+    width: number
+    height: number
     /** Portrait mockups stay tall; landscape can sit wider later. */
     orientation?: 'portrait' | 'landscape'
     /** Width in 12-col layout spans (uses `--layout-span-N`). */
@@ -56,8 +62,26 @@ export const homeCases: HomeCase[] = [
     wash: '#0A0501',
     inverse: true,
     media: {
-      src: '/home/cases/audience-img.webp',
+      src: '/home/cases/audience-cover.png',
+      webpSrcset: [
+        '/home/cases/audience-cover-480.webp 480w',
+        '/home/cases/audience-cover-960.webp 960w',
+        '/home/cases/audience-cover-1440.webp 1440w',
+        '/home/cases/audience-cover-1920.webp 1920w',
+        '/home/cases/audience-cover-2560.webp 2560w',
+        '/home/cases/audience-cover-3712.webp 3712w',
+      ].join(', '),
+      avifSrcset: [
+        '/home/cases/audience-cover-480.avif 480w',
+        '/home/cases/audience-cover-960.avif 960w',
+        '/home/cases/audience-cover-1440.avif 1440w',
+        '/home/cases/audience-cover-1920.avif 1920w',
+        '/home/cases/audience-cover-2560.avif 2560w',
+        '/home/cases/audience-cover-3712.avif 3712w',
+      ].join(', '),
       alt: 'Audience — мобильный мокап сайта',
+      width: 3712,
+      height: 4608,
       orientation: 'portrait',
       cols: 5,
     },
@@ -78,8 +102,10 @@ export const homeCases: HomeCase[] = [
     media: {
       src: '/home/cases/keys-1.webp',
       alt: 'Keys Store — витрина',
+      width: 2079,
+      height: 1296,
       orientation: 'portrait',
-      cols: 7,
+      cols: 8,
     },
   },
   {
@@ -96,6 +122,8 @@ export const homeCases: HomeCase[] = [
     media: {
       src: '/home/cases/baltika-brew-poster.webp',
       alt: 'Балтика Brew — продукт',
+      width: 810,
+      height: 810,
       orientation: 'portrait',
       cols: 5,
       video: {
@@ -123,8 +151,10 @@ export const homeCases: HomeCase[] = [
     media: {
       src: '/home/cases/schmidt.webp',
       alt: 'SCHMIDT — премиальная водка',
+      width: 2559,
+      height: 1437,
       orientation: 'landscape',
-      cols: 12,
+      cols: 8,
     },
   },
 ]

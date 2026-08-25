@@ -134,29 +134,35 @@ function handleTransition(event: TransitionEvent) {
 }
 
 .case-disclosure__body-clip {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--layout-gutter);
   min-height: 0;
   overflow: hidden;
 }
 
 .case-disclosure__body-inner {
   display: grid;
-  width: min(100%, 74rem);
+  grid-column: 2 / -2;
+  width: 100%;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--layout-gutter);
   margin: 0 auto;
-  padding-block: var(--space-5) var(--space-4);
+  padding-block: var(--space-3) var(--space-4);
   text-align: left;
 }
 
 .case-disclosure__body p {
   margin: 0;
-  font-size: clamp(1.1rem, 2vw, 2rem);
+  font-size: var(--type-case-body-large);
   letter-spacing: -0.035em;
   line-height: 1.18;
 }
 
 @media (max-width: 767.98px) {
-  .case-disclosure__body-inner { grid-template-columns: 1fr; }
+  .case-disclosure__title { font-size: clamp(1.875rem, 8vw, 2.25rem); }
+  .case-disclosure__body-clip { grid-template-columns: 1fr; }
+  .case-disclosure__body-inner { grid-column: 1; grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

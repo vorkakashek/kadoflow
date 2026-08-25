@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowDownRight } from '@phosphor-icons/vue'
+import { PhArrowUpRight } from '@phosphor-icons/vue'
 import { homeCases } from '~/utils/homeCases'
 import { projectCaseDetails } from '~/utils/projectCaseDetails'
 import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
@@ -14,10 +14,13 @@ const {
   detailContentVisible,
 } = useCaseDetailTransition()
 const brandPreload = useBrandPreload()
+const firstScreenEl = ref<HTMLElement | null>(null)
+const titleFrameEl = ref<HTMLElement | null>(null)
+const titleMotionEl = ref<HTMLElement | null>(null)
+const metaFrameEl = ref<HTMLElement | null>(null)
 const mediaEnterEl = ref<HTMLElement | null>(null)
 const mediaParallaxEl = ref<HTMLElement | null>(null)
 const detailContentEl = ref<HTMLElement | null>(null)
-const audienceIntroCopyEl = ref<HTMLElement | null>(null)
 const audienceFinalTextEl = ref<HTMLElement | null>(null)
 const audienceMenuSecondaryEl = ref<HTMLElement | null>(null)
 const audienceMotionSecondaryEl = ref<HTMLElement | null>(null)
@@ -32,6 +35,7 @@ const nextItem = computed(() => {
 const projectDetail = computed(() => item.value ? projectCaseDetails[item.value.id] : undefined)
 
 let mediaParallaxCtx: { revert: () => void } | null = null
+let headerScrollCtx: { revert: () => void } | null = null
 let detailRevealCtx: { revert: () => void } | null = null
 let audienceTextFillCtx: { revert: () => void } | null = null
 let nextProjectParallaxCtx: { revert: () => void } | null = null
@@ -82,6 +86,12 @@ async function setupMediaParallax() {
   const media = mediaParallaxEl.value
   if (!media || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const audience = item.value?.id === 'audience'
+  const mediaFrame = mediaEnterEl.value ?? media
+  const openingStory = audience
+    ? null
+    : detailContentEl.value?.querySelector<HTMLElement>(
+        '.case-detail__first-screen + .project-story',
+      ) ?? null
 
   const gsap = (await import('gsap')).default
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
@@ -89,6 +99,16 @@ async function setupMediaParallax() {
 
   mediaParallaxCtx?.revert()
   mediaParallaxCtx = gsap.context(() => {
+    const scrollTrigger = {
+      trigger: mediaFrame,
+      start: audience
+        ? 'top bottom'
+        : () => `top top+=${Math.round(media.offsetHeight * 0.3)}px`,
+      end: 'bottom top',
+      scrub: 0.65,
+      invalidateOnRefresh: true,
+    }
+
     gsap.fromTo(
       media,
       { yPercent: 0 },
@@ -98,18 +118,76 @@ async function setupMediaParallax() {
         // top of the viewport; other cases retain their existing page drift.
         yPercent: audience ? -55 : 30,
         ease: 'none',
-        scrollTrigger: {
-          trigger: mediaEnterEl.value ?? media,
-          start: audience
-            ? 'top bottom'
-            : () => `top top+=${Math.round(media.offsetHeight * 0.3)}px`,
-          end: 'bottom top',
-          scrub: 0.65,
-          invalidateOnRefresh: true,
-        },
+        scrollTrigger,
       },
     )
-  }, mediaEnterEl.value ?? media)
+
+    if (openingStory) {
+      // The media's bottom runway is reserved in layout for its final 30%
+      // downward drift. At the start of that drift the runway is still empty,
+      // so lift the opening story by the unused amount and release it in sync
+      // with the media. This keeps the perceived gap stable throughout.
+      gsap.fromTo(
+        openingStory,
+        { y: () => -(Number.parseFloat(getComputedStyle(mediaFrame).marginBottom) || 0) },
+        { y: 0, ease: 'none', scrollTrigger },
+      )
+    }
+  }, mediaFrame)
+}
+
+async function setupHeaderScroll() {
+  const scope = firstScreenEl.value
+  const titleFrame = titleFrameEl.value
+  const title = titleMotionEl.value
+  const meta = metaFrameEl.value
+  const media = mediaEnterEl.value
+  if (
+    !scope
+    || !titleFrame
+    || !title
+    || !meta
+    || !media
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) return
+
+  const gsap = (await import('gsap')).default
+  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
+  gsap.registerPlugin(ScrollTrigger)
+
+  headerScrollCtx?.revert()
+  headerScrollCtx = gsap.context(() => {
+    const mediaTravel = () => Math.min(window.innerHeight * 0.16, media.offsetHeight * 0.22)
+    const syncMediaTravel = () => {
+      gsap.set(scope, { '--case-header-travel': `${mediaTravel()}px` })
+    }
+    syncMediaTravel()
+
+    const timeline = gsap.timeline({
+      scrollTrigger: {
+        trigger: titleFrame,
+        start: 'top top',
+        end: 'bottom top',
+        scrub: 0.7,
+        invalidateOnRefresh: true,
+        onRefreshInit: syncMediaTravel,
+      },
+    })
+
+    timeline
+      .fromTo(title, { y: 0 }, {
+        y: () => titleFrame.clientHeight - mediaTravel() - title.offsetTop + 2,
+        ease: 'none',
+      }, 0)
+      .fromTo(titleFrame, { clipPath: 'inset(0 0 0px 0)' }, {
+        clipPath: () => `inset(0 0 ${mediaTravel()}px 0)`,
+        ease: 'none',
+      }, 0)
+      .fromTo(scope, { '--case-header-shift': '0px' }, {
+        '--case-header-shift': () => `${-mediaTravel()}px`,
+        ease: 'none',
+      }, 0)
+  }, scope)
 }
 
 async function setupDetailReveals() {
@@ -362,6 +440,7 @@ onMounted(() => {
   void preloadRouteComponents('/')
   void nextTick(() => {
     void setupDetailReveals()
+    void setupHeaderScroll()
     void setupMediaParallax()
     void setupAudienceTextFill()
     void setupNextProjectParallax()
@@ -389,6 +468,8 @@ onBeforeUnmount(() => {
   stopDirectRevealWatch = null
   mediaParallaxCtx?.revert()
   mediaParallaxCtx = null
+  headerScrollCtx?.revert()
+  headerScrollCtx = null
   detailRevealCtx?.revert()
   detailRevealCtx = null
   audienceTextFillCtx?.revert()
@@ -426,9 +507,9 @@ useHead(() => ({
       :style="{ backgroundColor: item.wash }"
     >
       <div ref="detailContentEl" class="case-detail__inner">
-      <div class="case-detail__first-screen">
-        <section class="case-detail__hero">
-          <h1>
+      <div ref="firstScreenEl" class="case-detail__first-screen">
+        <section ref="titleFrameEl" class="case-detail__hero">
+          <h1 ref="titleMotionEl">
             <span>{{ item.title }},</span>
             <span class="case-detail__summary">{{ item.blurb.replace('\n', ' ') }}</span>
           </h1>
@@ -436,45 +517,48 @@ useHead(() => ({
 
         <section class="case-detail__content">
           <div
+            ref="metaFrameEl"
             class="case-detail__meta"
             :class="{ 'case-detail__meta--five-up': item.id === 'schmidt' }"
           >
-            <div>
-              <p class="case-detail__eyebrow">клиент</p>
-              <p class="case-detail__tags">{{ item.client }}</p>
-            </div>
-            <div>
-              <p class="case-detail__eyebrow">год</p>
-              <p class="case-detail__tags">{{ item.year }}</p>
-            </div>
-            <div>
-              <p class="case-detail__eyebrow">участие</p>
-              <p class="case-detail__tags case-detail__role-tags">
-                <span v-for="tag in item.roleTags" :key="tag">{{ tag }}</span>
-              </p>
-            </div>
-            <div v-if="item.collaboration">
-              <p class="case-detail__eyebrow">в коллаборации</p>
-              <p class="case-detail__tags">{{ item.collaboration }}</p>
-            </div>
-            <div v-if="item.projectUrl">
-              <p class="case-detail__eyebrow">ссылки</p>
-              <a
-                class="case-detail__project-link"
-                :href="item.projectUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                @mouseenter="onNavWaveEnter"
-                @mouseleave="onNavWaveLeave"
-                @focus="onNavWaveEnter"
-                @blur="onNavWaveLeave"
-              >
-                <span class="case-detail__project-label">
-                  {{ item.projectLabel ?? item.projectUrl }}
-                  <TextLinkWave />
-                </span>
-                <PhArrowDownRight :size="16" />
-              </a>
+            <div class="case-detail__meta-motion">
+              <div>
+                <p class="case-detail__eyebrow">клиент</p>
+                <p class="case-detail__tags">{{ item.client }}</p>
+              </div>
+              <div>
+                <p class="case-detail__eyebrow">год</p>
+                <p class="case-detail__tags">{{ item.year }}</p>
+              </div>
+              <div>
+                <p class="case-detail__eyebrow">участие</p>
+                <p class="case-detail__tags case-detail__role-tags">
+                  <span v-for="tag in item.roleTags" :key="tag">{{ tag }}</span>
+                </p>
+              </div>
+              <div v-if="item.collaboration">
+                <p class="case-detail__eyebrow">в коллаборации</p>
+                <p class="case-detail__tags">{{ item.collaboration }}</p>
+              </div>
+              <div v-if="item.projectUrl">
+                <p class="case-detail__eyebrow">ссылки</p>
+                <a
+                  class="case-detail__project-link"
+                  :href="item.projectUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @mouseenter="onNavWaveEnter"
+                  @mouseleave="onNavWaveLeave"
+                  @focus="onNavWaveEnter"
+                  @blur="onNavWaveLeave"
+                >
+                  <span class="case-detail__project-label">
+                    {{ item.projectLabel ?? item.projectUrl }}
+                    <TextLinkWave />
+                  </span>
+                  <PhArrowUpRight :size="16" />
+                </a>
+              </div>
             </div>
           </div>
           <div
@@ -495,15 +579,20 @@ useHead(() => ({
                 :poster="item.media.video.poster"
                 :alt="item.media.alt"
               />
-              <img
-                v-else
-                :src="item.media.src"
-                :alt="item.media.alt"
-                class="case-detail__image"
-                loading="eager"
-                fetchpriority="high"
-                decoding="async"
-              >
+              <picture v-else class="case-detail__picture">
+                <source v-if="item.media.avifSrcset" type="image/avif" :srcset="item.media.avifSrcset" sizes="100vw">
+                <source v-if="item.media.webpSrcset" type="image/webp" :srcset="item.media.webpSrcset" sizes="100vw">
+                <img
+                  :src="item.media.src"
+                  :alt="item.media.alt"
+                  :width="item.media.width"
+                  :height="item.media.height"
+                  class="case-detail__image"
+                  loading="eager"
+                  fetchpriority="high"
+                  decoding="async"
+                >
+              </picture>
             </div>
           </div>
         </section>
@@ -512,14 +601,14 @@ useHead(() => ({
         <template v-if="item.id === 'audience'">
           <section class="audience-case audience-case--intro">
             <h2>Вход в мир заведения,<br>а не просто его сайт.</h2>
-            <div ref="audienceIntroCopyEl" class="audience-case__copy audience-case__copy--split case-text-fill">
+            <div class="audience-case__copy audience-case__copy--split">
               <p>Audience задумывался как место со своим характером, ритуалами и кругом людей. Поэтому сайт не начинается с каталога или формы бронирования. Сначала он вводит гостя в атмосферу пространства — через образ, темп и ощущение камерности.</p>
               <p>Задача была собрать цифровой опыт, в котором бренд, интерьер, кухня и сервис не существуют отдельными разделами, а складываются в одну среду.</p>
             </div>
-            <div class="audience-case__media-pair">
+            <CaseHorizontalRail class="audience-case__media-pair audience-case__media-pair--scroll">
               <img src="/home/cases/audience-img.webp" alt="Audience — экран сайта" loading="lazy">
               <img src="/home/cases/audience-img.webp" alt="Audience — детали цифрового опыта" loading="lazy">
-            </div>
+            </CaseHorizontalRail>
           </section>
 
           <section class="audience-case audience-case--disclosure">
@@ -588,19 +677,19 @@ useHead(() => ({
             <h2>Движение, которое<br>не отпускает атмосферу.</h2>
             <img class="audience-case__media-full" src="/home/cases/audience-img.webp" alt="Audience — анимации на сайте" loading="lazy">
             <p ref="audienceMotionSecondaryEl" class="audience-case__motion-secondary case-text-fill">Анимации собирают маршрут в единое впечатление: помогают почувствовать темп пространства, связывают экраны и делают навигацию естественной — без лишней демонстративности.</p>
-            <div class="audience-case__motion-pair">
+            <CaseHorizontalRail class="audience-case__motion-pair audience-case__motion-pair--scroll">
               <img src="/home/cases/audience-img.webp" alt="Audience — переход между разделами" loading="lazy">
               <img src="/home/cases/audience-img.webp" alt="Audience — анимация интерфейса" loading="lazy">
-            </div>
+            </CaseHorizontalRail>
           </section>
 
           <section class="audience-case audience-case--live">
             <h2>Живой сайт,<br>а не разовый<br>запуск.</h2>
             <p class="audience-case__lede">Проект реализован как развиваемая контентная система. В ней можно обновлять меню, добавлять сезонные позиции, публиковать новости, менять изображения и поддерживать актуальность разделов без пересборки сайта вручную.</p>
-            <div class="audience-case__admin-media">
+            <CaseHorizontalRail class="audience-case__admin-media audience-case__admin-media--scroll">
               <img src="/home/cases/audience-img.webp" alt="Audience — контентная система" loading="lazy">
               <img src="/home/cases/audience-img.webp" alt="Audience — управление контентом" loading="lazy">
-            </div>
+            </CaseHorizontalRail>
           </section>
 
           <section class="audience-case audience-case--final">
@@ -629,8 +718,23 @@ useHead(() => ({
               </div>
             </template>
 
+            <CaseHorizontalRail
+              v-if="section.media.length > 1"
+              class="project-story__media"
+              :class="[`project-story__media--${section.media.length}`, 'project-story__media--scroll']"
+            >
+              <img
+                v-for="media in section.media"
+                :key="`${section.id}-${media.src}-${media.alt}`"
+                :src="media.src"
+                :alt="media.alt"
+                :class="`project-story__image--${media.shape ?? 'wide'}`"
+                loading="lazy"
+                decoding="async"
+              >
+            </CaseHorizontalRail>
             <div
-              v-if="section.media.length"
+              v-else-if="section.media.length"
               class="project-story__media"
               :class="`project-story__media--${section.media.length}`"
             >
@@ -710,7 +814,13 @@ useHead(() => ({
   padding-bottom: var(--space-section);
 }
 
+.case-detail__first-screen {
+  --case-header-travel: 0px;
+  --case-header-shift: 0px;
+}
+
 .case-detail__hero {
+  position: relative;
   display: grid;
   /* Keep the opening mark compact so the case itself starts in the first view. */
   box-sizing: border-box;
@@ -719,7 +829,9 @@ useHead(() => ({
   row-gap: var(--space-3);
   place-items: start;
   padding-block: calc(var(--layout-surface-top) + var(--space-3)) var(--space-3);
+  overflow: hidden;
   text-align: left;
+  will-change: clip-path;
 }
 
 .case-detail__content {
@@ -731,14 +843,21 @@ useHead(() => ({
 }
 
 .case-detail__meta {
+  border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  overflow: hidden;
+  translate: 0 var(--case-header-shift);
+  will-change: translate;
+}
+
+.case-detail__meta-motion {
   display: grid;
   gap: var(--space-3);
-  border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
 }
 
 @media (min-width: 768px) {
   .case-detail__hero {
     grid-template-columns: repeat(12, minmax(0, 1fr));
+    min-height: calc(60svh + var(--space-4));
     column-gap: var(--layout-gutter);
   }
 
@@ -749,15 +868,19 @@ useHead(() => ({
   .case-detail__content {
     grid-template-columns: repeat(12, minmax(0, 1fr));
     column-gap: var(--layout-gutter);
+    padding-top: 0;
   }
 
   .case-detail__meta {
     grid-column: 2 / -2;
+  }
+
+  .case-detail__meta-motion {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--layout-gutter);
   }
 
-  .case-detail__meta--five-up {
+  .case-detail__meta--five-up .case-detail__meta-motion {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
@@ -777,12 +900,16 @@ useHead(() => ({
 .case-detail__project-link {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: calc(var(--space-1) / 2);
   margin-top: var(--space-1);
   color: inherit;
   font-size: var(--type-nav);
   font-weight: 500;
   text-decoration: none;
+}
+
+.case-detail__project-link > svg {
+  transform: translateY(-2px);
 }
 
 .case-detail__project-label {
@@ -866,6 +993,10 @@ h1 {
   }
 
   .case-detail__meta {
+    padding-top: 0;
+  }
+
+  .case-detail__meta-motion {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: var(--layout-gutter);
     row-gap: var(--space-1);
@@ -888,17 +1019,24 @@ h1 {
 
 .case-detail__media {
   margin-top: var(--space-4);
-  /* Reserve the media’s lowest parallax position. */
-  margin-bottom: var(--space-case-media-runway);
+  /* The frame moves upward with the metadata. Remove that exact travel from
+     the reserved runway so the following story block keeps a deliberate gap. */
+  margin-bottom: calc(var(--space-case-media-runway) - var(--case-header-travel));
+  translate: 0 var(--case-header-shift);
+  will-change: translate;
 }
 
 .case-detail__media--video {
   /* Baltika’s square film needs its full 30% travel below the block. */
-  margin-bottom: var(--space-case-video-runway);
+  margin-bottom: calc(var(--space-case-video-runway) - var(--case-header-travel));
 }
 
 .case-detail__media-parallax {
   will-change: transform;
+}
+
+.case-detail__picture {
+  display: contents;
 }
 
 .case-detail__image {
@@ -920,7 +1058,7 @@ h1 {
    preserves the full raster height for the longer parallax travel. */
 .case-detail__media--audience {
   aspect-ratio: 16 / 9;
-  margin-bottom: var(--space-case-audience-runway);
+  margin-bottom: calc(var(--space-case-audience-runway) - var(--case-header-travel));
   overflow: hidden;
 }
 
@@ -1039,14 +1177,18 @@ h1 {
 
 .project-story__copy p,
 .project-story p.project-story__statement {
-  font-size: clamp(1.15rem, 2.1vw, 2.25rem);
+  font-size: var(--type-case-body);
   letter-spacing: -0.04em;
   line-height: 1.17;
 }
 
 .project-story__media {
-  display: grid;
   grid-column: 1 / -1;
+}
+
+.project-story__media:not(.project-story__media--scroll),
+.project-story__media--scroll :deep(.case-horizontal-rail__content) {
+  display: grid;
   gap: var(--layout-gutter);
   align-items: start;
 }
@@ -1063,15 +1205,19 @@ h1 {
 .project-story__image--portrait { aspect-ratio: 4 / 5; }
 .project-story__image--square { aspect-ratio: 1; }
 
-.project-story__media--2 { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+.project-story__media--2:not(.project-story__media--scroll),
+.project-story__media--2.project-story__media--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
 .project-story__media--2 img:last-child { margin-top: var(--space-6); }
-.project-story__media--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.project-story__media--3:not(.project-story__media--scroll),
+.project-story__media--3.project-story__media--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .project-story__media--3 img:nth-child(2) { margin-top: var(--space-7); }
 .project-story__media--3 img:nth-child(3) { margin-top: var(--space-5); }
-.project-story__media--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.project-story__media--4:not(.project-story__media--scroll),
+.project-story__media--4.project-story__media--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .project-story__media--4 img:nth-child(even) { margin-top: var(--space-6); }
 
-.case-detail--schmidt .project-story--gallery .project-story__media--4 {
+.case-detail--schmidt .project-story--gallery .project-story__media--4:not(.project-story__media--scroll),
+.case-detail--schmidt .project-story--gallery .project-story__media--4.project-story__media--scroll :deep(.case-horizontal-rail__content) {
   gap: calc(var(--layout-gutter) * 0.5);
 }
 
@@ -1222,7 +1368,7 @@ h1 {
 }
 
 .audience-case--intro h2 {
-  grid-column: 1 / span 6;
+  grid-column: 2 / span 5;
   grid-row: 1;
   max-width: none;
   margin: 0;
@@ -1232,16 +1378,16 @@ h1 {
 }
 
 .audience-case__copy--split {
-  grid-column: 7 / -1;
+  grid-column: 8 / -2;
   grid-row: 2;
   grid-template-columns: 1fr;
   row-gap: var(--space-4);
   margin-top: var(--space-4);
   margin-inline: 0;
-  font-size: clamp(1.5rem, 2.7vw, 3rem);
+  font-size: var(--type-case-body-large);
   font-weight: 300;
   letter-spacing: -0.01em;
-  line-height: 1.08;
+  line-height: 1.28;
 }
 
 .audience-case__copy--split p { grid-column: 1; }
@@ -1251,11 +1397,19 @@ h1 {
 .audience-case__media-pair,
 .audience-case__motion-pair,
 .audience-case__admin-media {
+  margin-top: var(--space-6);
+}
+
+.audience-case__media-pair:not(.audience-case__media-pair--scroll),
+.audience-case__motion-pair:not(.audience-case__motion-pair--scroll),
+.audience-case__admin-media:not(.audience-case__admin-media--scroll),
+.audience-case__media-pair--scroll :deep(.case-horizontal-rail__content),
+.audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content),
+.audience-case__admin-media--scroll :deep(.case-horizontal-rail__content) {
   display: grid;
   grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
   align-items: start;
   gap: var(--layout-gutter);
-  margin-top: var(--space-6);
 }
 
 .audience-case__media-pair img:first-child { aspect-ratio: 4 / 5; }
@@ -1352,10 +1506,10 @@ h1 {
   height: 0;
   margin-top: 0;
   margin-inline: auto;
-  font-size: clamp(1.5rem, 2.7vw, 3rem);
+  font-size: var(--type-case-body-large);
   font-weight: 300;
-  letter-spacing: -0.01em;
-  line-height: 1.08;
+  letter-spacing: -0.04em;
+  line-height: 1.17;
   overflow: hidden;
   opacity: 0;
   text-align: left;
@@ -1363,12 +1517,12 @@ h1 {
   transition: height 1s cubic-bezier(0.22, 1, 0.36, 1), margin-top 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease;
 }
 
-.audience-case__disclosure-copy p:first-child { grid-column: 1 / span 5; }
-.audience-case__disclosure-copy p:last-child { grid-column: 7 / span 5; }
+.audience-case__disclosure-copy p:first-child { grid-column: 2 / span 4; }
+.audience-case__disclosure-copy p:last-child { grid-column: 8 / span 4; }
 
 .audience-case__disclosure-copy.is-open {
   height: var(--audience-disclosure-height);
-  margin-top: var(--space-7);
+  margin-top: var(--space-case-disclosure-open);
   opacity: 1;
 }
 
@@ -1505,7 +1659,8 @@ h1 {
 }
 
 .audience-case__media-full { aspect-ratio: 16 / 8; margin-top: var(--space-6); }
-.audience-case__motion-pair { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
+.audience-case__motion-pair:not(.audience-case__motion-pair--scroll),
+.audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
 .audience-case__motion-pair img:first-child { aspect-ratio: 16 / 10; }
 .audience-case__motion-pair img:last-child { aspect-ratio: 4 / 5; }
 .audience-case__motion-pair img:last-child { margin-top: var(--space-5); }
@@ -1594,6 +1749,11 @@ h1 {
 }
 
 @media (max-width: 767.98px) {
+  .project-story > h2,
+  .audience-case h2 {
+    font-size: clamp(1.875rem, 8vw, 2.25rem);
+  }
+
   .case-detail__next { height: 20svh; min-height: 20svh; margin-top: 0; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: var(--space-2); padding-block: var(--space-2); }
   .case-detail__next-content { flex-direction: column; align-items: flex-start; gap: var(--space-3); }
   .case-detail__next-name { max-width: 100%; font-size: clamp(3rem, 13vw, 5rem); }
@@ -1674,7 +1834,50 @@ h1 {
   .audience-case__media-pair img:first-child,
   .audience-case__motion-pair img:last-child,
   .audience-case__admin-media img:last-child { margin-top: var(--space-4); }
+  .project-story__media--scroll :deep(.case-horizontal-rail__viewport),
+  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__viewport),
+  .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__viewport),
+  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__viewport) {
+    display: block;
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
+  }
+  .project-story__media--scroll :deep(.case-horizontal-rail__content),
+  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content),
+  .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content),
+  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content) {
+    display: flex;
+    width: max-content;
+    gap: var(--space-1);
+  }
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
+  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > img),
+  .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
+  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > img) {
+    flex: 0 0 calc(100vw - var(--layout-margin));
+    width: calc(100vw - var(--layout-margin));
+    margin-top: 0;
+  }
+  .project-story__media--scroll :deep(.case-horizontal-rail__bar),
+  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__bar),
+  .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__bar),
+  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__bar) {
+    width: 100vw;
+    margin-inline: calc(50% - 50vw);
+  }
   .audience-case__menu-media-pair { gap: var(--space-1); }
+  .audience-case__menu-media-pair .audience-case__menu-media-stack { display: contents; }
+  .audience-case__menu-media-pair--top > img:first-child { grid-column: 1; grid-row: 1; }
+  .audience-case__menu-media-pair--top .audience-case__menu-media-stack img { grid-column: 2; grid-row: 1; margin-top: 14%; }
+  .audience-case__menu-media-pair--bottom .audience-case__menu-media-stack img { grid-column: 1; grid-row: 1; margin-top: 8%; }
+  .audience-case__menu-media-pair--bottom > img:last-child { grid-column: 2; grid-row: 1; }
+  .audience-case__menu-media-pair .audience-case__statement--menu {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    max-width: none;
+    margin: var(--space-3) 0 0;
+  }
   .audience-case--motion .audience-case__lede { width: 100%; }
   .audience-case--live .audience-case__lede { width: 100%; }
   .audience-case--final {
@@ -1695,6 +1898,10 @@ h1 {
   .audience-case__pill-label,
   .audience-case__disclosure-copy {
     transition: none;
+  }
+
+  .case-detail__media:not(.case-detail__media--audience) {
+    margin-bottom: 0;
   }
 }
 </style>

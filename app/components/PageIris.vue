@@ -316,10 +316,15 @@ onMounted(() => {
 
   stopBefore = router.beforeEach(async (to, from) => {
     const detailId = /^\/projects\/([^/]+)$/.exec(from.path)?.[1]
+    const homeTopRequested =
+      !popNav
+      && originEl instanceof Element
+      && originEl.matches('[data-home-top]')
     const isCaseReturn =
       !caseDetailTransitionActive.value
       && to.path === '/'
       && !!detailId
+      && !homeTopRequested
 
     if (isCaseReturn) {
       const item = homeCases.find((caseItem) => caseItem.id === detailId)
@@ -327,6 +332,8 @@ onMounted(() => {
       if (item) {
         closeCaseDetail({
           src: item.media.src,
+          webpSrcset: item.media.webpSrcset,
+          avifSrcset: item.media.avifSrcset,
           alt: item.media.alt,
           wash: item.wash,
           historyBack: true,

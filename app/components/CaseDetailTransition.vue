@@ -9,6 +9,8 @@ const imageEl = ref<HTMLImageElement | null>(null)
 const visible = ref(false)
 const wash = ref('#0a0a0a')
 const src = ref('')
+const webpSrcset = ref('')
+const avifSrcset = ref('')
 const alt = ref('')
 
 function nextPaint() {
@@ -81,6 +83,8 @@ watch(request, async (next) => {
   active.value = true
   wash.value = next.wash
   src.value = next.src
+  webpSrcset.value = next.webpSrcset ?? ''
+  avifSrcset.value = next.avifSrcset ?? ''
   alt.value = next.alt
   await nextTick()
   await waitForImageDecode(image)
@@ -231,7 +235,11 @@ watch(request, async (next) => {
       class="case-detail-transition__backdrop"
       :style="{ backgroundColor: wash }"
     />
-    <img ref="imageEl" :src="src" :alt="alt" class="case-detail-transition__image">
+    <picture>
+      <source v-if="avifSrcset" type="image/avif" :srcset="avifSrcset" sizes="100vw">
+      <source v-if="webpSrcset" type="image/webp" :srcset="webpSrcset" sizes="100vw">
+      <img ref="imageEl" :src="src" :alt="alt" class="case-detail-transition__image">
+    </picture>
   </div>
 </template>
 
@@ -247,6 +255,10 @@ watch(request, async (next) => {
 .case-detail-transition__backdrop {
   position: absolute;
   inset: 0;
+}
+
+.case-detail-transition picture {
+  display: contents;
 }
 
 .case-detail-transition__image {

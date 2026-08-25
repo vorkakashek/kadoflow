@@ -69,7 +69,7 @@ function probe(x: number, y: number) {
   const overText = !!node.closest(TEXT_SEL)
   setTextOver(overText)
   const overChip = !!node.closest(CHIP_FADE_SEL)
-  const overCaseMedia = !!node.closest('.cases-case-link')
+  const overCaseMedia = !!node.closest('.cases-case-link, .case-detail__next')
   chipFade.value = overChip
   caseOpen.value = !overText && overCaseMedia
   hot.value = !overText && !overChip && !overCaseMedia && !!node.closest(HOT_SEL)

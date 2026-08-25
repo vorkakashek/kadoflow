@@ -291,9 +291,11 @@ function onMotionIntroTap() {
   motionEnableRequested.value = true
   motionEnabled.value = true
   swarmHapticReset()
+  // iOS can reject or delay its system permission sheet (notably outside HTTPS).
+  // The hint is still one-shot: reveal the regular control so a later tap can retry.
+  finishMotionIntro()
   if (isAndroidClient.value) {
     androidHapticConfirmed.value = swarmHapticConfirm()
-    finishMotionIntro()
     return
   }
   gyroUnlockFn?.()
@@ -981,9 +983,6 @@ async function bootScene() {
         window.addEventListener('devicemotion', onMotion, { passive: true })
         gyroPermissionReady.value = true
         gyroUnlockFn = null
-        if (motionEnableRequested.value && motionIntroVisible.value) {
-          finishMotionIntro()
-        }
         removeGyroListeners = () => {
           window.removeEventListener('deviceorientation', onOrient)
           window.removeEventListener('devicemotion', onMotion)
@@ -2236,7 +2235,8 @@ async function bootScene() {
 .motion-intro__icon {
   display: block;
   width: auto;
-  height: clamp(7.5rem, 30vw, 10.5rem);
+  /* SVG has a safe frame for its 3D tilt; keep the phone itself at the old size. */
+  height: clamp(9rem, 36vw, 12.6rem);
 }
 
 .motion-intro__text {

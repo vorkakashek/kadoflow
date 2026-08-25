@@ -15,9 +15,10 @@ import {
   isCoarsePointer,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
-import { onNavWaveEnter } from '~/utils/navWaveHover'
+import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
 
 const rootEl = ref<HTMLElement | null>(null)
+const introEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
 const mediaImgFrontEl = ref<HTMLImageElement | null>(null)
 const bgTrackEl = ref<HTMLElement | null>(null)
@@ -45,6 +46,7 @@ const caseGestureHintSeen = useCookie<boolean>('kadoflow-case-gesture-hint-v2', 
 const showCaseGestureHint = computed(
   () => mobileCases.value && !caseGestureHintSeen.value,
 )
+const CASES_INTRO_TITLE = 'Кейсы'
 
 const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
 const switching = ref(false)
@@ -57,6 +59,8 @@ const showCaseArrow = ref(false)
 let caseArrowTimer = 0
 const caseSurfaceMedia = useState<{
   src: string
+  webpSrcset?: string
+  avifSrcset?: string
   alt: string
   wash: string
   video?: {
@@ -116,6 +120,8 @@ function openCaseDetailFromMedia(item: HomeCase) {
     to: homeCaseDetailPath(item),
     origin: 'home',
     src: item.media.src,
+    webpSrcset: item.media.webpSrcset,
+    avifSrcset: item.media.avifSrcset,
     alt: item.media.alt,
     wash: item.wash,
     rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
@@ -134,17 +140,13 @@ let suppressCaseLinkClickTimer = 0
 const CASE_SWIPE_MIN_PX = 44
 
 let caseGestureStart: { x: number; y: number; pointerId: number } | null = null
-const CASE_GESTURE_TAP_MAX_PX = 12
 
 function dismissCaseGestureHint() {
   caseGestureHintSeen.value = true
 }
 
-function openActiveCaseFromGesture() {
-  const item = activeCase.value
-  if (!item) return
+function dismissCaseGestureHintFromAction() {
   dismissCaseGestureHint()
-  openCaseDetailFromMedia(item)
 }
 
 function onCaseGesturePointerDown(e: PointerEvent) {
@@ -168,20 +170,10 @@ function onCaseGesturePointerUp(e: PointerEvent) {
   const dy = e.clientY - start.y
   const horizontalSwipe =
     Math.abs(dx) >= CASE_SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)
-  const tap =
-    Math.abs(dx) <= CASE_GESTURE_TAP_MAX_PX
-    && Math.abs(dy) <= CASE_GESTURE_TAP_MAX_PX
-
   if (horizontalSwipe) {
     e.preventDefault()
     dismissCaseGestureHint()
     selectAdjacentCase(dx < 0 ? 1 : -1)
-    return
-  }
-
-  if (tap) {
-    e.preventDefault()
-    openActiveCaseFromGesture()
   }
 }
 
@@ -295,6 +287,14 @@ function revealActiveCaseUnderline() {
   void onNavWaveEnter({ currentTarget: active } as Event)
 }
 
+function hideActiveCaseUnderline() {
+  const active = railListEl.value?.querySelector<HTMLElement>(
+    '.cases-rail__btn--active',
+  )
+  if (!active) return
+  void onNavWaveLeave({ currentTarget: active } as Event)
+}
+
 function selectAdjacentCase(direction: 1 | -1) {
   const from = homeCases.findIndex((item) => item.id === targetCaseId)
   const index = from >= 0 ? from : 0
@@ -367,6 +367,8 @@ function publishSurfaceMedia(item: HomeCase | undefined) {
   }
   caseSurfaceMedia.value = {
     src: item.media.src,
+    webpSrcset: item.media.webpSrcset,
+    avifSrcset: item.media.avifSrcset,
     alt: item.media.alt,
     wash: item.wash,
     video: item.media.video,
@@ -394,6 +396,8 @@ function warmFirstCaseMedia() {
 
   const image = new Image()
   firstCaseWarmImage = image
+  image.srcset = homeCases[0]?.media.avifSrcset ?? homeCases[0]?.media.webpSrcset ?? ''
+  image.sizes = '(max-width: 767px) 92vw, 42vw'
   image.src = src
   const finish = () => {
     void image.decode().catch(() => undefined).finally(() => {
@@ -424,6 +428,8 @@ watch(
 
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
+let introCtx: { revert: () => void } | null = null
+let railCtx: { revert: () => void } | null = null
 let enterCtx: { revert: () => void } | null = null
 let enterTl: { kill: () => void } | null = null
 let playCasesEnterMotion: (() => void) | null = null
@@ -482,6 +488,149 @@ function railAnimTargets(): HTMLElement[] {
   const rail = railEl.value
   if (!rail) return []
   return Array.from(rail.querySelectorAll<HTMLElement>('.cases-rail__list > li'))
+}
+
+type IntroMotionParts = {
+  chars: HTMLElement[]
+  lines: HTMLElement[]
+  all: HTMLElement[]
+}
+
+function introMotionParts(): IntroMotionParts {
+  const intro = introEl.value
+  if (!intro) return { chars: [], lines: [], all: [] }
+  const chars = Array.from(
+    intro.querySelectorAll<HTMLElement>('.cases-intro__char'),
+  )
+  const lines = Array.from(
+    intro.querySelectorAll<HTMLElement>('.cases-intro__line'),
+  )
+  return { chars, lines, all: [...chars, ...lines] }
+}
+
+function setIntroHidden(
+  gsap: typeof import('gsap').default,
+  parts: IntroMotionParts,
+) {
+  if (parts.chars.length) gsap.set(parts.chars, { yPercent: 115 })
+  if (parts.lines.length) gsap.set(parts.lines, { yPercent: 115 })
+}
+
+async function setupIntroMotion() {
+  introCtx?.revert()
+  introCtx = null
+
+  const intro = introEl.value
+  if (!intro) return
+
+  const gsap = await ensureGsap()
+  const parts = introMotionParts()
+  if (prefersReduce()) {
+    if (parts.all.length) gsap.set(parts.all, { clearProps: 'transform' })
+    return
+  }
+
+  introCtx = gsap.context(() => {
+    setIntroHidden(gsap, parts)
+
+    const tl = gsap.timeline({
+      defaults: { ease: 'power3.out' },
+      scrollTrigger: {
+        trigger: intro,
+        start: 'bottom bottom',
+        toggleActions: 'play none none reverse',
+      },
+    })
+
+    if (parts.chars.length) {
+      tl.to(
+        parts.chars,
+        { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
+        0,
+      )
+    }
+    if (parts.lines.length) {
+      tl.to(
+        parts.lines,
+        { yPercent: 0, duration: 0.9, stagger: 0.1 },
+        0.24,
+      )
+    }
+  }, intro)
+}
+
+async function setupRailMotion() {
+  railCtx?.revert()
+  railCtx = null
+
+  const rail = railEl.value
+  if (!rail || mobileCases.value) return
+
+  const gsap = await ensureGsap()
+  const links = railAnimTargets()
+  if (!links.length) return
+  if (prefersReduce()) {
+    gsap.set(links, { clearProps: 'opacity,visibility,transform' })
+    gsap.set(rail, {
+      '--cases-rule-scale': 1,
+      '--cases-backdrop-opacity': 1,
+      '--cases-backdrop-scale': 1,
+    })
+    return
+  }
+
+  railCtx = gsap.context(() => {
+    let tailRetracted = false
+    const syncBackdropTail = () => {
+      const stickyTop = Number.parseFloat(getComputedStyle(rail).top)
+      if (!Number.isFinite(stickyTop)) return
+      const next = rail.getBoundingClientRect().top < stickyTop - 1
+      if (next === tailRetracted) return
+      tailRetracted = next
+      rail.classList.toggle('cases-rail--tail-retracted', next)
+    }
+
+    stMod?.create({
+      trigger: rootEl.value,
+      start: 'top bottom',
+      end: 'bottom top',
+      onRefresh: syncBackdropTail,
+      onUpdate: syncBackdropTail,
+    })
+
+    gsap.set(links, { opacity: 0, y: 28, clearProps: 'visibility' })
+    gsap.set(rail, {
+      '--cases-rule-scale': 0,
+      '--cases-backdrop-opacity': 0,
+      '--cases-backdrop-scale': 0,
+    })
+    const tl = gsap.timeline({
+      defaults: { ease: 'power3.out' },
+      scrollTrigger: {
+        trigger: rail,
+        start: 'bottom bottom',
+        toggleActions: 'play none none reverse',
+      },
+    })
+    tl.to(links, {
+      opacity: 1,
+      y: 0,
+      duration: 1.1,
+      stagger: 0.14,
+    })
+    tl.to(rail, {
+      '--cases-rule-scale': 1,
+      duration: 1.1,
+      ease: 'power3.out',
+    }, 0)
+    tl.to(rail, {
+      '--cases-backdrop-opacity': 1,
+      '--cases-backdrop-scale': 1,
+      duration: 1.1,
+      ease: 'power3.out',
+    }, 0.5)
+    tl.set(links, { clearProps: 'opacity,transform' }, '>')
+  }, rail)
 }
 
 const COPY_IN = {
@@ -569,7 +718,7 @@ async function setupEnterMotion() {
 
   const gsap = await ensureGsap()
   if (prefersReduce()) {
-    const rail = railAnimTargets()
+    const rail = mobileCases.value ? railAnimTargets() : []
     const parts = stageCopyParts()
     if (rail.length) gsap.set(rail, { clearProps: 'opacity,visibility,transform' })
     if (parts.all.length) {
@@ -584,7 +733,7 @@ async function setupEnterMotion() {
     if (switching.value || casesEnterMotionVisible) return
     localEnter?.kill()
     enterTl?.kill()
-    const rail = railAnimTargets()
+    const rail = mobileCases.value ? railAnimTargets() : []
     const parts = stageCopyParts()
     if (!rail.length && !parts.all.length) return
     casesEnterMotionVisible = true
@@ -622,7 +771,7 @@ async function setupEnterMotion() {
     casesEnterMotionVisible = false
     localEnter?.kill()
     enterTl?.kill()
-    const rail = railAnimTargets()
+    const rail = mobileCases.value ? railAnimTargets() : []
     const parts = stageCopyParts()
     if (!rail.length && !parts.all.length) {
       enterTl = null
@@ -649,7 +798,7 @@ async function setupEnterMotion() {
   resetCasesEnterMotion = resetOut
 
   enterCtx = gsap.context(() => {
-    const rail = railAnimTargets()
+    const rail = mobileCases.value ? railAnimTargets() : []
     const parts = stageCopyParts()
     if (rail.length) {
       gsap.set(
@@ -717,6 +866,7 @@ let switchGen = 0
 // any non-Audience case makes the first Audience click look like a no-op.
 let targetCaseId = activeId.value
 let heightTl: { kill: () => void } | null = null
+let railPositionTl: { kill: () => void } | null = null
 
 function clearCaseArrow() {
   showCaseArrow.value = false
@@ -759,18 +909,81 @@ function tweenSectionHeight(
 ) {
   if (Math.abs(toH - fromH) < 2) {
     gsap.set(el, { clearProps: 'height' })
-    return
+    return 0
   }
 
   heightTl?.kill()
   gsap.set(el, { height: fromH })
-  heightTl = gsap.to(el, {
-    height: toH,
-    duration: 0.55,
-    ease: 'power2.inOut',
+  // Let the colour field settle with the content instead of snapping after the
+  // surface changes pose. Larger geometry changes get a little more time, while
+  // small switches still feel responsive.
+  const duration = sectionHeightDuration(fromH, toH)
+
+  const settleToNaturalHeight = (targetH: number, pass = 0) => {
+    const tween = gsap.to(el, {
+      height: targetH,
+      duration: pass === 0 ? duration : Math.min(0.42, duration * 0.45),
+      ease: 'power3.inOut',
+      onComplete: () => {
+        if (heightTl !== tween) return
+
+        const renderedH = el.getBoundingClientRect().height
+        el.style.height = 'auto'
+        const naturalH = el.offsetHeight
+
+        // Intrinsic media and font metrics can settle during the first tween.
+        // Reconcile that late layout while the explicit height still owns the
+        // colour plate, then hand back to auto only when both sizes agree.
+        if (pass < 2 && Math.abs(naturalH - renderedH) >= 2) {
+          gsap.set(el, { height: renderedH })
+          settleToNaturalHeight(naturalH, pass + 1)
+          return
+        }
+
+        gsap.set(el, { clearProps: 'height' })
+        heightTl = null
+      },
+    })
+    heightTl = tween
+  }
+
+  settleToNaturalHeight(toH)
+  return duration
+}
+
+function sectionHeightDuration(fromH: number, toH: number) {
+  const viewportH = Math.max(window.innerHeight, 1)
+  const distance = Math.min(Math.abs(toH - fromH) / viewportH, 1)
+  return 0.9 + distance * 0.45
+}
+
+function railIsBottomStopped(rail: HTMLElement) {
+  const stickyTop = Number.parseFloat(getComputedStyle(rail).top)
+  if (!Number.isFinite(stickyTop)) return false
+  return rail.getBoundingClientRect().top < stickyTop - 1
+}
+
+function tweenStoppedRailPosition(
+  gsap: typeof import('gsap').default,
+  rail: HTMLElement | null,
+  previousTop: number | null,
+  shouldCompensate: boolean,
+  duration: number,
+) {
+  if (!rail || previousTop === null || !shouldCompensate) return
+
+  const offset = previousTop - rail.getBoundingClientRect().top
+  if (Math.abs(offset) < 1) return
+
+  railPositionTl?.kill()
+  gsap.set(rail, { y: offset })
+  railPositionTl = gsap.to(rail, {
+    y: 0,
+    duration,
+    ease: 'power3.inOut',
+    clearProps: 'transform',
     onComplete: () => {
-      gsap.set(el, { clearProps: 'height' })
-      heightTl = null
+      railPositionTl = null
     },
   })
 }
@@ -795,12 +1008,16 @@ async function selectCase(item: HomeCase) {
   const gen = ++switchGen
   switching.value = true
 
+  hideActiveCaseUnderline()
+
   enterTl?.kill()
   enterTl = null
   switchTl?.kill()
   switchTl = null
   heightTl?.kill()
   heightTl = null
+  railPositionTl?.kill()
+  railPositionTl = null
 
   // On mobile, move the rail before activating the incoming link.
   await tweenRailToCase(gsap, item.id)
@@ -822,6 +1039,9 @@ async function selectCase(item: HomeCase) {
 
   // 4. Update case ID & DOM
   const root = rootEl.value
+  const rail = railEl.value
+  const wasRailBottomStopped = !!rail && railIsBottomStopped(rail)
+  const railTopBeforeLayout = rail?.getBoundingClientRect().top ?? null
   const fromH = root?.offsetHeight ?? 0
   if (root && fromH) gsap.set(root, { height: fromH })
   activeId.value = item.id
@@ -836,7 +1056,17 @@ async function selectCase(item: HomeCase) {
     root.style.height = 'auto'
     const toH = root.offsetHeight
     gsap.set(root, { height: fromH })
-    tweenSectionHeight(gsap, root, fromH, toH)
+    const heightDuration = tweenSectionHeight(gsap, root, fromH, toH)
+    // A sticky item constrained by the section's bottom edge is laid out again
+    // as soon as the incoming case changes the grid height. Preserve its visual
+    // position and ease the resulting offset away with the section resize.
+    tweenStoppedRailPosition(
+      gsap,
+      rail,
+      railTopBeforeLayout,
+      wasRailBottomStopped,
+      heightDuration,
+    )
   }
   // Animate new copy in.
   const nextParts = stageCopyParts()
@@ -862,6 +1092,8 @@ onMounted(async () => {
   if (first) {
     publishSurfaceMedia(first)
   }
+  await setupIntroMotion()
+  await setupRailMotion()
   await setupEnterMotion()
   scrollActiveCaseLinkIntoView('auto')
   revealActiveCaseUnderline()
@@ -890,8 +1122,14 @@ onBeforeUnmount(() => {
   switchTl = null
   heightTl?.kill()
   heightTl = null
+  railPositionTl?.kill()
+  railPositionTl = null
   enterTl?.kill()
   enterTl = null
+  introCtx?.revert()
+  introCtx = null
+  railCtx?.revert()
+  railCtx = null
   enterCtx?.revert()
   enterCtx = null
   playCasesEnterMotion = null
@@ -939,12 +1177,13 @@ onBeforeUnmount(() => {
         class="cases-gesture-hint"
         role="button"
         tabindex="0"
-        aria-label="Свайпайте для перелистывания. Тапните, чтобы изучить кейс."
+        aria-label="Свайпайте для перелистывания. Тапните, чтобы закрыть подсказку."
         @pointerdown="onCaseGesturePointerDown"
         @pointerup="onCaseGesturePointerUp"
         @pointercancel="onCaseGesturePointerCancel"
-        @keydown.enter.prevent="openActiveCaseFromGesture"
-        @keydown.space.prevent="openActiveCaseFromGesture"
+        @click="dismissCaseGestureHintFromAction"
+        @keydown.enter.prevent="dismissCaseGestureHintFromAction"
+        @keydown.space.prevent="dismissCaseGestureHintFromAction"
       >
         <div class="cases-gesture-hint__content">
           <svg
@@ -962,7 +1201,7 @@ onBeforeUnmount(() => {
           </svg>
           <p class="cases-gesture-hint__copy">
             <span>Свайпайте для перелистывания.</span>
-            <span>Тапните, чтобы изучить кейс.</span>
+            <span>Тапните, чтобы закрыть подсказку.</span>
           </p>
         </div>
       </div>
@@ -976,9 +1215,26 @@ onBeforeUnmount(() => {
         columnGap: 'var(--layout-gutter)',
       }"
     >
+      <header ref="introEl" class="cases-intro col-span-12">
+        <h2 class="cases-intro__title" :aria-label="CASES_INTRO_TITLE">
+          <span
+            v-for="(char, index) in CASES_INTRO_TITLE"
+            :key="`${char}-${index}`"
+            class="cases-intro__char"
+            aria-hidden="true"
+          >{{ char }}</span>
+        </h2>
+        <p class="cases-intro__copy">
+          <span class="cases-intro__line-mask"><span class="cases-intro__line">Избранные проекты:</span></span>
+          <span class="cases-intro__line-mask"><span class="cases-intro__line">от идеи и визуальной системы</span></span>
+          <span class="cases-intro__line-mask"><span class="cases-intro__line">до работающего сайта.</span></span>
+        </p>
+      </header>
+
       <nav
         ref="railEl"
-        class="cases-rail col-span-12 md:col-span-2 md:col-start-1 md:row-start-1"
+        class="cases-rail col-span-12 md:col-span-10 md:col-start-2 md:row-start-2"
+        :style="{ '--cases-wash': activeCase?.wash }"
         aria-label="Кейсы"
       >
         <ul
@@ -1011,7 +1267,7 @@ onBeforeUnmount(() => {
       <div
         v-if="activeCase"
         ref="stageEl"
-        class="cases-stage col-span-12 md:col-span-12 md:col-start-1 md:row-start-1"
+        class="cases-stage col-span-12 md:col-span-12 md:col-start-1 md:row-start-3"
       >
         <a
           class="cases-case-link"
@@ -1029,21 +1285,39 @@ onBeforeUnmount(() => {
               { 'cases-media--video': !!activeCase.media.video },
             ]"
             :style="
-              activeCase.media.cols && !mobileCases
-                ? { width: `var(--layout-span-${activeCase.media.cols})`, maxWidth: '100%' }
-                : undefined
+              {
+                aspectRatio: `${activeCase.media.width} / ${activeCase.media.height}`,
+                ...(activeCase.media.cols && !mobileCases
+                  ? { width: `var(--layout-span-${activeCase.media.cols})`, maxWidth: '100%' }
+                  : {}),
+              }
             "
           >
-            <img
-              v-if="caseMediaReady"
-              ref="mediaImgFrontEl"
-              :src="activeCase.media.src"
-              alt=""
-              class="cases-media__img cases-media__img--ghost"
-              aria-hidden="true"
-              decoding="async"
-              @load="onMediaLayoutReady"
-            >
+            <picture v-if="caseMediaReady" class="cases-media__picture">
+              <source
+                v-if="activeCase.media.avifSrcset"
+                type="image/avif"
+                :srcset="activeCase.media.avifSrcset"
+                sizes="(max-width: 767px) 92vw, 42vw"
+              >
+              <source
+                v-if="activeCase.media.webpSrcset"
+                type="image/webp"
+                :srcset="activeCase.media.webpSrcset"
+                sizes="(max-width: 767px) 92vw, 42vw"
+              >
+              <img
+                ref="mediaImgFrontEl"
+                :src="activeCase.media.src"
+                :width="activeCase.media.width"
+                :height="activeCase.media.height"
+                alt=""
+                class="cases-media__img cases-media__img--ghost"
+                aria-hidden="true"
+                decoding="async"
+                @load="onMediaLayoutReady"
+              >
+            </picture>
             <span
               class="cases-case-link__icon"
               :class="{ 'is-visible': showCaseArrow }"
@@ -1108,15 +1382,87 @@ onBeforeUnmount(() => {
     Bottom: section rhythm from the fluid scale.
   */
   padding-top: calc((var(--layout-surface-top) + var(--space-section)) * 0.5);
-  padding-bottom: calc(var(--space-section) * 0.5);
+  padding-bottom: calc(var(--space-section) * 0.96);
   padding-inline: var(--layout-margin-content);
+}
+
+.cases-intro {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: end;
+  align-items: last baseline;
+  column-gap: var(--layout-gutter);
+  margin-bottom: clamp(2.625rem, 6vw, 5.25rem);
+}
+
+.cases-intro__title,
+.cases-intro__copy {
+  margin: 0;
+}
+
+.cases-intro__title {
+  grid-column: 2 / span 8;
+  font-size: clamp(3.25rem, 8.5vw, 8rem);
+  font-weight: 400;
+  letter-spacing: -0.065em;
+  line-height: 0.88;
+  overflow: hidden;
+}
+
+.cases-intro__char {
+  display: inline-block;
+  will-change: transform;
+}
+
+.cases-intro__copy {
+  grid-column: 10 / span 2;
+  font-size: var(--type-body);
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+  opacity: 0.68;
+}
+
+.cases-intro__line-mask {
+  display: block;
+  overflow: hidden;
+}
+
+.cases-intro__line {
+  display: block;
+  will-change: transform;
 }
 
 @media (min-width: 768px) {
   .cases-inner {
-    padding-top: 120px;
-    padding-bottom: 120px;
+    --cases-section-end-space: calc(var(--space-section) * 0.96);
+    --cases-rail-stop-clearance: var(--space-6);
+    padding-top: var(--space-6);
+    padding-bottom: 0;
     padding-inline: 0;
+    /* Reserve enough room for both the gradient's lower overhang and the blur
+       kernel. The sticky area ends before the section's reduced bottom space. */
+    grid-template-rows:
+      auto auto auto
+      calc(var(--cases-section-end-space) - var(--cases-rail-stop-clearance))
+      var(--cases-rail-stop-clearance);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .cases-intro {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-bottom: clamp(2.25rem, 9.75vw, 3.75rem);
+  }
+
+  .cases-intro__title,
+  .cases-intro__copy {
+    max-width: 100%;
+  }
+
+  .cases-intro__title {
+    font-size: clamp(3.5rem, 17vw, 5.75rem);
   }
 }
 
@@ -1149,17 +1495,71 @@ onBeforeUnmount(() => {
 
 @media (min-width: 768px) {
   .cases-rail {
-    align-self: center;
+    --cases-rule-scale: 0;
+    --cases-backdrop-opacity: 0;
+    --cases-backdrop-scale: 0;
+    position: relative;
+    align-self: start;
     height: auto;
+    margin-bottom: calc(clamp(3rem, 6vw, 5.5rem) * 0.25);
+  }
+
+  .cases-rail::before {
+    position: absolute;
+    z-index: -1;
+    top: calc(-1 * var(--space-6));
+    bottom: calc(-1rem - var(--space-5) * 0.25);
+    left: 50%;
+    width: 100vw;
+    content: '';
+    pointer-events: none;
+    opacity: var(--cases-backdrop-opacity);
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--cases-wash) 4%, transparent),
+      transparent 78%
+    );
+    mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
+    transform: translateX(-50%) scaleY(var(--cases-backdrop-scale));
+    transform-origin: bottom center;
+    transition: bottom 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .cases-rail--tail-retracted::before {
+    bottom: 0;
+  }
+
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .cases-rail::before {
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+  }
+
+  .cases-rail::after {
+    position: absolute;
+    right: 0;
+    bottom: calc(0.7rem - 4px);
+    left: 0;
+    height: 1px;
+    background: color-mix(in srgb, currentColor 22%, transparent);
+    content: '';
+    pointer-events: none;
+    transform: scaleX(var(--cases-rule-scale));
+    transform-origin: left center;
   }
 
   .cases-rail__list {
-    flex-direction: column;
+    flex-direction: row;
     flex-wrap: nowrap;
-    align-items: flex-start;
-    gap: 1rem;
-    width: auto;
-    overflow: visible;
+    align-items: center;
+    gap: 1.15rem;
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.9rem 0 1rem;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   /* Match the mobile active-link rhythm: the wave sits below the glyphs,
@@ -1296,7 +1696,7 @@ onBeforeUnmount(() => {
   }
 
   .cases-rail {
-    position: static;
+    position: relative;
     z-index: 3;
     align-self: start;
     width: calc(100% + var(--layout-margin-content) + var(--layout-margin-content));
@@ -1678,9 +2078,13 @@ onBeforeUnmount(() => {
 
 @media (min-width: 768px) {
   .cases-case-link {
-    /* The first two columns belong solely to the case switcher. */
-    inset-inline-start: calc(var(--layout-span-2) + var(--layout-gutter));
+    /* The switcher starts after one empty column and occupies the next two. */
+    inset-inline-start: calc(var(--layout-span-3) + var(--layout-gutter));
   }
+}
+
+.cases-media__picture {
+  display: contents;
 }
 
 .cases-media__img {
@@ -1820,14 +2224,13 @@ onBeforeUnmount(() => {
   }
 
   .cases-rail {
-    position: static;
-    z-index: 2;
+    position: sticky;
+    top: calc(100svh - var(--space-5) * 0.25 - 4.25rem);
+    z-index: 4;
+    grid-row: 2 / 5;
     height: auto;
-    /* The stage changes height from case to case. Pin the rail to the
-       viewport-centered baseline instead of centering it in that live row. */
     align-self: start;
-    margin-top: var(--cases-rail-center);
-    transform: translateY(-50%);
+    margin-top: 0;
     pointer-events: auto;
   }
 
@@ -1866,37 +2269,38 @@ onBeforeUnmount(() => {
     margin: 0;
   }
 
-  .home-cases[data-case-id='audience'] .cases-media { grid-column: 6 / span 5; }
+  .home-cases[data-case-id='audience'] .cases-media { grid-column: 4 / span 5; }
   .home-cases[data-case-id='audience'] .cases-blurb {
-    grid-column: 9 / span 3;
-    align-self: end;
-    margin-bottom: calc(var(--space-block) * 0.68);
+    grid-column: 8 / span 3;
+    align-self: start;
+    /* Audience media is 1856 × 2304: 20% of its rendered height. */
+    margin-top: calc(var(--layout-span-5) * 0.2483);
   }
 
   .home-cases[data-case-id='keys-store'] .cases-media {
-    grid-column: 4 / span 7;
+    grid-column: 3 / span 8;
     grid-row: 1;
     margin-top: 0;
   }
   .home-cases[data-case-id='keys-store'] .cases-blurb {
-    grid-column: 5 / span 3;
+    grid-column: 4 / span 3;
     grid-row: 2;
     align-self: start;
     margin-top: clamp(2rem, 2.1vw, 2.5rem);
   }
 
   .home-cases[data-case-id='baltika'] .cases-media {
-    grid-column: 8 / span 5;
+    grid-column: 6 / span 5;
     justify-self: end;
   }
   .home-cases[data-case-id='baltika'] .cases-blurb {
-    grid-column: 4 / span 3;
+    grid-column: 3 / span 3;
     align-self: end;
     margin-bottom: 0;
   }
 
   .home-cases[data-case-id='schmidt'] .cases-media {
-    grid-column: 4 / span 8;
+    grid-column: 3 / span 8;
     grid-row: 1;
     margin-top: 0;
   }
@@ -1939,6 +2343,62 @@ onBeforeUnmount(() => {
   .cases-tags {
     gap: 0.15rem 0.35rem;
   }
+}
+
+/* The interaction mode is input-aware, not width-only: iPad and other touch
+   tablets must keep the same full-width header and top-pinned switcher as a
+   phone even when their CSS viewport crosses the desktop breakpoint. */
+.home-cases--mobile .cases-inner {
+  padding-inline: var(--layout-margin-content);
+}
+
+.home-cases--mobile .cases-intro {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  gap: 1.5rem;
+}
+
+.home-cases--mobile .cases-intro__title,
+.home-cases--mobile .cases-intro__copy {
+  width: 100%;
+  max-width: 100%;
+}
+
+.home-cases--mobile .cases-intro__title,
+.home-cases--mobile .cases-intro__copy {
+  grid-column: 1 / -1;
+}
+
+.home-cases--mobile .cases-rail {
+  position: sticky;
+  top: calc(var(--layout-header-inset) * 0.85 * 1.2);
+  z-index: 4;
+  height: calc(var(--layout-header-content) * 1.1);
+  min-height: calc(var(--layout-header-content) * 1.1);
+  width: calc(100% + 2 * var(--layout-margin-content));
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-right: calc(-1 * var(--layout-margin-content));
+  margin-left: calc(-1 * var(--layout-margin-content));
+  transform: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--cases-wash) 96%, transparent) 0%,
+    color-mix(in srgb, var(--cases-wash) 92%, transparent) 72%,
+    transparent 100%
+  );
+}
+
+.home-cases--mobile .cases-rail__list {
+  height: 100%;
+  width: 100%;
+  max-width: none;
+  align-items: center;
+  padding-block: 0;
+  padding-inline: var(--layout-margin-content);
+  scroll-padding-inline: var(--layout-margin-content);
 }
 </style>
 

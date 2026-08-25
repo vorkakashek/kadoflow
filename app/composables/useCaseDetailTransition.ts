@@ -4,6 +4,8 @@ export type CaseDetailTransitionRequest = {
   historyBack?: boolean
   to: string
   src: string
+  webpSrcset?: string
+  avifSrcset?: string
   alt: string
   wash: string
   rect?: { top: number; left: number; width: number; height: number }

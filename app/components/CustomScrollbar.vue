@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { homeCases } from '~/utils/homeCases'
+
 /**
  * Lusion-style overlay scrollbar: native bar hidden, thin thumb appears only while scrolling.
  * Short rail (not full viewport) — track sits in the middle-right with generous insets.
@@ -33,6 +35,14 @@ let reducedMotion = false
 
 const { surfaceOn: canvasSurface } = usePageCanvas()
 const onCanvas = computed(() => canvasSurface.value)
+const route = useRoute()
+const activeCase = computed(() => {
+  const id = typeof route.params.id === 'string' ? route.params.id : ''
+  return route.path.startsWith('/projects/')
+    ? homeCases.find((caseItem) => caseItem.id === id)
+    : undefined
+})
+const inverseCaseTheme = computed(() => activeCase.value?.inverse === true)
 
 function navScroller(): HTMLElement | null {
   if (!onCanvas.value) return null
@@ -221,6 +231,7 @@ onUnmounted(() => {
     :class="{
       'custom-scrollbar--on': visible && needed,
       'custom-scrollbar--canvas': onCanvas,
+      'custom-scrollbar--inverse': inverseCaseTheme,
     }"
     :style="{ paddingTop: `${edgeY}px`, paddingBottom: `${edgeY}px` }"
     aria-hidden="true"
@@ -270,11 +281,18 @@ onUnmounted(() => {
   z-index: 90;
 }
 
+/* Case details own their background, while this fixed overlay lives outside
+   the page tree. Mirror the detail's inverse theme here so it stays visible
+   over dark case washes. */
+.custom-scrollbar--inverse {
+  --scrollbar-ink: var(--palette-milk, #f5f1e8);
+}
+
 .custom-scrollbar__track {
   position: relative;
   width: 2px;
   border-radius: 9999px;
-  background: color-mix(in srgb, var(--palette-ink) 12%, transparent);
+  background: color-mix(in srgb, var(--scrollbar-ink, var(--palette-ink)) 18%, transparent);
   pointer-events: auto;
   cursor: pointer;
 }
@@ -286,7 +304,7 @@ onUnmounted(() => {
   width: 4px;
   margin-left: -2px;
   border-radius: 9999px;
-  background: var(--palette-ink);
+  background: var(--scrollbar-ink, var(--palette-ink));
   transform: translate3d(0, 0, 0);
   will-change: transform;
   cursor: grab;

@@ -10,6 +10,7 @@ function openCase(item: HomeCase, event: MouseEvent) {
   event.preventDefault()
   openCaseDetail({
     to: homeCaseDetailPath(item), origin: 'projects', src: item.media.src,
+    webpSrcset: item.media.webpSrcset, avifSrcset: item.media.avifSrcset,
     alt: item.media.alt, wash: item.wash,
     rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
   })
@@ -26,13 +27,19 @@ function openCase(item: HomeCase, event: MouseEvent) {
         <li v-for="(item, index) in homeCases" :key="item.id">
           <a :href="homeCaseDetailPath(item)" class="projects-card" :style="{ backgroundColor: item.wash }" @click="openCase(item, $event)">
             <div class="projects-card__cover" :data-case-cover="item.media.src">
-              <img
-                :src="item.media.src"
-                :alt="item.media.alt"
-                :loading="index === 0 ? 'eager' : 'lazy'"
-                :fetchpriority="index === 0 ? 'high' : 'auto'"
-                decoding="async"
-              >
+              <picture>
+                <source v-if="item.media.avifSrcset" type="image/avif" :srcset="item.media.avifSrcset" sizes="(max-width: 767px) 100vw, 50vw">
+                <source v-if="item.media.webpSrcset" type="image/webp" :srcset="item.media.webpSrcset" sizes="(max-width: 767px) 100vw, 50vw">
+                <img
+                  :src="item.media.src"
+                  :alt="item.media.alt"
+                  :width="item.media.width"
+                  :height="item.media.height"
+                  :loading="index === 0 ? 'eager' : 'lazy'"
+                  :fetchpriority="index === 0 ? 'high' : 'auto'"
+                  decoding="async"
+                >
+              </picture>
             </div>
             <span>{{ item.title }}</span>
           </a>
@@ -53,6 +60,7 @@ function openCase(item: HomeCase, event: MouseEvent) {
 .projects-catalog__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(1rem, 3vw, 3rem); margin: 0; padding: 0; list-style: none; }
 .projects-card { display: block; overflow: hidden; color: inherit; text-decoration: none; }
 .projects-card__cover { height: clamp(18rem, 42vw, 42rem); overflow: hidden; }
+.projects-card__cover picture { display: contents; }
 .projects-card__cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .projects-card > span { display: block; padding-top: .8rem; font-size: var(--type-lead); letter-spacing: -.04em; }
 @media (max-width: 767px) { .projects-catalog__header { grid-template-columns: 1fr; gap: 1rem; } .projects-catalog__header p:first-child, .projects-catalog__header h1, .projects-catalog__header p:last-child { grid-column: auto; } .projects-catalog__grid { grid-template-columns: 1fr; } .projects-card__cover { height: 68vw; } }

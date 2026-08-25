@@ -157,6 +157,8 @@ const caseSurfaceReturning = useState('home-case-surface-returning', () => false
 const caseMediaReady = useState('home-case-media-ready', () => false)
 type CaseSurfaceMedia = {
   src: string
+  webpSrcset?: string
+  avifSrcset?: string
   alt: string
   wash: string
   video?: {
@@ -2390,16 +2392,19 @@ watch(
                 backgroundColor: fillFrontVideo ? fillFrontMedia?.wash : undefined,
               }"
             >
-              <img
-                v-if="caseMediaReady"
-                class="case-surface-fill__asset"
-                :class="{
-                  'case-surface-fill__asset--behind-video': showCaseFill && fillFrontVideo,
-                }"
-                :src="fillFrontSrc"
-                :alt="fillFrontAlt"
-                decoding="async"
-              >
+              <picture v-if="caseMediaReady" class="case-surface-fill__picture">
+                <source v-if="fillFrontMedia?.avifSrcset" type="image/avif" :srcset="fillFrontMedia.avifSrcset" sizes="(max-width: 767px) 92vw, 42vw">
+                <source v-if="fillFrontMedia?.webpSrcset" type="image/webp" :srcset="fillFrontMedia.webpSrcset" sizes="(max-width: 767px) 92vw, 42vw">
+                <img
+                  class="case-surface-fill__asset"
+                  :class="{
+                    'case-surface-fill__asset--behind-video': showCaseFill && fillFrontVideo,
+                  }"
+                  :src="fillFrontSrc"
+                  :alt="fillFrontAlt"
+                  decoding="async"
+                >
+              </picture>
               <video
                 v-if="showCaseFill && fillFrontVideo"
                 class="case-surface-fill__asset case-surface-fill__video"
@@ -2435,16 +2440,19 @@ watch(
                 backgroundColor: fillBackVideo ? fillBackMedia?.wash : undefined,
               }"
             >
-              <img
-                v-if="caseMediaReady"
-                class="case-surface-fill__asset"
-                :class="{
-                  'case-surface-fill__asset--behind-video': showCaseFill && fillBackVideo,
-                }"
-                :src="fillBackSrc"
-                :alt="fillBackAlt"
-                decoding="async"
-              >
+              <picture v-if="caseMediaReady" class="case-surface-fill__picture">
+                <source v-if="fillBackMedia?.avifSrcset" type="image/avif" :srcset="fillBackMedia.avifSrcset" sizes="(max-width: 767px) 92vw, 42vw">
+                <source v-if="fillBackMedia?.webpSrcset" type="image/webp" :srcset="fillBackMedia.webpSrcset" sizes="(max-width: 767px) 92vw, 42vw">
+                <img
+                  class="case-surface-fill__asset"
+                  :class="{
+                    'case-surface-fill__asset--behind-video': showCaseFill && fillBackVideo,
+                  }"
+                  :src="fillBackSrc"
+                  :alt="fillBackAlt"
+                  decoding="async"
+                >
+              </picture>
               <video
                 v-if="showCaseFill && fillBackVideo"
                 class="case-surface-fill__asset case-surface-fill__video"
@@ -2499,6 +2507,10 @@ watch(
   overflow: hidden;
   clip-path: inset(0 0 0 0);
   will-change: clip-path, opacity;
+}
+
+.case-surface-fill__picture {
+  display: contents;
 }
 
 .case-surface-fill__asset {
