@@ -610,12 +610,26 @@ useHead(() => ({
               <p>Задача была собрать цифровой опыт, в котором бренд, интерьер, кухня и сервис не существуют отдельными разделами, а складываются в одну среду.</p>
             </div>
             <CaseHorizontalRail class="audience-case__media-pair audience-case__media-pair--scroll">
-              <img
-                class="audience-case__wave-media audience-case__wave-media--portrait"
-                src="/home/cases/audience-img.webp"
-                alt="Audience — экран сайта"
-                loading="lazy"
-              >
+              <picture class="audience-case__wave-media audience-case__wave-media--portrait">
+                <source
+                  type="image/avif"
+                  srcset="/home/cases/audience-intro-1-480.avif 480w, /home/cases/audience-intro-1-960.avif 960w, /home/cases/audience-intro-1-1248.avif 1248w"
+                  sizes="(max-width: 767px) 94vw, 40vw"
+                >
+                <source
+                  type="image/webp"
+                  srcset="/home/cases/audience-intro-1-480.webp 480w, /home/cases/audience-intro-1-960.webp 960w, /home/cases/audience-intro-1-1248.webp 1248w"
+                  sizes="(max-width: 767px) 94vw, 40vw"
+                >
+                <img
+                  src="/home/cases/audience-intro-1-960.webp"
+                  width="1248"
+                  height="1888"
+                  alt="Audience — экран сайта"
+                  loading="lazy"
+                  decoding="async"
+                >
+              </picture>
               <img
                 class="audience-case__wave-media audience-case__wave-media--landscape"
                 src="/home/cases/audience-img.webp"
@@ -1430,6 +1444,13 @@ h1 {
   aspect-ratio: 4 / 5;
   margin-top: var(--space-6);
 }
+
+.audience-case picture.audience-case__wave-media {
+  display: block;
+  overflow: hidden;
+}
+
+.audience-case picture.audience-case__wave-media > img { height: 100%; }
 
 .audience-case__wave-media--landscape { aspect-ratio: 16 / 10; }
 

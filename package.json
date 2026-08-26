@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "tokens:fluid": "node scripts/generate-fluid.mjs",
+    "images:build": "node scripts/optimize-images.mjs",
     "predev": "npm run tokens:fluid",
-    "pregenerate": "npm run tokens:fluid",
-    "build": "npm run tokens:fluid && nuxt build",
+    "pregenerate": "npm run tokens:fluid && npm run images:build",
+    "build": "npm run tokens:fluid && npm run images:build && nuxt build",
     "dev": "nuxt dev --host",
     "preview:tunnel": "npx --yes localtunnel --port 3000",
     "generate": "nuxt generate",
@@ -29,6 +30,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/three": "^0.185.4",
     "playwright-core": "^1.62.1",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.3.3"
   }
 }

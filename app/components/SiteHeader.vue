@@ -360,8 +360,9 @@ async function animateDesktopLogo(compact: boolean, immediate = false) {
   logoMorphTl = tl
 
   if (compact) {
-    // Fade every other glyph, then let the original «о» claim the compact frame.
-    g.set(mark, { attr: { x: 0 }, clearProps: 'transform' })
+    // Continue from the rendered state when fast reverse scrolling interrupts
+    // the opposite morph. Resetting `x` here made the «о» visibly jump before
+    // it could travel into its compact frame.
     tl.to(letters, { autoAlpha: 0, duration: 0.34, ease: 'power2.out' }, 0)
       .to(
         mark,
@@ -374,9 +375,8 @@ async function animateDesktopLogo(compact: boolean, immediate = false) {
         0.16,
       )
   } else {
-    // Expand the frame and return that same glyph before rebuilding the word.
-    g.set(letters, { autoAlpha: 0 })
-    g.set(mark, { attr: { x: compactX }, clearProps: 'transform' })
+    // The counterpart above also has to start from the interrupted frame:
+    // `to()` picks up the live attribute/opacity values after kill().
     tl.to(
       frame,
       { width: expandedWidth, duration: 0.68, ease: 'power3.inOut' },
