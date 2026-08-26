@@ -238,6 +238,9 @@ async function setupDetailReveals() {
   detailRevealCtx?.revert()
   detailRevealCtx = gsap.context(() => {
     targets.forEach((target) => {
+      // The shared media shader must not replace a target while GSAP owns its
+      // opacity and 3D transform during the scroll reveal/leave corridor.
+      target.dataset.caseReveal = ''
       gsap.fromTo(target,
         {
           autoAlpha: 0,
@@ -506,6 +509,7 @@ useHead(() => ({
       }"
       :style="{ backgroundColor: item.wash }"
     >
+      <CaseMediaWaveLayer />
       <div ref="detailContentEl" class="case-detail__inner">
       <div ref="firstScreenEl" class="case-detail__first-screen">
         <section ref="titleFrameEl" class="case-detail__hero">
@@ -606,8 +610,18 @@ useHead(() => ({
               <p>Задача была собрать цифровой опыт, в котором бренд, интерьер, кухня и сервис не существуют отдельными разделами, а складываются в одну среду.</p>
             </div>
             <CaseHorizontalRail class="audience-case__media-pair audience-case__media-pair--scroll">
-              <img src="/home/cases/audience-img.webp" alt="Audience — экран сайта" loading="lazy">
-              <img src="/home/cases/audience-img.webp" alt="Audience — детали цифрового опыта" loading="lazy">
+              <img
+                class="audience-case__wave-media audience-case__wave-media--portrait"
+                src="/home/cases/audience-img.webp"
+                alt="Audience — экран сайта"
+                loading="lazy"
+              >
+              <img
+                class="audience-case__wave-media audience-case__wave-media--landscape"
+                src="/home/cases/audience-img.webp"
+                alt="Audience — детали цифрового опыта"
+                loading="lazy"
+              >
             </CaseHorizontalRail>
           </section>
 
@@ -1412,9 +1426,12 @@ h1 {
   gap: var(--layout-gutter);
 }
 
-.audience-case__media-pair img:first-child { aspect-ratio: 4 / 5; }
-.audience-case__media-pair img:last-child { aspect-ratio: 16 / 10; }
-.audience-case__media-pair img:first-child { margin-top: var(--space-6); }
+.audience-case__wave-media--portrait {
+  aspect-ratio: 4 / 5;
+  margin-top: var(--space-6);
+}
+
+.audience-case__wave-media--landscape { aspect-ratio: 16 / 10; }
 
 .audience-case--disclosure { text-align: center; }
 
@@ -1831,7 +1848,7 @@ h1 {
   .audience-case__media-pair { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
   .audience-case__motion-pair,
   .audience-case__admin-media { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
-  .audience-case__media-pair img:first-child,
+  .audience-case__wave-media--portrait,
   .audience-case__motion-pair img:last-child,
   .audience-case__admin-media img:last-child { margin-top: var(--space-4); }
   .project-story__media--scroll :deep(.case-horizontal-rail__viewport),
@@ -1854,6 +1871,11 @@ h1 {
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > img) {
+    flex: 0 0 calc(100vw - var(--layout-margin));
+    width: calc(100vw - var(--layout-margin));
+    margin-top: 0;
+  }
+  .audience-case__wave-media {
     flex: 0 0 calc(100vw - var(--layout-margin));
     width: calc(100vw - var(--layout-margin));
     margin-top: 0;
