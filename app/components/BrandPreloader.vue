@@ -31,11 +31,18 @@ const ORBIT_R = RING_OUTER + RING_GAP + ARC_STROKE / 2
 const APEX = -Math.PI / 2
 /** Brief beat after extra orbits — was 3s and made cold visits feel stuck at 99%. */
 const HOLD_S = 0.08
-/** First lap stays legible but no longer imposes a three-second artificial wait. */
-const LAP1_DIVE_S = 0.68
-const LAP1_RISE_S = 0.37
+/** One readable brand orbit without holding the first useful paint behind it. */
+const LAP1_DIVE_S = 0.3
+const LAP1_RISE_S = 0.18
 /** Warm revisit — odometer sprint before expand. */
-const WARM_PCT_S = 0.2
+const WARM_PCT_S = 0.16
+/** Compact exit beats: the complete cold reveal should fit inside the LCP budget. */
+const SETTLE_S = 0.07
+const EXPAND_S = 0.16
+const STROKE_FILL_S = 0.11
+const PEAK_HOLD_S = 0.02
+const PINCH_S = 0.1
+const IRIS_S = 0.26
 const DISC_END_R = 16
 const TRACK_OP = 0.14
 
@@ -169,7 +176,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
       gsap.to(spin, {
         a: apexNow,
         flat: 1,
-        duration: 0.12,
+        duration: SETTLE_S,
         ease: 'power3.out',
         onUpdate: () => {
           angle = spin.a
@@ -280,7 +287,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
     if (pctEl.value) {
       tl.to(
         pctEl.value,
-        { autoAlpha: 0, duration: 0.1, ease: 'power2.out' },
+        { autoAlpha: 0, duration: 0.08, ease: 'power2.out' },
         0,
       )
     }
@@ -292,7 +299,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         disc,
         {
           s: peakScale,
-          duration: 0.22,
+          duration: EXPAND_S,
           ease: 'power2.out',
           onUpdate: () => {
             paintDiscScale(disc.s)
@@ -307,7 +314,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         morph,
         {
           outer: swallowR,
-          duration: 0.24,
+          duration: EXPAND_S,
           ease: 'power2.out',
           onUpdate: paintMorph,
         },
@@ -317,7 +324,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         morph,
         {
           sw: swallowR,
-          duration: 0.15,
+          duration: STROKE_FILL_S,
           ease: 'power2.in',
           onUpdate: paintMorph,
         },
@@ -341,13 +348,13 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
       undefined,
       '>',
     )
-    tl.to({}, { duration: 0.03 })
+    tl.to({}, { duration: PEAK_HOLD_S })
 
     // Quick pinch, then iris opens the site.
     const pinch = { s: peakScale }
     tl.to(pinch, {
       s: pinchScale,
-      duration: 0.16,
+      duration: PINCH_S,
       ease: 'power2.in',
       onUpdate: () => {
         paintDiscScale(pinch.s)
@@ -371,12 +378,12 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         gsap.fromTo(
           surfaceEl,
           { scale: 0.94, transformOrigin: '50% 40%' },
-          { scale: 1, duration: 0.46, ease: 'power3.out' },
+          { scale: 1, duration: IRIS_S, ease: 'power3.out' },
         )
       }
       gsap.to(markEl.value, {
         autoAlpha: 0,
-        duration: 0.14,
+        duration: 0.1,
         ease: 'power2.out',
       })
       const hole = irisHoleEl.value
@@ -400,7 +407,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         irisHoleEl.value,
         {
           scale: irisScaleEnd,
-          duration: 0.46,
+          duration: IRIS_S,
           ease: 'power3.inOut',
           onUpdate: function () {
             preload.setRevealT(this.progress())
@@ -409,7 +416,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         '>',
       )
     } else {
-      tl.to({}, { duration: 0.46 })
+      tl.to({}, { duration: IRIS_S })
     }
   })
 

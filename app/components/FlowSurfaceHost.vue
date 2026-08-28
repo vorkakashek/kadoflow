@@ -2369,6 +2369,7 @@ watch(
         ref="frame"
         data-flow-surface-frame
         class="absolute overflow-visible"
+        style="top: var(--layout-surface-top); left: var(--layout-margin); width: calc(100% - var(--layout-margin) * 2); height: calc(100% - var(--layout-surface-top) - var(--layout-margin));"
       >
         <FlowSurface
           mode="window"
