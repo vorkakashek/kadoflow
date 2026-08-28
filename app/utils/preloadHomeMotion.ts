@@ -30,21 +30,15 @@ export function preloadHomeMotionBundles() {
   )
 }
 
-/** Cache HDR / micro-maps while the iris covers the current page. */
+/** Cache the compact Hero environment while the iris covers the current page. */
 export function preloadHomeSceneAssets() {
   void preloadHomeMotionBundles()
   if (typeof window === 'undefined') return
   const wide = window.innerWidth >= 1200
   const hdr = wide
-    ? '/env/studio_small_09_2k.hdr'
-    : '/env/studio_small_03_1k.hdr'
+    ? '/env/studio_small_09_512.hdr'
+    : '/env/studio_small_03_256.hdr'
   const urls = [hdr]
-  if (wide) {
-    urls.push(
-      '/textures/micro/plaster_nor.jpg',
-      '/textures/micro/plaster_rough.jpg',
-    )
-  }
   for (const url of urls) {
     void fetch(url, { credentials: 'same-origin' }).catch(() => undefined)
   }

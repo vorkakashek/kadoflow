@@ -67,10 +67,14 @@ const fragmentShader = /* glsl */ `
 
   uniform sampler2D tImage;
   uniform sampler2D tRipple;
+  uniform sampler2D tRippleSecondaryA;
+  uniform sampler2D tRippleSecondaryB;
+  uniform sampler2D tRippleSecondaryC;
   uniform vec2 uUvScale;
   uniform vec4 uVisibleUv;
   uniform vec2 uRippleTexel;
   uniform float uEffectMix;
+  uniform vec3 uSecondaryEffectMix;
 
   varying vec2 vUv;
   varying vec2 vMediaUv;
@@ -86,6 +90,31 @@ const fragmentShader = /* glsl */ `
     float heightDown = texture2D(tRipple, vUv - vec2(0.0, uRippleTexel.y)).r;
     float heightUp = texture2D(tRipple, vUv + vec2(0.0, uRippleTexel.y)).r;
     vec2 waterGradient = vec2(heightLeft - heightRight, heightDown - heightUp) * uEffectMix;
+
+    // A gesture can restart while older fields on the same media are still
+    // fading. Composite those slopes into one image sample so a fresh field
+    // does not cover or abruptly erase the outgoing deformation.
+    if (uSecondaryEffectMix.x > 0.001) {
+      float secondaryLeft = texture2D(tRippleSecondaryA, vUv - vec2(uRippleTexel.x, 0.0)).r;
+      float secondaryRight = texture2D(tRippleSecondaryA, vUv + vec2(uRippleTexel.x, 0.0)).r;
+      float secondaryDown = texture2D(tRippleSecondaryA, vUv - vec2(0.0, uRippleTexel.y)).r;
+      float secondaryUp = texture2D(tRippleSecondaryA, vUv + vec2(0.0, uRippleTexel.y)).r;
+      waterGradient += vec2(secondaryLeft - secondaryRight, secondaryDown - secondaryUp) * uSecondaryEffectMix.x;
+    }
+    if (uSecondaryEffectMix.y > 0.001) {
+      float secondaryLeft = texture2D(tRippleSecondaryB, vUv - vec2(uRippleTexel.x, 0.0)).r;
+      float secondaryRight = texture2D(tRippleSecondaryB, vUv + vec2(uRippleTexel.x, 0.0)).r;
+      float secondaryDown = texture2D(tRippleSecondaryB, vUv - vec2(0.0, uRippleTexel.y)).r;
+      float secondaryUp = texture2D(tRippleSecondaryB, vUv + vec2(0.0, uRippleTexel.y)).r;
+      waterGradient += vec2(secondaryLeft - secondaryRight, secondaryDown - secondaryUp) * uSecondaryEffectMix.y;
+    }
+    if (uSecondaryEffectMix.z > 0.001) {
+      float secondaryLeft = texture2D(tRippleSecondaryC, vUv - vec2(uRippleTexel.x, 0.0)).r;
+      float secondaryRight = texture2D(tRippleSecondaryC, vUv + vec2(uRippleTexel.x, 0.0)).r;
+      float secondaryDown = texture2D(tRippleSecondaryC, vUv - vec2(0.0, uRippleTexel.y)).r;
+      float secondaryUp = texture2D(tRippleSecondaryC, vUv + vec2(0.0, uRippleTexel.y)).r;
+      waterGradient += vec2(secondaryLeft - secondaryRight, secondaryDown - secondaryUp) * uSecondaryEffectMix.z;
+    }
     float rippleEnergy = smoothstep(0.0008, 0.055, length(waterGradient));
 
     vec2 displacedUv = vMediaUv;
@@ -150,19 +179,19 @@ const rippleFragmentShader = /* glsl */ `
     float down = texture2D(tState, vUv - vec2(0.0, uTexel.y)).r;
     float up = texture2D(tState, vUv + vec2(0.0, uTexel.y)).r;
 
-    // Damped finite-difference wave equation. Lower propagation moves the wave
-    // front about half as far during its lifetime, while velocity damping lets
-    // the surface settle quickly without a hard cutoff.
+    // Damped finite-difference wave equation. Strong physical damping keeps a
+    // continuously drawn wake compact; the visual mix only cleans up the last
+    // already-faint residue instead of cutting a still-moving wave short.
     float laplacian = left + right + down + up - state.r * 4.0;
-    float velocity = (state.r - state.g) * 0.92;
-    float nextHeight = state.r + velocity + laplacian * 0.14;
+    float velocity = (state.r - state.g) * 0.84;
+    float nextHeight = state.r + velocity + laplacian * 0.12;
 
     vec2 point = vec2(vUv.x * uAspect, vUv.y);
     vec2 end = vec2(uMouse.x * uAspect, uMouse.y);
     vec2 previous = vec2(uPreviousMouse.x * uAspect, uPreviousMouse.y);
-    // Deposit only the newest half of the pointer segment. The persistent
-    // simulation still joins the wake, but it no longer stretches far behind.
-    vec2 start = mix(end, previous, 0.5);
+    // Deposit only the newest fifth of the pointer segment so the wake stays
+    // close to the cursor instead of drawing a long stroke behind it.
+    vec2 start = mix(end, previous, 0.2);
     float distanceToGesture = segmentDistance(point, start, end);
     float brush = exp(-pow(distanceToGesture / max(uBrushRadius, 0.001), 2.0) * 2.2);
     nextHeight -= brush * uImpulse * 0.12;
@@ -185,13 +214,14 @@ let textureFactory: ((media: WaveMedia) => Texture) | null = null
 let mediaProgram: Program | null = null
 let mediaMesh: Mesh | null = null
 let rippleSimulation: RippleSimulation | null = null
-let spareRippleSimulation: RippleSimulation | null = null
-let retiringWave: RetiringWave | null = null
+let spareRippleSimulations: RippleSimulation[] = []
+let retiringWaves: RetiringWave[] = []
 let pointer: Vec2 | null = null
 let uvScale: Vec2 | null = null
 let rectUniform: Float32Array | null = null
 let visibleUvUniform: Float32Array | null = null
 let effectMixUniform: { value: number } | null = null
+let secondaryEffectMixUniform: Float32Array | null = null
 let activeMedia: WaveMedia | null = null
 let hoveredMedia: WaveMedia | null = null
 let activeClipAncestors: ClipAncestor[] = []
@@ -211,6 +241,12 @@ let effectMix = 1
 let simulationAccumulator = 0
 let stopTransitionWatch: (() => void) | null = null
 let textureWarmupIdle = 0
+let rendererWarmupIdle = 0
+let mediaWarmupObserver: IntersectionObserver | null = null
+const textureWarmupQueue: WaveMedia[] = []
+const queuedTextureWarmups = new Set<WaveMedia>()
+const pendingMediaWarmups = new Set<string | WaveMedia>()
+const decodedMediaAwaitingRenderer = new Set<WaveMedia>()
 const motionStateCache = new WeakMap<WaveMedia, { checkedAt: number, stable: boolean }>()
 let clipAncestorCache = new WeakMap<WaveMedia, ClipAncestor[]>()
 const textureCache = new Map<string | WaveMedia, { texture: Texture, lastUsed: number }>()
@@ -222,7 +258,8 @@ const RIPPLE_STEP_MS = 1000 / 60
 const MIN_EFFECT_RADIUS_PX = 28
 const MAX_EFFECT_RADIUS_PX = 180
 const EFFECT_RADIUS_SCALE = 1.25
-const EFFECT_FADE_DURATION_MS = 625
+const EFFECT_FADE_DURATION_MS = 520
+const MAX_SIMULTANEOUS_WAVES = 4
 let rippleSize = HIGH_RIPPLE_SIZE
 
 function preferredRippleSize() {
@@ -335,6 +372,14 @@ function textureKey(media: WaveMedia) {
   return media instanceof HTMLImageElement ? (media.currentSrc || media.src) : media
 }
 
+/** A native video plane can ignore CSS blending. Its declared wave blend lets
+ * the canvas use the intended composition while the DOM fallback does it with
+ * a regular overlay. */
+function mediaBlendMode(media: WaveMedia) {
+  const computed = getComputedStyle(media).mixBlendMode
+  return computed !== 'normal' ? computed : media.dataset.waveBlend ?? computed
+}
+
 function collectClipAncestors(media: WaveMedia) {
   const cached = clipAncestorCache.get(media)
   if (cached) return cached
@@ -351,6 +396,22 @@ function collectClipAncestors(media: WaveMedia) {
   return ancestors
 }
 
+function trimTextureCache(protectedKey: string | WaveMedia) {
+  if (!gl) return
+  while (textureCache.size > MAX_CACHED_TEXTURES) {
+    const eviction = [...textureCache.entries()]
+      .filter(([candidateKey, entry]) =>
+        candidateKey !== protectedKey
+        && entry.texture !== mediaTexture
+        && !retiringWaves.some(wave => wave.texture === entry.texture),
+      )
+      .sort((a, b) => a[1].lastUsed - b[1].lastUsed)[0]
+    if (!eviction) return
+    gl.deleteTexture(eviction[1].texture.texture)
+    textureCache.delete(eviction[0])
+  }
+}
+
 function selectMediaTexture(media: WaveMedia) {
   if (!mediaProgram || !textureFactory || !gl) return false
   const key = textureKey(media)
@@ -365,20 +426,52 @@ function selectMediaTexture(media: WaveMedia) {
   mediaTexture = entry.texture
   mediaProgram.uniforms.tImage!.value = entry.texture
 
-  if (textureCache.size > MAX_CACHED_TEXTURES) {
-    const eviction = [...textureCache.entries()]
-      .filter(([candidateKey]) => candidateKey !== key)
-      .sort((a, b) => a[1].lastUsed - b[1].lastUsed)[0]
-    if (eviction) {
-      gl.deleteTexture(eviction[1].texture.texture)
-      textureCache.delete(eviction[0])
-    }
-  }
+  trimTextureCache(key)
   return true
 }
 
+function enqueueTextureWarmup(media: WaveMedia) {
+  const key = textureKey(media)
+  if (
+    !textureFactory
+    || queuedTextureWarmups.has(media)
+    || textureCache.has(key)
+    || textureWarmupQueue.some(candidate => textureKey(candidate) === key)
+  ) return
+  queuedTextureWarmups.add(media)
+  textureWarmupQueue.push(media)
+
+  const warmNext = () => {
+    if (textureWarmupIdle || !textureWarmupQueue.length) return
+    const upload = () => {
+      textureWarmupIdle = 0
+      const candidate = textureWarmupQueue.shift()
+      if (!candidate) return
+      queuedTextureWarmups.delete(candidate)
+      if (candidate.isConnected && textureFactory && gl && isMediaReady(candidate)) {
+        const key = textureKey(candidate)
+        if (!textureCache.has(key)) {
+          const texture = textureFactory(candidate)
+          // Force the raster upload during idle time. Without this call OGL
+          // performs it on the first hover render, which can stall scrolling.
+          texture.update(0)
+          textureCache.set(key, { texture, lastUsed: performance.now() - 1 })
+          trimTextureCache(key)
+        }
+      }
+      warmNext()
+    }
+
+    textureWarmupIdle = window.requestIdleCallback
+      ? window.requestIdleCallback(upload)
+      : window.setTimeout(upload, 32)
+  }
+
+  warmNext()
+}
+
 function scheduleNearbyTextureWarmup(media: WaveMedia) {
-  if (!scopeEl || !textureFactory || textureWarmupIdle || !window.requestIdleCallback) return
+  if (!scopeEl || !textureFactory) return
   const images = Array.from(scopeEl.querySelectorAll<HTMLImageElement>('img:not([data-wave-disabled])'))
     .filter(isMediaReady)
   const activeIndex = images.indexOf(media as HTMLImageElement)
@@ -389,27 +482,22 @@ function scheduleNearbyTextureWarmup(media: WaveMedia) {
       return Math.abs(images.indexOf(a) - activeIndex) - Math.abs(images.indexOf(b) - activeIndex)
     })
 
-  const warmNext = () => {
-    if (!candidates.length || textureCache.size >= MAX_CACHED_TEXTURES || !textureFactory) {
-      textureWarmupIdle = 0
-      return
-    }
-    textureWarmupIdle = window.requestIdleCallback(() => {
-      textureWarmupIdle = 0
-      const candidate = candidates.shift()
-      if (!candidate || !textureFactory || !gl) return
-      const key = textureKey(candidate)
-      if (!textureCache.has(key)) {
-        const texture = textureFactory(candidate)
-        // Upload outside pointer/scroll frames so the first real hover only
-        // swaps a uniform instead of synchronously pushing a large raster.
-        texture.update(0)
-        textureCache.set(key, { texture, lastUsed: performance.now() - 1 })
-      }
-      warmNext()
-    })
+  for (const candidate of candidates.slice(0, Math.max(0, MAX_CACHED_TEXTURES - textureCache.size))) {
+    enqueueTextureWarmup(candidate)
   }
-  warmNext()
+}
+
+function warmTextureBeforeViewport(media: WaveMedia) {
+  const key = textureKey(media)
+  if (pendingMediaWarmups.has(key) || textureCache.has(key)) return
+  pendingMediaWarmups.add(key)
+  void ensureMediaReady(media).then((ready) => {
+    if (!ready) return
+    if (textureFactory) enqueueTextureWarmup(media)
+    else decodedMediaAwaitingRenderer.add(media)
+  }).finally(() => {
+    pendingMediaWarmups.delete(key)
+  })
 }
 
 function visibleMediaBounds(media: WaveMedia, ancestors: ClipAncestor[]) {
@@ -522,12 +610,19 @@ function clearTrail(simulation = rippleSimulation) {
 function updateRippleSimulation(simulation: RippleSimulation, impulse: number) {
   if (!renderer) return
   simulation.impulse.value = impulse
-  simulation.mesh.program.uniforms.tState!.value = simulation.read.texture
+  const uniforms = simulation.mesh.program.uniforms
+  uniforms.tState!.value = simulation.read.texture
+  uniforms.uTexel!.value = simulation.texel
+  uniforms.uMouse!.value = simulation.mouse
+  uniforms.uPreviousMouse!.value = simulation.previousMouse
+  uniforms.uImpulse!.value = simulation.impulse.value
+  uniforms.uAspect!.value = simulation.aspect.value
+  uniforms.uBrushRadius!.value = simulation.brushRadius.value
   renderer.render({ scene: simulation.mesh, target: simulation.write, clear: false })
   const previous = simulation.read
   simulation.read = simulation.write
   simulation.write = previous
-  simulation.mesh.program.uniforms.tState!.value = simulation.read.texture
+  uniforms.tState!.value = simulation.read.texture
 }
 
 function drawMedia(
@@ -537,18 +632,29 @@ function drawMedia(
   texture: Texture,
   mix: number,
   updateActivePointerBounds = false,
+  secondaryWaves: RetiringWave[] = [],
 ) {
   if (
     !renderer
     || !mediaMesh
     || !mediaProgram
     || !effectMixUniform
+    || !secondaryEffectMixUniform
     || !syncMediaGeometryFor(media, clipAncestors, simulation, updateActivePointerBounds)
   ) return
   if (media instanceof HTMLVideoElement) texture.needsUpdate = true
   mediaProgram.uniforms.tImage!.value = texture
   mediaProgram.uniforms.tRipple!.value = simulation.read.texture
   mediaProgram.uniforms.uRippleTexel!.value = simulation.texel
+  const secondaryA = secondaryWaves[0]
+  const secondaryB = secondaryWaves[1]
+  const secondaryC = secondaryWaves[2]
+  mediaProgram.uniforms.tRippleSecondaryA!.value = secondaryA?.simulation.read.texture ?? simulation.read.texture
+  mediaProgram.uniforms.tRippleSecondaryB!.value = secondaryB?.simulation.read.texture ?? simulation.read.texture
+  mediaProgram.uniforms.tRippleSecondaryC!.value = secondaryC?.simulation.read.texture ?? simulation.read.texture
+  secondaryEffectMixUniform[0] = secondaryA?.mix ?? 0
+  secondaryEffectMixUniform[1] = secondaryB?.mix ?? 0
+  secondaryEffectMixUniform[2] = secondaryC?.mix ?? 0
   effectMixUniform.value = mix
   renderer.render({ scene: mediaMesh, clear: false })
 }
@@ -564,7 +670,9 @@ function draw() {
     return
   }
   clearCanvas()
-  if (retiringWave) {
+  const sameMediaRetiringWaves = retiringWaves.filter(wave => wave.media === activeMedia)
+  for (const retiringWave of retiringWaves) {
+    if (retiringWave.media === activeMedia) continue
     drawMedia(
       retiringWave.media,
       retiringWave.clipAncestors,
@@ -573,15 +681,20 @@ function draw() {
       retiringWave.mix,
     )
   }
-  drawMedia(activeMedia, activeClipAncestors, rippleSimulation, mediaTexture, effectMix, true)
+  drawMedia(activeMedia, activeClipAncestors, rippleSimulation, mediaTexture, effectMix, true, sameMediaRetiringWaves)
 }
 
-function releaseRetiringWave() {
+function releaseRetiringWave(index = 0) {
+  const retiringWave = retiringWaves[index]
   if (!retiringWave) return
   retiringWave.media.classList.remove('case-wave-media-active')
   clearTrail(retiringWave.simulation)
-  spareRippleSimulation = retiringWave.simulation
-  retiringWave = null
+  spareRippleSimulations.push(retiringWave.simulation)
+  retiringWaves.splice(index, 1)
+}
+
+function releaseRetiringWaves() {
+  while (retiringWaves.length) releaseRetiringWave(0)
 }
 
 function retireActiveWave() {
@@ -590,26 +703,26 @@ function retireActiveWave() {
     || !rippleSimulation
     || !mediaTexture
     || effectMix <= 0.004
-    || getComputedStyle(activeMedia).mixBlendMode !== 'normal'
+    || mediaBlendMode(activeMedia) !== 'normal'
   ) return false
 
-  // During very fast A → B → C movement, finish the older A tail and spend
-  // the second simulation on B. The most recently left media is the one the
-  // eye is tracking, while GPU work remains capped at two fields.
-  if (!spareRippleSimulation && retiringWave) releaseRetiringWave()
-  if (!spareRippleSimulation) return false
+  // Keep one active field and up to three independently retiring fields. If a
+  // fifth media is reached before the oldest tail settles, recycle only that
+  // oldest field; the three most recently left images continue naturally.
+  if (!spareRippleSimulations.length && retiringWaves.length) releaseRetiringWave(0)
+  const nextSimulation = spareRippleSimulations.pop()
+  if (!nextSimulation) return false
   const outgoingSimulation = rippleSimulation
-  rippleSimulation = spareRippleSimulation
-  spareRippleSimulation = null
+  rippleSimulation = nextSimulation
   pointer = rippleSimulation.mouse
-  retiringWave = {
+  retiringWaves.push({
     media: activeMedia,
     clipAncestors: activeClipAncestors,
     simulation: outgoingSimulation,
     texture: mediaTexture,
     energy: trailEnergy,
     mix: effectMix,
-  }
+  })
   activeMedia = null
   activePointerBounds = null
   clearTrail(rippleSimulation)
@@ -654,24 +767,25 @@ function render(time: number) {
   const simulationSteps = Math.floor(simulationAccumulator / RIPPLE_STEP_MS)
   for (let step = 0; step < simulationSteps; step++) {
     updateRippleSimulation(rippleSimulation, step === 0 ? motionTarget : 0)
-    if (retiringWave) updateRippleSimulation(retiringWave.simulation, 0)
+    for (const retiringWave of retiringWaves) updateRippleSimulation(retiringWave.simulation, 0)
     rippleSimulation.previousMouse.set(pointer.x, pointer.y)
     simulationAccumulator -= RIPPLE_STEP_MS
   }
 
-  if (retiringWave) {
+  for (let index = retiringWaves.length - 1; index >= 0; index--) {
+    const retiringWave = retiringWaves[index]!
     retiringWave.energy *= Math.exp(-elapsed / fadeTimeConstant)
     retiringWave.mix = approachEffectMix(
       retiringWave.mix,
       settledMixForEnergy(retiringWave.energy),
       elapsed,
     )
-    if (retiringWave.energy <= 0.004 && retiringWave.mix <= 0.004) releaseRetiringWave()
+    if (retiringWave.energy <= 0.004 && retiringWave.mix <= 0.004) releaseRetiringWave(index)
   }
 
   draw()
 
-  if (trailEnergy > 0.004 || effectMix > 0.004 || retiringWave) {
+  if (trailEnergy > 0.004 || effectMix > 0.004 || retiringWaves.length) {
     animationFrame = requestAnimationFrame(render)
     return
   }
@@ -742,6 +856,23 @@ async function setupRenderer() {
       minFilter: nextGl.LINEAR,
       magFilter: nextGl.LINEAR,
     }
+    const nextFullscreenGeometry = new Triangle(nextGl)
+    const nextRippleProgram = new OglProgram(nextGl, {
+      vertex: rippleVertexShader,
+      fragment: rippleFragmentShader,
+      uniforms: {
+        tState: { value: nextTexture },
+        uTexel: { value: new OglVec2(1 / rippleSize, 1 / rippleSize) },
+        uMouse: { value: new OglVec2(0.5, 0.5) },
+        uPreviousMouse: { value: new OglVec2(0.5, 0.5) },
+        uImpulse: { value: 0 },
+        uAspect: { value: 1 },
+        uBrushRadius: { value: 0.12 },
+      },
+      depthTest: false,
+      depthWrite: false,
+      cullFace: false,
+    })
     const createRippleSimulation = (): RippleSimulation => {
       const read = new OglRenderTarget(nextGl, rippleTargetOptions)
       const write = new OglRenderTarget(nextGl, rippleTargetOptions)
@@ -751,26 +882,10 @@ async function setupRenderer() {
       const impulse = { value: 0 }
       const aspect = { value: 1 }
       const brushRadius = { value: 0.12 }
-      const program = new OglProgram(nextGl, {
-        vertex: rippleVertexShader,
-        fragment: rippleFragmentShader,
-        uniforms: {
-          tState: { value: read.texture },
-          uTexel: { value: texel },
-          uMouse: { value: mouse },
-          uPreviousMouse: { value: previousMouse },
-          uImpulse: impulse,
-          uAspect: aspect,
-          uBrushRadius: brushRadius,
-        },
-        depthTest: false,
-        depthWrite: false,
-        cullFace: false,
-      })
       return {
         read,
         write,
-        mesh: new OglMesh(nextGl, { geometry: new Triangle(nextGl), program }),
+        mesh: new OglMesh(nextGl, { geometry: nextFullscreenGeometry, program: nextRippleProgram }),
         mouse,
         previousMouse,
         impulse,
@@ -780,30 +895,38 @@ async function setupRenderer() {
       }
     }
     const nextRippleSimulation = createRippleSimulation()
-    const nextSpareRippleSimulation = createRippleSimulation()
+    const nextSpareRippleSimulations = Array.from(
+      { length: MAX_SIMULTANEOUS_WAVES - 1 },
+      createRippleSimulation,
+    )
     const nextPointer = nextRippleSimulation.mouse
     const nextUvScale = new OglVec2(1, 1)
     const nextRect = new Float32Array([0, 0, 1, 1])
     const nextVisibleUv = new Float32Array([0, 0, 1, 1])
     const nextEffectMixUniform = { value: 1 }
+    const nextSecondaryEffectMix = new Float32Array([0, 0, 0])
     const nextProgram = new OglProgram(nextGl, {
       vertex: vertexShader,
       fragment: fragmentShader,
       uniforms: {
         tImage: { value: nextTexture },
         tRipple: { value: nextRippleSimulation.read.texture },
+        tRippleSecondaryA: { value: nextRippleSimulation.read.texture },
+        tRippleSecondaryB: { value: nextRippleSimulation.read.texture },
+        tRippleSecondaryC: { value: nextRippleSimulation.read.texture },
         uUvScale: { value: nextUvScale },
         uRect: { value: nextRect },
         uVisibleUv: { value: nextVisibleUv },
         uRippleTexel: { value: nextRippleSimulation.texel },
         uEffectMix: nextEffectMixUniform,
+        uSecondaryEffectMix: { value: nextSecondaryEffectMix },
       },
       depthTest: false,
       depthWrite: false,
       cullFace: false,
     })
     const nextMesh = new OglMesh(nextGl, {
-      geometry: new Triangle(nextGl),
+      geometry: nextFullscreenGeometry,
       program: nextProgram,
     })
 
@@ -822,16 +945,19 @@ async function setupRenderer() {
     mediaProgram = nextProgram
     mediaMesh = nextMesh
     rippleSimulation = nextRippleSimulation
-    spareRippleSimulation = nextSpareRippleSimulation
+    spareRippleSimulations = nextSpareRippleSimulations
     pointer = nextPointer
     uvScale = nextUvScale
     rectUniform = nextRect
     visibleUvUniform = nextVisibleUv
     effectMixUniform = nextEffectMixUniform
+    secondaryEffectMixUniform = nextSecondaryEffectMix
     resizeRenderer()
     clearTrail()
-    clearTrail(spareRippleSimulation)
+    for (const simulation of spareRippleSimulations) clearTrail(simulation)
     clearCanvas()
+    for (const media of decodedMediaAwaitingRenderer) enqueueTextureWarmup(media)
+    decodedMediaAwaitingRenderer.clear()
   })().catch(() => {
     destroyRenderer()
   }).finally(() => {
@@ -913,9 +1039,16 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
   ) return
 
   if (activeMedia !== media) {
-    // Keep the outgoing height field alive while the new media starts. Only
-    // one retiring field is allowed, keeping the overlap predictable and cheap.
-    if (!retireActiveWave()) {
+    const blendMode = mediaBlendMode(media)
+    // The shared canvas has one CSS blend mode. A multiplied video cannot
+    // safely share it with normal retiring images, so keep multi-tail overlap
+    // for the regular case media and switch blended media cleanly.
+    if (blendMode !== 'normal') {
+      releaseRetiringWaves()
+      releaseActiveMedia(false)
+      clearTrail()
+    }
+    else if (!retireActiveWave()) {
       releaseActiveMedia(false)
       clearTrail()
     }
@@ -926,9 +1059,8 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
       return
     }
     const canvas = canvasEl.value
-    const mediaStyles = getComputedStyle(media)
-    const sourceNeedsHiding = mediaStyles.mixBlendMode !== 'normal'
-    if (canvas) canvas.style.mixBlendMode = mediaStyles.mixBlendMode
+    const sourceNeedsHiding = blendMode !== 'normal'
+    if (canvas) canvas.style.mixBlendMode = blendMode
     pointer.set(targetPointerX, targetPointerY)
     rippleSimulation?.previousMouse.set(targetPointerX, targetPointerY)
     if (rippleSimulation) rippleSimulation.impulse.value = 0
@@ -953,6 +1085,8 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
 function activateMedia(media: WaveMedia, event: PointerEvent) {
   if (!isMediaMotionStable(media)) return
   const resumesDormantHover = hoveredMedia === media && activeMedia !== media
+  const reentersFadingField = activeMedia === media && hoveredMedia !== media
+  const startsFreshGesture = resumesDormantHover || reentersFadingField
   if (activeMedia && activeMedia !== media && lastPointerInputTime) {
     const inputAge = Math.max(0, performance.now() - lastPointerInputTime)
     trailEnergy = Math.max(trailEnergy, inputMotionStrength * Math.exp(-inputAge / 58))
@@ -964,9 +1098,22 @@ function activateMedia(media: WaveMedia, event: PointerEvent) {
   // When a settled effect wakes while the pointer is still over the same
   // media, this event is real movement and must create the first ripple. The
   // old path discarded it and made the response visibly wait for event #2.
-  lastPointerEventTime = resumesDormantHover ? performance.now() - 16.67 : 0
+  lastPointerEventTime = startsFreshGesture ? performance.now() - 16.67 : 0
   inputMotionStrength = 0
-  updateTargetPointer(event, media, hoveredClipAncestors, resumesDormantHover)
+  updateTargetPointer(event, media, hoveredClipAncestors, startsFreshGesture)
+
+  if (reentersFadingField && rippleSimulation && pointer) {
+    // Move the outgoing field into its own fade lane. The new gesture starts
+    // flat, while draw() composites the old slope into the same image sample;
+    // neither the fade nor the fresh response has to jump.
+    const preservedOutgoingFade = retireActiveWave()
+    if (!preservedOutgoingFade) clearTrail(rippleSimulation)
+    pointer.set(targetPointerX, targetPointerY)
+    rippleSimulation.previousMouse.set(targetPointerX, targetPointerY)
+    rippleSimulation.impulse.value = 0
+    trailEnergy = 0
+    simulationAccumulator = 0
+  }
 
   // Normal re-entry stays entirely synchronous: no Promise/microtask churn
   // when the user rapidly crosses the same group of already decoded images.
@@ -1039,8 +1186,18 @@ function destroyRenderer() {
   if (animationFrame) cancelAnimationFrame(animationFrame)
   animationFrame = 0
   if (textureWarmupIdle && window.cancelIdleCallback) window.cancelIdleCallback(textureWarmupIdle)
+  else if (textureWarmupIdle) window.clearTimeout(textureWarmupIdle)
   textureWarmupIdle = 0
-  releaseRetiringWave()
+  if (rendererWarmupIdle && window.cancelIdleCallback) window.cancelIdleCallback(rendererWarmupIdle)
+  else if (rendererWarmupIdle) window.clearTimeout(rendererWarmupIdle)
+  rendererWarmupIdle = 0
+  mediaWarmupObserver?.disconnect()
+  mediaWarmupObserver = null
+  textureWarmupQueue.length = 0
+  queuedTextureWarmups.clear()
+  pendingMediaWarmups.clear()
+  decodedMediaAwaitingRenderer.clear()
+  releaseRetiringWaves()
   releaseActiveMedia()
   hoveredMedia = null
 
@@ -1049,19 +1206,21 @@ function destroyRenderer() {
     textureCache.clear()
     if (placeholderTexture) gl.deleteTexture(placeholderTexture.texture)
     const simulations = new Set(
-      [rippleSimulation, spareRippleSimulation, retiringWave?.simulation]
+      [rippleSimulation, ...spareRippleSimulations]
         .filter((simulation): simulation is RippleSimulation => Boolean(simulation)),
     )
+    const programs = new Set([...simulations].map(simulation => simulation.mesh.program))
+    const geometries = new Set([...simulations].map(simulation => simulation.mesh.geometry))
+    if (mediaProgram) programs.add(mediaProgram)
+    if (mediaMesh) geometries.add(mediaMesh.geometry)
     for (const simulation of simulations) {
       gl.deleteTexture(simulation.read.texture.texture)
       gl.deleteTexture(simulation.write.texture.texture)
       gl.deleteFramebuffer(simulation.read.buffer)
       gl.deleteFramebuffer(simulation.write.buffer)
-      simulation.mesh.program.remove()
-      simulation.mesh.geometry.remove()
     }
-    mediaProgram?.remove()
-    mediaMesh?.geometry.remove()
+    for (const program of programs) program.remove()
+    for (const geometry of geometries) geometry.remove()
   }
 
   renderer = null
@@ -1072,13 +1231,14 @@ function destroyRenderer() {
   mediaProgram = null
   mediaMesh = null
   rippleSimulation = null
-  spareRippleSimulation = null
-  retiringWave = null
+  spareRippleSimulations = []
+  retiringWaves = []
   pointer = null
   uvScale = null
   rectUniform = null
   visibleUvUniform = null
   effectMixUniform = null
+  secondaryEffectMixUniform = null
   clipAncestorCache = new WeakMap<WaveMedia, ClipAncestor[]>()
   activeClipAncestors = []
   hoveredClipAncestors = []
@@ -1101,12 +1261,35 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('scroll', handleScroll, { passive: true })
   canvasEl.value?.addEventListener('webglcontextlost', handleContextLost)
+  if (mediaQuery.matches && scopeEl) {
+    // Compile OGL and both shaders away from the first hover/scroll frame.
+    const warmRenderer = () => {
+      rendererWarmupIdle = 0
+      void setupRenderer()
+    }
+    rendererWarmupIdle = window.requestIdleCallback
+      ? window.requestIdleCallback(warmRenderer)
+      : window.setTimeout(warmRenderer, 250)
+
+    // Network loading/decoding is owned by the case page. This observer only
+    // uploads an already prepared raster into the shared GPU texture cache.
+    mediaWarmupObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting && isEligibleMedia(entry.target)) {
+          warmTextureBeforeViewport(entry.target)
+        }
+      }
+    }, { rootMargin: '160% 0px 160% 0px' })
+    for (const media of scopeEl.querySelectorAll('img:not([data-wave-disabled])')) {
+      if (isEligibleMedia(media)) mediaWarmupObserver.observe(media)
+    }
+  }
   stopTransitionWatch = watch(detailTransitionActive, (active) => {
     if (!active) return
     activationId++
     hoveredMedia = null
     hoveredClipAncestors = []
-    releaseRetiringWave()
+    releaseRetiringWaves()
     releaseActiveMedia()
   })
 })
@@ -1136,8 +1319,10 @@ onBeforeUnmount(() => {
   z-index: 10;
   inset: 0;
   display: block;
-  width: 100vw;
-  height: 100svh;
+  /* Match the window.innerWidth/innerHeight dimensions used by OGL exactly.
+     100svh can differ by a few pixels and visibly stretch substituted media. */
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 

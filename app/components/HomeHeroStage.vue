@@ -436,6 +436,33 @@ let introGen = 0
 
 const swarmMount = ref(false)
 const swarmLit = ref(false)
+let swarmIdleId: number | null = null
+let stageUnmounted = false
+
+function scheduleSwarmMount(fromNavigation: boolean) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    preload.markSceneReady()
+    return
+  }
+  const mount = () => {
+    if (!stageUnmounted) swarmMount.value = true
+  }
+  if (fromNavigation) {
+    requestAnimationFrame(mount)
+    return
+  }
+  // Paint the static Hero shell first; parse Three.js and create WebGL only
+  // after committed frames and an idle opportunity.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if ('requestIdleCallback' in window) {
+        swarmIdleId = window.requestIdleCallback(mount, { timeout: 700 })
+      } else {
+        window.setTimeout(mount, 180)
+      }
+    })
+  })
+}
 /** Intro may reveal the swarm; HDRI must be on first or balls look black. */
 const coverMayLift = ref(false)
 const swarmCoverUp = computed(
@@ -485,13 +512,7 @@ onMounted(() => {
 
   introPending.value = !fromNav
   swarmLoopReady.value = fromNav
-  if (fromNav) {
-    swarmMount.value = true
-  } else {
-    window.setTimeout(() => {
-      swarmMount.value = true
-    }, 220)
-  }
+  scheduleSwarmMount(fromNav)
 
   watch(pageCanvasBusy, (on) => {
     if (on) introTl?.pause()
@@ -629,6 +650,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stageUnmounted = true
+  if (swarmIdleId !== null && 'cancelIdleCallback' in window) {
+    window.cancelIdleCallback(swarmIdleId)
+  }
   introGen += 1
   introTl?.kill()
   introTl = null
@@ -678,7 +703,7 @@ onUnmounted(() => {
           ]"
         >
         <ClientOnly>
-          <HeroSwarmCanvas
+          <LazyHeroSwarmCanvas
             v-if="swarmMount"
             class="size-full"
             :class="{ 'hero-swarm--cold': !swarmVisible }"

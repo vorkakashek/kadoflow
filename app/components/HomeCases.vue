@@ -27,6 +27,7 @@ const stageEl = ref<HTMLElement | null>(null)
 const railEl = ref<HTMLElement | null>(null)
 const railListEl = ref<HTMLElement | null>(null)
 const blurbEl = ref<HTMLElement | null>(null)
+const mobileTailEl = ref<HTMLElement | null>(null)
 const gestureHintEl = ref<HTMLElement | null>(null)
 /** Avoid SSR Teleport into the page-local colour host. */
 const mountBgPortal = ref(false)
@@ -316,6 +317,7 @@ function isMobileCases() {
 function refreshMobileCases() {
   mobileCases.value = isMobileCases()
   scheduleMobileBlurbBreak()
+  scheduleMobileStageCollapse()
 }
 
 function captureMobileCasesHeight() {
@@ -385,9 +387,15 @@ watch(
 )
 
 watch([activeCase, mobileCases], scheduleMobileBlurbBreak, { flush: 'post' })
+watch([activeCase, mobileCases], scheduleMobileStageCollapse, { flush: 'post' })
+watch(switching, (active) => {
+  if (!active) scheduleMobileStageCollapse()
+})
 
 let firstCaseWarmImage: HTMLImageElement | null = null
 let firstCaseWarmScheduled = false
+let firstCaseNear = false
+let firstCaseObserver: IntersectionObserver | null = null
 
 function warmFirstCaseMedia() {
   if (caseMediaReady.value || firstCaseWarmImage) return
@@ -411,18 +419,20 @@ function warmFirstCaseMedia() {
   }, { once: true })
 }
 
+function scheduleFirstCaseWarm() {
+  if (!preload.revealed.value || !firstCaseNear || firstCaseWarmScheduled) return
+  firstCaseWarmScheduled = true
+  const warm = () => warmFirstCaseMedia()
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(warm, { timeout: 1200 })
+  } else {
+    window.setTimeout(warm, 250)
+  }
+}
+
 watch(
   () => preload.revealed.value,
-  (revealed) => {
-    if (!revealed || firstCaseWarmScheduled) return
-    firstCaseWarmScheduled = true
-    const warm = () => warmFirstCaseMedia()
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(warm, { timeout: 1200 })
-    } else {
-      window.setTimeout(warm, 250)
-    }
-  },
+  scheduleFirstCaseWarm,
   { immediate: true },
 )
 
@@ -439,6 +449,9 @@ let casesEnterMotionVisible = false
 let switchTl: { kill: () => void } | null = null
 let bgPortalRo: ResizeObserver | null = null
 let blurbRo: ResizeObserver | null = null
+let mobileStageCollapseSt: { kill: () => void } | null = null
+let mobileStageCollapseRaf = 0
+let mobileStageCollapseGen = 0
 
 async function ensureGsap() {
   if (!gsapMod) gsapMod = (await import('gsap')).default
@@ -461,6 +474,86 @@ function syncColorPlate() {
   const hostBox = host.getBoundingClientRect()
   plate.style.top = `${sectionBox.top - hostBox.top}px`
   plate.style.height = `${sectionBox.height}px`
+}
+
+type MobileStageCollapseMetrics = {
+  gap: number
+  startY: number
+  distance: number
+}
+
+/** Keep a full-screen opening pose, but isolate its empty part in a tail that
+ * can collapse as the reader scrolls toward the next section. */
+function measureMobileStageCollapse(): MobileStageCollapseMetrics | null {
+  const stage = stageEl.value
+  const tail = mobileTailEl.value
+  if (!stage || !tail) return null
+
+  mobileStageCollapseSt?.kill()
+  mobileStageCollapseSt = null
+
+  if (!mobileCases.value) {
+    stage.style.removeProperty('min-height')
+    tail.style.removeProperty('height')
+    return null
+  }
+
+  // Override the CSS first-paint fallback while measuring natural content.
+  stage.style.minHeight = '0px'
+  tail.style.height = '0px'
+  if (prefersReduce()) return null
+
+  const naturalHeight = stage.getBoundingClientRect().height
+  const viewportHeight = mobileCasesHeight.value
+    ?? Math.max(document.documentElement.clientHeight, window.innerHeight, 1)
+  const gap = Math.max(0, viewportHeight - naturalHeight)
+  if (gap < 1) return null
+
+  const railHeight = railEl.value?.getBoundingClientRect().height ?? 0
+  const stageTop = stage.getBoundingClientRect().top + window.scrollY
+  const startY = Math.max(0, stageTop - railHeight)
+  const distance = Math.max(
+    120,
+    Math.min(viewportHeight * 0.38, Math.max(gap * 0.85, 120)),
+  )
+  const progress = Math.min(1, Math.max(0, (window.scrollY - startY) / distance))
+
+  tail.style.height = `${gap * (1 - progress)}px`
+  return { gap, startY, distance }
+}
+
+async function setupMobileStageCollapse(gen: number) {
+  if (gen !== mobileStageCollapseGen || switching.value) return
+  const metrics = measureMobileStageCollapse()
+  if (!metrics) return
+
+  await ensureGsap()
+  if (
+    gen !== mobileStageCollapseGen
+    || switching.value
+    || !mobileCases.value
+    || !stageEl.value
+    || !mobileTailEl.value
+  ) return
+
+  const tail = mobileTailEl.value
+  mobileStageCollapseSt = stMod!.create({
+    trigger: stageEl.value,
+    start: metrics.startY,
+    end: metrics.startY + metrics.distance,
+    onUpdate: (self) => {
+      tail.style.height = `${metrics.gap * (1 - self.progress)}px`
+    },
+  })
+}
+
+function scheduleMobileStageCollapse() {
+  const gen = ++mobileStageCollapseGen
+  if (mobileStageCollapseRaf) cancelAnimationFrame(mobileStageCollapseRaf)
+  mobileStageCollapseRaf = requestAnimationFrame(() => {
+    mobileStageCollapseRaf = 0
+    void setupMobileStageCollapse(gen)
+  })
 }
 
 /** Copy blocks only — the media is owned by FlowSurface. */
@@ -898,6 +991,7 @@ function onMediaLayoutReady() {
   if (!caseSurfaceDocked.value) return
   requestAnimationFrame(() => {
     caseMediaMorphNonce.value += 1
+    scheduleMobileStageCollapse()
   })
 }
 
@@ -999,6 +1093,8 @@ async function selectCase(item: HomeCase) {
     publishSurfaceMedia(item)
     if (caseSurfaceDocked.value) caseMediaMorphNonce.value += 1
     await nextTick()
+    measureMobileStageCollapse()
+    scheduleMobileStageCollapse()
     scrollActiveCaseLinkIntoView('auto')
     revealActiveCaseUnderline()
     scheduleCaseArrow()
@@ -1007,6 +1103,8 @@ async function selectCase(item: HomeCase) {
 
   const gen = ++switchGen
   switching.value = true
+  mobileStageCollapseSt?.kill()
+  mobileStageCollapseSt = null
 
   hideActiveCaseUnderline()
 
@@ -1047,6 +1145,7 @@ async function selectCase(item: HomeCase) {
   activeId.value = item.id
   await nextTick()
   if (gen !== switchGen) return
+  measureMobileStageCollapse()
   revealActiveCaseUnderline()
   // The figure now has its next dimensions. Only now start the photo handoff,
   // so the surface can resize before the outgoing image is wiped.
@@ -1087,6 +1186,23 @@ onMounted(async () => {
   captureMobileCasesHeight()
   mountBgPortal.value = true
   await nextTick()
+  scheduleMobileStageCollapse()
+  if (rootEl.value && typeof IntersectionObserver !== 'undefined') {
+    firstCaseObserver = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        firstCaseNear = true
+        firstCaseObserver?.disconnect()
+        firstCaseObserver = null
+        scheduleFirstCaseWarm()
+      },
+      { rootMargin: '140% 0px' },
+    )
+    firstCaseObserver.observe(rootEl.value)
+  } else {
+    firstCaseNear = true
+    scheduleFirstCaseWarm()
+  }
   syncColorPlate()
   const first = activeCase.value
   if (first) {
@@ -1106,10 +1222,16 @@ onMounted(async () => {
   }
   if (blurbEl.value && typeof ResizeObserver !== 'undefined') {
     blurbRo?.disconnect()
-    blurbRo = new ResizeObserver(() => scheduleMobileBlurbBreak())
+    blurbRo = new ResizeObserver(() => {
+      scheduleMobileBlurbBreak()
+      scheduleMobileStageCollapse()
+    })
     blurbRo.observe(blurbEl.value)
   }
-  void document.fonts?.ready.then(() => syncMobileBlurbBreak())
+  void document.fonts?.ready.then(() => {
+    syncMobileBlurbBreak()
+    scheduleMobileStageCollapse()
+  })
 })
 
 onBeforeUnmount(() => {
@@ -1139,6 +1261,12 @@ onBeforeUnmount(() => {
   bgPortalRo = null
   blurbRo?.disconnect()
   blurbRo = null
+  firstCaseObserver?.disconnect()
+  firstCaseObserver = null
+  mobileStageCollapseSt?.kill()
+  mobileStageCollapseSt = null
+  if (mobileStageCollapseRaf) cancelAnimationFrame(mobileStageCollapseRaf)
+  mobileStageCollapseRaf = 0
   window.removeEventListener('resize', syncColorPlate)
   window.removeEventListener('resize', refreshMobileCases)
 })
@@ -1340,6 +1468,7 @@ onBeforeUnmount(() => {
             >{{ line }}</span>
           </p>
         </aside>
+        <div ref="mobileTailEl" class="cases-stage__mobile-tail" aria-hidden="true" />
       </div>
     </div>
   </section>
@@ -1688,6 +1817,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-width: 0;
   align-items: stretch;
+}
+
+.cases-stage__mobile-tail {
+  display: none;
 }
 
 @media (max-width: 767.98px) {
@@ -2352,6 +2485,19 @@ onBeforeUnmount(() => {
   padding-inline: var(--layout-margin-content);
 }
 
+.home-cases--mobile .cases-stage {
+  /* Each selected case owns at least one stable mobile screen, so the section
+     below cannot peek into its opening viewport before JS measures the tail. */
+  min-height: var(--cases-mobile-h, 100svh);
+}
+
+.home-cases--mobile .cases-stage__mobile-tail {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  height: 0;
+}
+
 .home-cases--mobile .cases-intro {
   display: flex;
   width: 100%;
@@ -2372,31 +2518,62 @@ onBeforeUnmount(() => {
 }
 
 .home-cases--mobile .cases-rail {
+  --cases-rail-top-pad: calc(var(--layout-header-inset) * 0.85 * 1.2);
+  --cases-rail-wave-clearance: calc(var(--type-nav) * 0.85);
   position: sticky;
-  top: calc(var(--layout-header-inset) * 0.85 * 1.2);
+  top: 0;
   z-index: 4;
-  height: calc(var(--layout-header-content) * 1.1);
-  min-height: calc(var(--layout-header-content) * 1.1);
+  box-sizing: border-box;
+  height: calc(
+    var(--cases-rail-top-pad)
+    + var(--layout-header-content) * 1.1
+    + var(--cases-rail-wave-clearance)
+  );
+  min-height: calc(
+    var(--cases-rail-top-pad)
+    + var(--layout-header-content) * 1.1
+    + var(--cases-rail-wave-clearance)
+  );
   width: calc(100% + 2 * var(--layout-margin-content));
   grid-column: 1 / -1;
   grid-row: 2;
   margin-right: calc(-1 * var(--layout-margin-content));
   margin-left: calc(-1 * var(--layout-margin-content));
+  padding-top: var(--cases-rail-top-pad);
   transform: none;
-  background: linear-gradient(
+  background: transparent;
+}
+
+.home-cases--mobile .cases-rail::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--cases-wash) 96%, transparent);
+  content: '';
+  pointer-events: none;
+  mask-image: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--cases-wash) 96%, transparent) 0%,
-    color-mix(in srgb, var(--cases-wash) 92%, transparent) 72%,
+    #000 0%,
+    rgb(0 0 0 / 95.8%) 72%,
     transparent 100%
   );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    rgb(0 0 0 / 95.8%) 72%,
+    transparent 100%
+  );
+  transition: background-color 0.72s cubic-bezier(0.65, 0.045, 0.355, 1);
 }
 
 .home-cases--mobile .cases-rail__list {
+  box-sizing: border-box;
   height: 100%;
   width: 100%;
   max-width: none;
   align-items: center;
-  padding-block: 0;
+  padding-top: 0;
+  padding-bottom: var(--cases-rail-wave-clearance);
   padding-inline: var(--layout-margin-content);
   scroll-padding-inline: var(--layout-margin-content);
 }

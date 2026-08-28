@@ -1,4 +1,10 @@
 <script setup lang="ts">
+const props = withDefaults(defineProps<{
+  desktopScrollSpeed?: number
+}>(), {
+  desktopScrollSpeed: 1,
+})
+
 const viewportEl = ref<HTMLElement | null>(null)
 const barEl = ref<HTMLElement | null>(null)
 const needed = ref(false)
@@ -8,6 +14,9 @@ const thumbOffset = ref(0)
 let resizeObserver: ResizeObserver | null = null
 let dragging = false
 let dragOffset = 0
+let viewportDragging = false
+let viewportDragStartX = 0
+let viewportDragStartScrollLeft = 0
 
 function sync() {
   const viewport = viewportEl.value
@@ -87,6 +96,63 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+function onViewportPointerDown(event: PointerEvent) {
+  if (event.pointerType !== 'mouse' || event.button !== 0) return
+  const viewport = viewportEl.value
+  if (!viewport || viewport.scrollWidth <= viewport.clientWidth) return
+
+  viewportDragging = true
+  viewportDragStartX = event.clientX
+  viewportDragStartScrollLeft = viewport.scrollLeft
+  viewport.setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+
+function onViewportPointerMove(event: PointerEvent) {
+  if (!viewportDragging) return
+  const viewport = viewportEl.value
+  if (!viewport) return
+  viewport.scrollLeft = viewportDragStartScrollLeft
+    - (event.clientX - viewportDragStartX) * props.desktopScrollSpeed
+}
+
+function onViewportPointerUp(event: PointerEvent) {
+  if (!viewportDragging) return
+  viewportDragging = false
+  const viewport = viewportEl.value
+  try {
+    viewport?.releasePointerCapture(event.pointerId)
+  } catch {
+    // The pointer may already have been released by the browser.
+  }
+}
+
+function onViewportWheel(event: WheelEvent) {
+  const viewport = viewportEl.value
+  if (!viewport || props.desktopScrollSpeed <= 1 || window.innerWidth < 768) return
+
+  const overflow = viewport.scrollWidth - viewport.clientWidth
+  if (overflow <= 1) return
+
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+    ? 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+      ? viewport.clientWidth
+      : 1
+  const delta = (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY)
+    * unit
+    * props.desktopScrollSpeed
+  if (Math.abs(delta) < 0.01) return
+
+  const canMove = delta > 0
+    ? viewport.scrollLeft < overflow - 1
+    : viewport.scrollLeft > 1
+  if (!canMove) return
+
+  event.preventDefault()
+  viewport.scrollLeft += delta
+}
+
 onMounted(() => {
   resizeObserver = new ResizeObserver(sync)
   if (viewportEl.value) resizeObserver.observe(viewportEl.value)
@@ -105,7 +171,12 @@ onUnmounted(() => resizeObserver?.disconnect())
       tabindex="0"
       aria-label="Горизонтальная галерея"
       @scroll="sync"
+      @wheel="onViewportWheel"
       @keydown="onKeydown"
+      @pointerdown="onViewportPointerDown"
+      @pointermove="onViewportPointerMove"
+      @pointerup="onViewportPointerUp"
+      @pointercancel="onViewportPointerUp"
     >
       <div class="case-horizontal-rail__content">
         <slot />

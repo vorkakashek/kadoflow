@@ -60,6 +60,16 @@
 }
 
 @layer base {
+  ::selection {
+    background-color: color-mix(in srgb, var(--palette-forest) 38%, var(--palette-milk));
+    color: var(--palette-ink);
+  }
+
+  ::-moz-selection {
+    background-color: color-mix(in srgb, var(--palette-forest) 38%, var(--palette-milk));
+    color: var(--palette-ink);
+  }
+
   html {
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;

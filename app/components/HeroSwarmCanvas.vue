@@ -4,7 +4,36 @@
  * ≥1200: cursor knocks balls; they return to moving seats.
  * <1200: baked orbit + motion physics (angular velocity sweeps / collide / home).
  */
-import * as THREE from 'three'
+import {
+  ACESFilmicToneMapping,
+  Color,
+  DirectionalLight,
+  Euler,
+  HemisphereLight,
+  LoadingManager,
+  MathUtils,
+  Mesh,
+  MeshPhysicalMaterial,
+  MeshStandardMaterial,
+  NoColorSpace,
+  PerspectiveCamera,
+  Plane,
+  PMREMGenerator,
+  Quaternion,
+  Raycaster,
+  RepeatWrapping,
+  Scene,
+  SphereGeometry,
+  SRGBColorSpace,
+  TextureLoader,
+  Vector2,
+  Vector3,
+  WebGLRenderer,
+  type BufferGeometry,
+  type DataTexture,
+  type Material,
+  type Texture,
+} from 'three'
 import gsap from 'gsap'
 import MorphSVGPlugin from 'gsap/MorphSVGPlugin'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
@@ -28,9 +57,9 @@ import { useBrandPreload } from '~/composables/useBrandPreload'
 
 /** Flip this to A/B studio looks (files in /public/env). */
 const HDRI_PRESETS = {
-  studioSoft: '/env/studio_small_09_2k.hdr',
+  studioSoft: '/env/studio_small_09_512.hdr',
   photoStudio: '/env/photo_studio_01_2k.hdr',
-  studioWarm: '/env/studio_small_03_1k.hdr',
+  studioWarm: '/env/studio_small_03_256.hdr',
 } as const
 const ACTIVE_HDRI: keyof typeof HDRI_PRESETS = 'studioSoft'
 /** Desktop breakpoint — full ball count, richer materials, cursor interaction. */
@@ -166,10 +195,10 @@ function swarmLayout(w: number, h: number) {
 }
 
 type Ball = {
-  mesh: THREE.Mesh
-  position: THREE.Vector3
-  seat: THREE.Vector3
-  velocity: THREE.Vector3
+  mesh: Mesh
+  position: Vector3
+  seat: Vector3
+  velocity: Vector3
   angle: number
   radius: number
   phase: number
@@ -178,9 +207,9 @@ type Ball = {
 }
 
 const COLORS = {
-  green: new THREE.Color('#49573f'),
-  white: new THREE.Color('#f5f1e8'),
-  dark: new THREE.Color('#171915'),
+  green: new Color('#49573f'),
+  white: new Color('#f5f1e8'),
+  dark: new Color('#171915'),
 } as const
 
 const props = withDefaults(
@@ -296,7 +325,6 @@ function onMotionIntroTap() {
   finishMotionIntro()
   if (isAndroidClient.value) {
     androidHapticConfirmed.value = swarmHapticConfirm()
-    return
   }
   gyroUnlockFn?.()
 }
@@ -325,7 +353,8 @@ function onMotionControlTap() {
   motionEnabled.value = true
   swarmHapticReset()
   if (isAndroidClient.value) {
-    androidHapticConfirmed.value = swarmHapticArm()
+    androidHapticConfirmed.value =
+      swarmHapticConfirm() || androidHapticConfirmed.value
   }
   if (!gyroPermissionReady.value) gyroUnlockFn?.()
 }
@@ -380,15 +409,15 @@ function onDesktopMotionControlTap() {
   if (desktopSceneEnabled.value && props.active) startLoop()
 }
 
-let renderer: THREE.WebGLRenderer | null = null
+let renderer: WebGLRenderer | null = null
 let animationId = 0
 let resizeObserver: ResizeObserver | null = null
 let removePointerListeners: (() => void) | null = null
 let removeScrollPause: (() => void) | null = null
-let sharedGeometry: THREE.BufferGeometry | null = null
-let envMap: THREE.Texture | null = null
-let microNormal: THREE.Texture | null = null
-let microRough: THREE.Texture | null = null
+let sharedGeometry: BufferGeometry | null = null
+let envMap: Texture | null = null
+let microNormal: Texture | null = null
+let microRough: Texture | null = null
 let balls: Ball[] = []
 let loopRunning = false
 let lastFrame = 0
@@ -495,11 +524,11 @@ function readAppScreenPx(): number {
   return h > 0 ? h : window.innerHeight
 }
 
-function prepDataMap(tex: THREE.Texture, repeat = 2.4) {
-  tex.wrapS = THREE.RepeatWrapping
-  tex.wrapT = THREE.RepeatWrapping
+function prepDataMap(tex: Texture, repeat = 2.4) {
+  tex.wrapS = RepeatWrapping
+  tex.wrapT = RepeatWrapping
   tex.repeat.set(repeat, repeat)
-  tex.colorSpace = THREE.NoColorSpace
+  tex.colorSpace = NoColorSpace
   tex.anisotropy = 4
   return tex
 }
@@ -596,11 +625,11 @@ async function bootScene() {
   const ballDiameterPx = layout.diameterPx
   const ringScale = layout.ringScale
 
-  const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50)
+  const scene = new Scene()
+  const camera = new PerspectiveCamera(40, 1, 0.1, 50)
   camera.position.set(0, 0.12, cameraZ)
 
-  const gl = new THREE.WebGLRenderer({
+  const gl = new WebGLRenderer({
     antialias: true,
     alpha: true,
     powerPreference: 'high-performance',
@@ -610,8 +639,8 @@ async function bootScene() {
   })
   gl.setClearColor(0x000000, 0)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
-  gl.outputColorSpace = THREE.SRGBColorSpace
-  gl.toneMapping = THREE.ACESFilmicToneMapping
+  gl.outputColorSpace = SRGBColorSpace
+  gl.toneMapping = ACESFilmicToneMapping
   gl.toneMappingExposure = 0.92
   /* Transparent frosted balls need depth sort — lite uses opaque Standard only. */
   gl.sortObjects = !lite
@@ -632,62 +661,53 @@ async function bootScene() {
   }
 
   // HDRI — start immediately; don't block scene-ready / preloader exit on it.
-  const pmrem = new THREE.PMREMGenerator(gl)
+  const pmrem = new PMREMGenerator(gl)
   pmrem.compileEquirectangularShader()
 
-  const manager = new THREE.LoadingManager()
+  const manager = new LoadingManager()
   manager.onProgress = (_url, loaded, total) => {
     if (firstSceneReady) return
     const ratio = total > 0 ? loaded / total : 0
     preload.setSceneProgress(0.08 + ratio * 0.55)
   }
 
-  const texLoader = new THREE.TextureLoader(manager)
-  // A 2K HDR costs ~6 MB. Narrow devices get the matching 1K studio map;
-  // the reduced screen footprint makes the visual difference imperceptible.
+  const texLoader = new TextureLoader(manager)
+  // Downsampled HDR maps preserve the accepted lighting while keeping the
+  // first Hero environment below the network budget (desktop <500 KB).
   const hdrUrl = wide
     ? HDRI_PRESETS[ACTIVE_HDRI]
     : HDRI_PRESETS.studioWarm
-  const assetLoads: Promise<THREE.DataTexture | THREE.Texture>[] = [
-    new HDRLoader(manager).loadAsync(hdrUrl),
-  ]
-  if (wide) {
-    assetLoads.push(
-      texLoader.loadAsync('/textures/micro/plaster_nor.jpg'),
-      texLoader.loadAsync('/textures/micro/plaster_rough.jpg'),
-    )
-  }
-  const assetsPromise = Promise.all(assetLoads)
+  const environmentPromise = new HDRLoader(manager).loadAsync(hdrUrl)
 
   renderer = gl
   host.appendChild(gl.domElement)
 
-  const hemi = new THREE.HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.22)
+  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.22)
   scene.add(hemi)
 
-  const key = new THREE.DirectionalLight(0xf5f8fc, lite ? 0.62 : 0.55)
+  const key = new DirectionalLight(0xf5f8fc, lite ? 0.62 : 0.55)
   key.position.set(3.8, 5.2, 4.5)
   scene.add(key)
 
-  const fill = new THREE.DirectionalLight(0xc5d4e4, lite ? 0.28 : 0.22)
+  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.28 : 0.22)
   fill.position.set(-4.5, 1.2, 2.8)
   scene.add(fill)
 
   if (!lite) {
-    const rim = new THREE.DirectionalLight(0xd0dcea, 0.32)
+    const rim = new DirectionalLight(0xd0dcea, 0.32)
     rim.position.set(-1.8, 2.8, -4.8)
     scene.add(rim)
   }
 
-  const matte = (color: THREE.Color) => {
+  const matte = (color: Color) => {
     const material = lite
-      ? new THREE.MeshStandardMaterial({
+      ? new MeshStandardMaterial({
           color,
           roughness: 0.86,
           metalness: 0.04,
           envMapIntensity: 0.9,
         })
-      : new THREE.MeshPhysicalMaterial({
+      : new MeshPhysicalMaterial({
           color,
           roughness: 0.86,
           metalness: 0.02,
@@ -695,7 +715,7 @@ async function bootScene() {
           clearcoatRoughness: 0.62,
           sheen: 0.28,
           sheenRoughness: 0.75,
-          sheenColor: new THREE.Color('#d7e4f0'),
+          sheenColor: new Color('#d7e4f0'),
           envMapIntensity: 0.7,
           specularIntensity: 0.5,
         })
@@ -704,15 +724,15 @@ async function bootScene() {
   }
 
   /** Desktop: real glass. Lite: bright Standard stand-in — no transmission fill cost. */
-  const frosted = (color: THREE.Color) =>
+  const frosted = (color: Color) =>
     lite
-      ? new THREE.MeshStandardMaterial({
-          color: color.clone().lerp(new THREE.Color('#eef4fa'), 0.35),
+      ? new MeshStandardMaterial({
+          color: color.clone().lerp(new Color('#eef4fa'), 0.35),
           roughness: 0.28,
           metalness: 0.06,
           envMapIntensity: 1.25,
         })
-      : new THREE.MeshPhysicalMaterial({
+      : new MeshPhysicalMaterial({
           color,
           roughness: 0.48,
           metalness: 0,
@@ -721,7 +741,7 @@ async function bootScene() {
           ior: 1.42,
           transparent: true,
           opacity: 1,
-          attenuationColor: color.clone().lerp(new THREE.Color('#e4eef7'), 0.4),
+          attenuationColor: color.clone().lerp(new Color('#e4eef7'), 0.4),
           attenuationDistance: 1.6,
           clearcoat: 0.4,
           clearcoatRoughness: 0.35,
@@ -729,15 +749,15 @@ async function bootScene() {
           depthWrite: false,
         })
 
-  const glossy = (color: THREE.Color) =>
+  const glossy = (color: Color) =>
     lite
-      ? new THREE.MeshStandardMaterial({
+      ? new MeshStandardMaterial({
           color,
           roughness: 0.22,
           metalness: 0.1,
           envMapIntensity: 1.15,
         })
-      : new THREE.MeshPhysicalMaterial({
+      : new MeshPhysicalMaterial({
           color,
           roughness: 0.18,
           metalness: 0.08,
@@ -749,7 +769,7 @@ async function bootScene() {
           ior: 1.45,
         })
 
-  const materialPlan: THREE.Material[] = []
+  const materialPlan: Material[] = []
   if (lite) {
     // Mobile: brand green + white only (no ink/black). Standard stand-ins, no transmission.
     materialPlan.push(
@@ -776,19 +796,19 @@ async function bootScene() {
     )
   }
 
-  sharedGeometry = new THREE.SphereGeometry(1, sphereSegments, sphereSegments)
+  sharedGeometry = new SphereGeometry(1, sphereSegments, sphereSegments)
   balls = []
 
   for (let i = 0; i < ballCount; i++) {
     const material = materialPlan[i % materialPlan.length].clone()
-    const mesh = new THREE.Mesh(sharedGeometry, material)
+    const mesh = new Mesh(sharedGeometry, material)
     mesh.renderOrder = material.transparent ? 2 : 1
     scene.add(mesh)
     balls.push({
       mesh,
-      position: new THREE.Vector3(),
-      seat: new THREE.Vector3(),
-      velocity: new THREE.Vector3(),
+      position: new Vector3(),
+      seat: new Vector3(),
+      velocity: new Vector3(),
       angle: (i / ballCount) * Math.PI * 2,
       radius: 0.35,
       // Spread along the helix so the swarm reads as a twisted strand, not a flat pack.
@@ -805,10 +825,72 @@ async function bootScene() {
     emit('lit')
   }
 
-  const applyEnvAssets = async () => {
-    let assets: (THREE.DataTexture | THREE.Texture)[]
+  const waitForReveal = async () => {
+    if (preload.revealed.value) return
+    await new Promise<void>((resolve) => {
+      let stop = () => {}
+      stop = watch(
+        () => preload.revealed.value,
+        (revealed) => {
+          if (!revealed) return
+          stop()
+          resolve()
+        },
+        { immediate: true },
+      )
+    })
+  }
+
+  const applyMicroDetails = async () => {
+    const connection = (navigator as Navigator & {
+      connection?: { saveData?: boolean }
+      deviceMemory?: number
+    })
+    if (
+      !wide
+      || connection.connection?.saveData
+      || (connection.deviceMemory !== undefined && connection.deviceMemory < 8)
+    ) return
+
+    await waitForReveal()
+    await document.fonts?.ready
+    await new Promise<void>((resolve) => {
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(() => resolve(), { timeout: 2200 })
+      } else {
+        window.setTimeout(resolve, 800)
+      }
+    })
+
+    let maps: Texture[]
     try {
-      assets = await assetsPromise
+      maps = await Promise.all([
+        texLoader.loadAsync('/textures/micro/plaster_nor.jpg'),
+        texLoader.loadAsync('/textures/micro/plaster_rough.jpg'),
+      ])
+    } catch {
+      return
+    }
+    if (gen !== bootGen || renderer !== gl) {
+      for (const map of maps) map.dispose()
+      return
+    }
+    microNormal = prepDataMap(maps[0], 2.6)
+    microRough = prepDataMap(maps[1], 2.6)
+    for (const ball of balls) {
+      const mat = ball.mesh.material as MeshPhysicalMaterial
+      if (mat.userData.swarmFinish !== 'matte') continue
+      mat.roughnessMap = microRough
+      mat.normalMap = microNormal
+      mat.normalScale = new Vector2(0.28, 0.28)
+      mat.needsUpdate = true
+    }
+  }
+
+  const applyEnvAssets = async () => {
+    let hdrTex: DataTexture
+    try {
+      hdrTex = await environmentPromise
     } catch {
       pmrem.dispose()
       emitLit()
@@ -816,11 +898,10 @@ async function bootScene() {
     }
     if (gen !== bootGen || renderer !== gl) {
       pmrem.dispose()
-      for (const a of assets) a.dispose()
+      hdrTex.dispose()
       return
     }
     if (!firstSceneReady) preload.setSceneProgress(0.9)
-    const hdrTex = assets[0] as THREE.DataTexture
 
     envMap = pmrem.fromEquirectangular(hdrTex).texture
     hdrTex.dispose()
@@ -828,41 +909,27 @@ async function bootScene() {
     scene.environment = envMap
     scene.environmentIntensity = lite ? 1.1 : 1.05
 
-    if (wide && assets[1] && assets[2]) {
-      microNormal = prepDataMap(assets[1], 2.6)
-      microRough = prepDataMap(assets[2], 2.6)
-      for (const ball of balls) {
-        const mat = ball.mesh.material as THREE.MeshPhysicalMaterial
-        if (mat.userData.swarmFinish !== 'matte') continue
-        if (microRough) mat.roughnessMap = microRough
-        if (microNormal) {
-          mat.normalMap = microNormal
-          mat.normalScale = new THREE.Vector2(0.28, 0.28)
-        }
-        mat.needsUpdate = true
-      }
-    }
-
     syncCamera({ force: true })
     gl.render(scene, camera)
     emitLit()
+    void applyMicroDetails()
   }
   void applyEnvAssets()
   // iOS: HDRI can hang on flaky nets — never leave the stone cover forever.
   window.setTimeout(() => emitLit(), lite ? 1800 : 6000)
 
-  const anchor = new THREE.Vector3(1.55, 0.05, 0)
+  const anchor = new Vector3(1.55, 0.05, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */
-  const ringBaseEuler = new THREE.Euler(-0.62, 0.78, 0.18, 'XYZ')
+  const ringBaseEuler = new Euler(-0.62, 0.78, 0.18, 'XYZ')
   // Match the phase-zero drift formula immediately; otherwise the first tick
   // adds +0.12rad around Z and visibly changes the route after first paint.
-  const ringEuler = new THREE.Euler(
+  const ringEuler = new Euler(
     ringBaseEuler.x,
     ringBaseEuler.y,
     ringBaseEuler.z + 0.12,
     'XYZ',
   )
-  const ringQuat = new THREE.Quaternion().setFromEuler(ringEuler)
+  const ringQuat = new Quaternion().setFromEuler(ringEuler)
   let ringRadius = 1.2
   let ringTiltPhase = 0
 
@@ -895,7 +962,7 @@ async function bootScene() {
   const GYRO_CALIBRATION_SAMPLES = 24
   /** Orient fallback: degrees of tip → full force (flat-relative). */
   const GYRO_TIP_ANGLE = 22
-  const lookTarget = new THREE.Vector3()
+  const lookTarget = new Vector3()
   const LITE_WALL_X = 2.15
   const LITE_WALL_Y = 2.35
   const LITE_WALL_BOUNCE = 0.62
@@ -912,7 +979,7 @@ async function bootScene() {
     if (magnitude <= GYRO_DEAD_ZONE) return 0
     return (
       Math.sign(value) *
-      THREE.MathUtils.clamp(
+      MathUtils.clamp(
         (magnitude - GYRO_DEAD_ZONE) / (1 - GYRO_DEAD_ZONE),
         0,
         1,
@@ -935,10 +1002,10 @@ async function bootScene() {
       return
     }
     gyroRollT = filterGyroTip(
-      THREE.MathUtils.clamp(rawRoll - neutral.roll, -1, 1),
+      MathUtils.clamp(rawRoll - neutral.roll, -1, 1),
     )
     gyroPitchT = filterGyroTip(
-      THREE.MathUtils.clamp(rawPitch - neutral.pitch, -1, 1),
+      MathUtils.clamp(rawPitch - neutral.pitch, -1, 1),
     )
   }
 
@@ -998,11 +1065,12 @@ async function bootScene() {
         requestPermission?: () => Promise<'granted' | 'denied' | 'default'>
       }
 
-      const needsIosPerm =
-        isIOS && typeof DOE.requestPermission === 'function'
+      const needsExplicitPermission =
+        typeof DOE.requestPermission === 'function'
+        || typeof DME.requestPermission === 'function'
 
-      if (needsIosPerm) {
-        // iOS: sensors need a secure context + a user gesture calling requestPermission.
+      if (needsExplicitPermission) {
+        // Chrome 151+ and iOS require a secure context plus a direct gesture.
         if (!window.isSecureContext) {
           return
         }
@@ -1017,10 +1085,12 @@ async function bootScene() {
           unlocking = true
 
           const tasks: Promise<string>[] = []
-          try {
-            tasks.push(DOE.requestPermission!())
-          } catch {
-            /* ignore */
+          if (typeof DOE.requestPermission === 'function') {
+            try {
+              tasks.push(DOE.requestPermission())
+            } catch {
+              /* ignore */
+            }
           }
           if (typeof DME.requestPermission === 'function') {
             try {
@@ -1070,28 +1140,28 @@ async function bootScene() {
     attachGyroSensors()
   }
 
-  const pointer = new THREE.Vector3()
-  const pointerPrev = new THREE.Vector3()
-  const pointerVel = new THREE.Vector3()
-  const pointerNdc = new THREE.Vector2()
-  const pointerNdcPrev = new THREE.Vector2()
-  const raycaster = new THREE.Raycaster()
-  const hitPlane = new THREE.Plane()
-  const planeNormal = new THREE.Vector3()
+  const pointer = new Vector3()
+  const pointerPrev = new Vector3()
+  const pointerVel = new Vector3()
+  const pointerNdc = new Vector2()
+  const pointerNdcPrev = new Vector2()
+  const raycaster = new Raycaster()
+  const hitPlane = new Plane()
+  const planeNormal = new Vector3()
   let pointerActive = false
   let pointerSampled = false
   let pointerSpeedPx = 0
   let pointerIdleTimer = 0
   const POINTER_IDLE_MS = 280
   const size = { w: 1, h: 1 }
-  const tmp = new THREE.Vector3()
-  const push = new THREE.Vector3()
-  const seat = new THREE.Vector3()
-  const seatPull = new THREE.Vector3()
-  const local = new THREE.Vector3()
-  const camRight = new THREE.Vector3()
-  const camUp = new THREE.Vector3()
-  const camForward = new THREE.Vector3()
+  const tmp = new Vector3()
+  const push = new Vector3()
+  const seat = new Vector3()
+  const seatPull = new Vector3()
+  const local = new Vector3()
+  const camRight = new Vector3()
+  const camUp = new Vector3()
+  const camForward = new Vector3()
   let lastBallRadius = 0
   let settleLeft = SETTLE_MS
   /** Once true, orbit anchor/radius ignore host size churn (morph / pin). */
@@ -1104,11 +1174,11 @@ async function bootScene() {
     hapticAlive.add(key)
     swarmHapticContact(
       key,
-      THREE.MathUtils.clamp(impact / Math.max(LITE_MAX_SPEED, 0.001), 0, 1),
+      MathUtils.clamp(impact / Math.max(LITE_MAX_SPEED, 0.001), 0, 1),
     )
   }
 
-  const pointOnOrbit = (angle: number, phase: number, out: THREE.Vector3) => {
+  const pointOnOrbit = (angle: number, phase: number, out: Vector3) => {
     // Torus helix: major angle around the bagel, minor angle winds the tube.
     const tube = ringRadius * SPIRAL_TUBE_RATIO
     const phi = angle * SPIRAL_TURNS + phase
@@ -1141,7 +1211,7 @@ async function bootScene() {
         pointOnOrbit(ball.angle, ball.phase, seat)
         ball.seat.copy(seat)
         push.copy(seat).sub(anchor)
-        const sz = THREE.MathUtils.clamp(
+        const sz = MathUtils.clamp(
           push.dot(camForward) * LITE_DEPTH_KEEP,
           -depthMax,
           depthMax,
@@ -1177,7 +1247,7 @@ async function bootScene() {
   const worldRadiusForPixels = (diameterPx: number, layoutH: number) => {
     const dist = camera.position.distanceTo(anchor)
     const visibleHeight =
-      2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * dist
+      2 * Math.tan(MathUtils.degToRad(camera.fov) * 0.5) * dist
     return (diameterPx * 0.5 * visibleHeight) / Math.max(layoutH, 1)
   }
 
@@ -1225,7 +1295,7 @@ async function bootScene() {
     camera.getWorldDirection(planeNormal)
     hitPlane.setFromNormalAndCoplanarPoint(
       planeNormal.clone().negate(),
-      new THREE.Vector3(0, 0, 0),
+      new Vector3(0, 0, 0),
     )
     pointerNdc.set(anchorNdcX, anchorNdcY)
     raycaster.setFromCamera(pointerNdc, camera)
@@ -1516,7 +1586,7 @@ async function bootScene() {
         push.copy(seat).sub(anchor)
         const sx = push.dot(camRight)
         const sy = push.dot(camUp)
-        const sz = THREE.MathUtils.clamp(
+        const sz = MathUtils.clamp(
           push.dot(camForward) * LITE_DEPTH_KEEP,
           -depthMax,
           depthMax,
@@ -1564,7 +1634,7 @@ async function bootScene() {
         if (gyroArmed && !settling) {
           const depthResponse =
             1 +
-            THREE.MathUtils.clamp(-seatDepth / Math.max(depthMax, 0.001), -1, 1) *
+            MathUtils.clamp(-seatDepth / Math.max(depthMax, 0.001), -1, 1) *
               GYRO_DEPTH_RESPONSE
           ball.velocity
             .addScaledVector(
@@ -1699,7 +1769,7 @@ async function bootScene() {
 
     const halfW = size.w * 0.5
     const halfH = size.h * 0.5
-    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5)
+    const tanHalfFov = Math.tan(MathUtils.degToRad(camera.fov) * 0.5)
 
     for (let i = 0; i < balls.length; i++) {
       const ball = balls[i]

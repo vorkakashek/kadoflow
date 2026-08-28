@@ -89,12 +89,24 @@ export default defineNuxtConfig({
 
   nitro: {
     preset: 'static',
+    // Emit Brotli/gzip siblings so static hosts can serve compressed text assets
+    // without doing compression work at request time.
+    compressPublicAssets: true,
     prerender: {
       routes: homeCases.map((item) => `/projects/${item.id}`),
     },
   },
 
   routeRules: {
-    '/**': { prerender: true },
+    '/_nuxt/**': {
+      headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+    },
+    '/_fonts/**': {
+      headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+    },
+    '/**': {
+      prerender: true,
+      headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+    },
   },
 })

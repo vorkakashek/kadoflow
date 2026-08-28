@@ -1,7 +1,13 @@
 export type ProjectCaseMedia = {
   src: string
   alt: string
-  shape?: 'wide' | 'portrait' | 'square'
+  shape?: 'wide' | 'landscape' | 'portrait' | 'square'
+  type?: 'image' | 'video'
+  poster?: string
+  webpSrcset?: string
+  avifSrcset?: string
+  sizes?: string
+  aspectRatio?: string
 }
 
 export type ProjectCaseSection = {
@@ -14,25 +20,127 @@ export type ProjectCaseSection = {
 }
 
 export type ProjectCaseDetail = {
+  /** Optional case-detail summary; keeps portfolio framing separate from home copy. */
+  summary?: string
+  /** Optional hero media that is independent from the home-case card. */
+  headerMedia?: {
+    src: string
+    alt: string
+    width: number
+    height: number
+    webpSrcset?: string
+    avifSrcset?: string
+  }
   sections: ProjectCaseSection[]
   final: string
   closing: ProjectCaseMedia
 }
 
 const keysMedia = [
-  { src: '/home/cases/keys-1.webp', alt: 'Keys Store — витрина направлений', shape: 'portrait' as const },
-  { src: '/home/cases/keys-2.png', alt: 'Keys Store — каталог цифровых товаров', shape: 'wide' as const },
-  { src: '/home/cases/keys-3.png', alt: 'Keys Store — карточка и сценарий покупки', shape: 'square' as const },
+  { src: '/home/cases/keys-store/keys-1.webp', alt: 'Keys Store — витрина направлений', shape: 'portrait' as const },
+  { src: '/home/cases/keys-store/keys-2.png', alt: 'Keys Store — каталог цифровых товаров', shape: 'wide' as const },
+  { src: '/home/cases/keys-store/keys-3.png', alt: 'Keys Store — карточка и сценарий покупки', shape: 'square' as const },
 ]
 
-const baltikaMedia = {
-  src: '/home/cases/baltika-brew-poster.webp',
-  alt: 'Балтика Brew — продуктовая сцена',
-  shape: 'portrait' as const,
+const baltikaResponsiveWidths = [480, 960, 1440, 1920, 2640]
+
+function baltikaResponsiveMedia(
+  index: number,
+  alt: string,
+  shape: NonNullable<ProjectCaseMedia['shape']>,
+  sizes: string,
+): ProjectCaseMedia {
+  const stem = `/home/cases/baltika/baltika-${index}`
+  return {
+    src: `${stem}.png`,
+    alt,
+    shape,
+    webpSrcset: baltikaResponsiveWidths.map(width => `${stem}-${width}.webp ${width}w`).join(', '),
+    avifSrcset: baltikaResponsiveWidths.map(width => `${stem}-${width}.avif ${width}w`).join(', '),
+    sizes,
+  }
+}
+
+const baltikaObjectMedia = baltikaResponsiveMedia(
+  1,
+  'Балтика Brew — объект в продуктовой сцене',
+  'wide',
+  '(max-width: 767.98px) 100vw, 42vw',
+)
+
+const baltikaObjectDetailMedia = baltikaResponsiveMedia(
+  2,
+  'Балтика Brew — деталь продуктовой сцены',
+  'landscape',
+  '(max-width: 767.98px) 100vw, 58vw',
+)
+
+const baltikaLabelMedia = baltikaResponsiveMedia(
+  3,
+  'Балтика Brew — этикетка в визуальной системе',
+  'landscape',
+  '(max-width: 767.98px) 100vw, 83.333vw',
+)
+
+const baltikaMotionMedia = {
+  src: '/home/cases/baltika/baltika-brew-mobile.mp4',
+  alt: 'Балтика Brew — движение 3D-сцены',
+  shape: 'square' as const,
+  type: 'video' as const,
+  poster: '/home/cases/baltika/baltika-brew-poster.webp',
+}
+
+const baltikaDataMedia = {
+  src: '/home/cases/baltika/baltika-8.png',
+  alt: 'Балтика Brew — характеристики продукта',
+  shape: 'landscape' as const,
+  aspectRatio: '2760 / 2070',
+  webpSrcset: ['/home/cases/baltika/baltika-8-480.webp 480w', '/home/cases/baltika/baltika-8-960.webp 960w', '/home/cases/baltika/baltika-8-1440.webp 1440w', '/home/cases/baltika/baltika-8-1920.webp 1920w', '/home/cases/baltika/baltika-8-2760.webp 2760w'].join(', '),
+  avifSrcset: ['/home/cases/baltika/baltika-8-480.avif 480w', '/home/cases/baltika/baltika-8-960.avif 960w', '/home/cases/baltika/baltika-8-1440.avif 1440w', '/home/cases/baltika/baltika-8-1920.avif 1920w', '/home/cases/baltika/baltika-8-2760.avif 2760w'].join(', '),
+  sizes: '(max-width: 767.98px) 100vw, min(83.333vw, 1206px)',
+}
+
+const baltikaRouteMedia = [
+  {
+    src: '/home/cases/baltika/baltika-9.png',
+    alt: 'Балтика Brew — характеристики продукта, второй экран',
+    shape: 'wide' as const,
+    aspectRatio: '3750 / 2500',
+    webpSrcset: ['/home/cases/baltika/baltika-9-480.webp 480w', '/home/cases/baltika/baltika-9-960.webp 960w', '/home/cases/baltika/baltika-9-1440.webp 1440w'].join(', '),
+    avifSrcset: ['/home/cases/baltika/baltika-9-480.avif 480w', '/home/cases/baltika/baltika-9-960.avif 960w', '/home/cases/baltika/baltika-9-1440.avif 1440w'].join(', '),
+    sizes: '(max-width: 767.98px) 100vw, min(83.333vw, 1440px)',
+  },
+]
+
+const baltikaCollectionMedia = [
+  baltikaResponsiveMedia(4, 'Балтика Brew — продуктовая линейка, первая позиция', 'wide', '(max-width: 767.98px) 82vw, 38vw'),
+  baltikaResponsiveMedia(5, 'Балтика Brew — продуктовая линейка, вторая позиция', 'landscape', '(max-width: 767.98px) 82vw, 38vw'),
+  baltikaResponsiveMedia(6, 'Балтика Brew — продуктовая линейка, третья позиция', 'wide', '(max-width: 767.98px) 82vw, 38vw'),
+  baltikaResponsiveMedia(7, 'Балтика Brew — продуктовая линейка, четвёртая позиция', 'landscape', '(max-width: 767.98px) 82vw, 38vw'),
+]
+
+const baltikaResponsiveCompositionMedia: ProjectCaseMedia = {
+  src: '/home/cases/baltika/baltika-11.png',
+  alt: 'Балтика Brew — адаптивная композиция сайта',
+  shape: 'landscape',
+  aspectRatio: '4 / 3',
+  webpSrcset: [480, 960, 1440, 1920, 2760].map(width => `/home/cases/baltika/baltika-11-${width}.webp ${width}w`).join(', '),
+  avifSrcset: [480, 960, 1440, 1920, 2760].map(width => `/home/cases/baltika/baltika-11-${width}.avif ${width}w`).join(', '),
+  sizes: '(max-width: 767.98px) 100vw, min(83.333vw, 1440px)',
+}
+
+const baltikaClosingMedia: ProjectCaseMedia = {
+  src: '/home/cases/baltika/baltika-12.png',
+  alt: 'Балтика Brew — финальная композиция проекта',
+  shape: 'wide',
+  aspectRatio: '1040 / 617',
+  webpSrcset: [480, 960, 1440, 2080].map(width => `/home/cases/baltika/baltika-12-${width}.webp ${width}w`).join(', '),
+  avifSrcset: [480, 960, 1440, 2080].map(width => `/home/cases/baltika/baltika-12-${width}.avif ${width}w`).join(', '),
+  sizes: '100vw',
 }
 
 const schmidtMedia = {
-  src: '/home/cases/schmidt.webp',
+  src: '/home/cases/schmidt/schmidt.webp',
   alt: 'SCHMIDT — горизонтальная история продукта',
   shape: 'wide' as const,
 }
@@ -100,72 +208,92 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
     closing: keysMedia[1],
   },
   baltika: {
+    summary: 'Как мы спроектировали интерфейс и 3D-систему для продуктового сайта.',
+    headerMedia: {
+      src: '/home/cases/baltika/baltika-blender.png',
+      alt: 'Балтика Brew — 3D-модель бутылки в Blender',
+      width: 1920,
+      height: 1140,
+      webpSrcset: [
+        '/home/cases/baltika/baltika-detail-header-480.webp 480w',
+        '/home/cases/baltika/baltika-detail-header-960.webp 960w',
+        '/home/cases/baltika/baltika-detail-header-1440.webp 1440w',
+        '/home/cases/baltika/baltika-detail-header-1920.webp 1920w',
+      ].join(', '),
+      avifSrcset: [
+        '/home/cases/baltika/baltika-detail-header-480.avif 480w',
+        '/home/cases/baltika/baltika-detail-header-960.avif 960w',
+        '/home/cases/baltika/baltika-detail-header-1440.avif 1440w',
+        '/home/cases/baltika/baltika-detail-header-1920.avif 1920w',
+      ].join(', '),
+    },
     sections: [
       {
         id: 'baltika-object',
         layout: 'intro',
-        title: 'Пиво как объект<br>с собственным характером.',
+        title: 'Задача и объект<br>проектирования.',
         paragraphs: [
-          'Балтика Brew — не линейка, которую достаточно разложить по карточкам. У каждого сорта есть свой характер, вкус и настроение. Поэтому в основе сайта — серия визуальных сцен, где бутылка становится главным героем.',
-          'Цифровая подача собрана как современная творческая мастерская: с уважением к продукту, но без музейной статичности.',
+          'В целях соблюдения требований законодательства Российской Федерации отдельные элементы изображений и макетов в этом кейсе скрыты или заменены нейтральными.',
+          'В рамках проекта для «Балтика Brew» мы разработали структуру продуктового сайта, визуальную концепцию и набор 3D-сцен. Кейс фиксирует решения команды и этапы производства цифрового продукта.',
+          'Основным графическим объектом стала модель бутылки. Она использовалась для демонстрации принципов композиции, работы с материалами и поведения интерфейса на разных экранах.',
         ],
-        media: [baltikaMedia, baltikaMedia],
+        media: [baltikaObjectMedia, baltikaObjectDetailMedia],
       },
       {
         id: 'baltika-label',
         layout: 'disclosure',
-        title: 'Этикетка как окно<br>в историю сорта.',
+        title: 'Этикетка как элемент<br>визуальной системы.',
         paragraphs: [
-          'Бутылка остаётся узнаваемым центром системы, а окружающий мир меняется вместе со вкусом. Ландшафт продолжается внутри этикетки и связывает физический продукт с его визуальной историей.',
-          'Одна форма получает несколько состояний: сайт сохраняет цельность, но каждый сорт воспринимается как самостоятельная небольшая экспозиция.',
+          'Графика этикетки была встроена в 3D-модель и связана с фоновыми сценами. Это позволило выстроить единый принцип подачи для нескольких позиций линейки.',
+          'Различия между позициями передавались через цвет, изображение и параметры сцены. Навигация и структура страниц при этом оставались единообразными.',
         ],
-        media: [baltikaMedia],
+        media: [baltikaLabelMedia],
       },
       {
         id: 'baltika-collection',
         layout: 'gallery',
-        title: 'Навигация как<br>выбор коллекции.',
-        paragraphs: ['Регулярная, экспериментальная, этническая и сезонная линейки собраны не в плоский список, а в серию самостоятельных визуальных историй с автором, подписью и собственным состоянием сцены.'],
-        media: [baltikaMedia, baltikaMedia, baltikaMedia, baltikaMedia],
-        statement: 'Пользователь листает не каталог сортов, а коллекцию характеров.',
+        title: 'Авторские образы<br>для каждого сорта.',
+        paragraphs: ['Для каждой позиции линейки мы отобрали авторскую фотографию. Через цвет, фактуру и настроение она раскрывает характер сорта, а общая композиция связывает разные визуальные сюжеты в единую систему.'],
+        media: baltikaCollectionMedia,
+        statement: 'Фотографии помогают различать позиции и поддерживают характер каждой из них, сохраняя целостность линейки.',
       },
       {
         id: 'baltika-motion',
         layout: 'feature',
-        title: 'Вкус, рассказанный<br>через движение.',
-        paragraphs: ['Анимация соединяет физический объект и атмосферу вкуса. Бутылка входит в сцену, удерживает композицию и ведёт к описанию сорта — движение делает вкус ощутимым ещё до чтения характеристик.'],
-        media: [baltikaMedia],
+        title: 'Движение как часть<br>интерфейса.',
+        paragraphs: ['Анимация использовалась для переходов между состояниями 3D-сцены и последовательного появления информации. Она поддерживает навигацию и не демонстрирует употребление продукта.'],
+        media: [baltikaMotionMedia],
       },
       {
         id: 'baltika-data',
         layout: 'disclosure',
-        title: 'Характер продукта.<br>Без перегруза данными.',
+        title: 'Характеристики<br>без визуального шума.',
         paragraphs: [
-          'Сначала пользователь видит бутылку и её образ, затем — крепость, плотность, горечь, объём и короткое вкусовое описание.',
-          'Информация встроена в тот же ритм и помогает выбрать сорт, не превращая продуктовую страницу в техническую спецификацию.',
+          'На страницах предусмотрены справочные данные: крепость, плотность, горечь, объём и описание, предоставленное заказчиком.',
+          'Мы распределили информацию по уровням, чтобы пользователь мог последовательно ознакомиться с содержанием страницы.',
         ],
-        media: [baltikaMedia],
+        media: [baltikaDataMedia],
       },
       {
         id: 'baltika-route',
         layout: 'split',
-        title: 'От редакционной истории<br>к точке покупки.',
-        paragraphs: ['Статьи продолжают язык бренда через новости и истории о пивоварении, а блок «Где купить?» завершает эмоциональный маршрут практическим действием — найти продукт рядом.'],
-        media: [baltikaMedia, baltikaMedia],
+        title: 'Редакционные и<br>справочные разделы.',
+        paragraphs: ['Новости, материалы о производстве и справочный раздел с перечнем мест продаж объединены общей навигацией. В кейсе этот блок рассматривается только как часть информационной архитектуры сайта.'],
+        media: baltikaRouteMedia,
       },
       {
         id: 'baltika-responsive',
         layout: 'disclosure',
-        title: 'Адаптив как<br>новая композиция.',
+        title: 'Адаптивная<br>композиция.',
         paragraphs: [
-          'На desktop сайт работает как широкая сцена: текст и бутылка существуют на расстоянии, продуктовые истории разворачиваются горизонтально.',
-          'На мобильном тот же язык становится последовательным вертикальным маршрутом. Выразительность сохраняется, но чтение и действие становятся быстрее.',
+          'Для широких экранов разработана горизонтальная композиция с разнесёнными текстовыми и графическими блоками.',
+          'На мобильных устройствах те же материалы перестраиваются в последовательную вертикальную структуру с сохранением порядка чтения.',
         ],
-        media: [baltikaMedia],
+        media: [baltikaResponsiveCompositionMedia],
       },
     ],
-    final: 'Балтика Brew — сайт, где визуальная система строится вокруг продукта. Одна бутылка становится носителем нескольких историй, а 3D-графика и движение раскрывают характер каждого сорта — от первого кадра до точки покупки.',
-    closing: baltikaMedia,
+    final: 'В рамках проекта для «Балтика Brew» мы разработали структуру, визуальную систему, 3D-графику и анимацию продуктового сайта. Этот кейс описывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или употреблять алкогольную продукцию.',
+    closing: baltikaClosingMedia,
   },
   schmidt: {
     sections: [

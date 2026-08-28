@@ -74,6 +74,7 @@ onBeforeUnmount(() => {
       loop
       playsinline
       aria-hidden="true"
+      data-wave-blend="multiply"
     >
       <source
         v-if="mobileWebm"
@@ -90,12 +91,14 @@ onBeforeUnmount(() => {
       <source :src="webm" type="video/webm">
       <source :src="mp4" type="video/mp4">
     </video>
+    <span class="baltika-scroll-film__wash" aria-hidden="true" />
     <p class="sr-only">{{ alt }}</p>
   </section>
 </template>
 
 <style scoped>
 .baltika-scroll-film {
+  position: relative;
   margin: 0;
 }
 
@@ -105,14 +108,29 @@ onBeforeUnmount(() => {
   margin-inline: auto;
   aspect-ratio: 1;
   object-fit: cover;
-  /* The source is opaque white. Match the home-case treatment so its white
-     resolves into Baltika’s milk wash instead of reading as a white rectangle. */
-  mix-blend-mode: multiply;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .baltika-scroll-film__video {
-    mix-blend-mode: normal;
-  }
+/* Some browsers promote native video to a separate plane and skip the
+   element's own blend mode until the WebGL hover layer takes over. A regular
+   DOM layer applies the same multiply treatment from the first frame. */
+.baltika-scroll-film__wash {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: block;
+  width: min(100%, 68rem);
+  height: auto;
+  aspect-ratio: 1;
+  pointer-events: none;
+  background: var(--palette-milk, #f5f1e8);
+  mix-blend-mode: multiply;
+  transform: translateX(-50%);
 }
+
+/* The canvas already uses the video's multiply mode. Keeping the DOM wash
+   below it would multiply the page twice while the ripple is active. */
+.baltika-scroll-film__video.case-wave-media-active + .baltika-scroll-film__wash {
+  display: none;
+}
+
 </style>

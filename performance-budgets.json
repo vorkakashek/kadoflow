@@ -1,0 +1,7 @@
+{
+  "criticalJsGzipBytes": 184320,
+  "criticalJsGrowthBytes": 10240,
+  "criticalTransferBytes": 307200,
+  "largestInitialChunkBytes": 512000,
+  "baselineCriticalJsGzipBytes": 109299
+}

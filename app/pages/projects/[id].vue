@@ -24,15 +24,17 @@ const detailContentEl = ref<HTMLElement | null>(null)
 const audienceFinalTextEl = ref<HTMLElement | null>(null)
 const audienceMenuSecondaryEl = ref<HTMLElement | null>(null)
 const audienceMotionSecondaryEl = ref<HTMLElement | null>(null)
-const audienceDisclosureCopyEl = ref<HTMLElement | null>(null)
 const nextProjectContentEl = ref<HTMLElement | null>(null)
-const audienceNarrativeOpen = ref(false)
-const audienceNarrativeHeight = ref('0px')
+const audienceDisclosureParagraphs = [
+  'Визуальная система не копирует восточную эстетику через декор. Она строится на глубине кадра, природных фактурах, контрасте света и тени, свободном пространстве и сдержанном темпе взаимодействий. Эти принципы последовательно применены во всех разделах сайта.',
+  'Навигация связывает сведения о концепции, интерьере, меню и сервисе. Одна и та же структура поддерживает три языковые версии: русскую, английскую и китайскую.',
+]
 const nextItem = computed(() => {
   const currentIndex = homeCases.findIndex((caseItem) => caseItem.id === item.value?.id)
   return homeCases[(currentIndex + 1) % homeCases.length]
 })
 const projectDetail = computed(() => item.value ? projectCaseDetails[item.value.id] : undefined)
+const headerMedia = computed(() => projectDetail.value?.headerMedia ?? item.value?.media)
 
 let mediaParallaxCtx: { revert: () => void } | null = null
 let headerScrollCtx: { revert: () => void } | null = null
@@ -40,6 +42,7 @@ let detailRevealCtx: { revert: () => void } | null = null
 let audienceTextFillCtx: { revert: () => void } | null = null
 let nextProjectParallaxCtx: { revert: () => void } | null = null
 let audienceTextResizeObserver: ResizeObserver | null = null
+let caseMediaPreloadObserver: IntersectionObserver | null = null
 let audienceTextRebuildTimer = 0
 const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
@@ -58,28 +61,35 @@ function releaseDirectEntry() {
   })
 }
 
-async function toggleAudienceNarrative() {
-  audienceNarrativeOpen.value = !audienceNarrativeOpen.value
-  await nextTick()
-  if (audienceNarrativeOpen.value) {
-    audienceNarrativeHeight.value = `${audienceDisclosureCopyEl.value?.scrollHeight ?? 0}px`
-  }
+function setupCaseMediaPreload() {
+  const root = detailContentEl.value?.parentElement
+  if (!root || !('IntersectionObserver' in window)) return
 
-  // Reduced motion removes the height transition, so no transitionend event
-  // will be available to update the downstream scroll positions.
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    await refreshAudienceScrollPositions()
+  caseMediaPreloadObserver?.disconnect()
+  const preloadDistance = Math.max(2400, Math.round(window.innerHeight * 4))
+  caseMediaPreloadObserver = new IntersectionObserver((entries, observer) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting || !(entry.target instanceof HTMLImageElement)) continue
+      const image = entry.target
+      observer.unobserve(image)
+      // Start transfer well before the reveal corridor without competing with
+      // the opening screen. decode() keeps raster preparation asynchronous.
+      image.loading = 'eager'
+      image.decoding = 'async'
+      void image.decode().catch(() => {
+        // The native image fallback remains visible if decode is interrupted.
+      })
+    }
+  }, { rootMargin: `${preloadDistance}px 0px ${preloadDistance}px 0px` })
+
+  for (const image of root.querySelectorAll<HTMLImageElement>('img[loading="lazy"]')) {
+    caseMediaPreloadObserver.observe(image)
   }
 }
 
 async function refreshAudienceScrollPositions() {
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
   requestAnimationFrame(() => ScrollTrigger.refresh())
-}
-
-function handleAudienceDisclosureTransition(event: TransitionEvent) {
-  if (event.target !== event.currentTarget || event.propertyName !== 'height') return
-  void refreshAudienceScrollPositions()
 }
 
 async function setupMediaParallax() {
@@ -202,18 +212,18 @@ async function setupDetailReveals() {
     '.case-detail__meta',
     '.case-detail__media',
     '.audience-case > h2',
-    '.audience-case__copy',
-    '.audience-case__media-pair',
-    '.audience-case__disclosure-area',
+    '.audience-case__copy > p',
+    '.audience-case__media-pair .audience-case__wave-media',
     '.audience-case__media-wide',
-    '.audience-case__menu-lead',
+    '.audience-case__menu-lead-media',
+    '.audience-case__menu-lead > p',
     '.audience-case__menu-secondary',
-    '.audience-case__media-mosaic',
+    '.audience-case__mosaic-media',
     '.audience-case__media-full',
     '.audience-case__motion-secondary',
     '.audience-case__motion-pair',
     '.audience-case__lede',
-    '.audience-case__admin-media',
+    '.audience-case__admin-media .audience-case__responsive-picture',
     '.audience-case--final p',
     '.audience-case__closing-media',
     '.project-story > h2',
@@ -442,6 +452,7 @@ onMounted(() => {
   // the fullscreen cover without a route-chunk pause.
   void preloadRouteComponents('/')
   void nextTick(() => {
+    setupCaseMediaPreload()
     void setupDetailReveals()
     void setupHeaderScroll()
     void setupMediaParallax()
@@ -481,6 +492,8 @@ onBeforeUnmount(() => {
   nextProjectParallaxCtx = null
   audienceTextResizeObserver?.disconnect()
   audienceTextResizeObserver = null
+  caseMediaPreloadObserver?.disconnect()
+  caseMediaPreloadObserver = null
   if (audienceTextRebuildTimer) window.clearTimeout(audienceTextRebuildTimer)
   audienceTextRebuildTimer = 0
 })
@@ -515,7 +528,7 @@ useHead(() => ({
         <section ref="titleFrameEl" class="case-detail__hero">
           <h1 ref="titleMotionEl">
             <span>{{ item.title }},</span>
-            <span class="case-detail__summary">{{ item.blurb.replace('\n', ' ') }}</span>
+            <span class="case-detail__summary">{{ (projectDetail?.summary ?? item.blurb).replaceAll('\n', ' ') }}</span>
           </h1>
         </section>
 
@@ -570,12 +583,12 @@ useHead(() => ({
             class="case-detail__media"
             :class="{
               'case-detail__media--audience': item.id === 'audience',
-              'case-detail__media--video': item.id === 'baltika' && item.media.video,
+              'case-detail__media--video': item.id === 'baltika' && !projectDetail?.headerMedia && item.media.video,
             }"
           >
             <div ref="mediaParallaxEl" class="case-detail__media-parallax">
               <BaltikaScrollFilm
-                v-if="item.id === 'baltika' && item.media.video"
+                v-if="item.id === 'baltika' && !projectDetail?.headerMedia && item.media.video"
                 :webm="item.media.video.webm"
                 :mp4="item.media.video.mp4"
                 :mobile-webm="item.media.video.mobileWebm"
@@ -584,13 +597,13 @@ useHead(() => ({
                 :alt="item.media.alt"
               />
               <picture v-else class="case-detail__picture">
-                <source v-if="item.media.avifSrcset" type="image/avif" :srcset="item.media.avifSrcset" sizes="100vw">
-                <source v-if="item.media.webpSrcset" type="image/webp" :srcset="item.media.webpSrcset" sizes="100vw">
+                <source v-if="headerMedia?.avifSrcset" type="image/avif" :srcset="headerMedia.avifSrcset" sizes="100vw">
+                <source v-if="headerMedia?.webpSrcset" type="image/webp" :srcset="headerMedia.webpSrcset" sizes="100vw">
                 <img
-                  :src="item.media.src"
-                  :alt="item.media.alt"
-                  :width="item.media.width"
-                  :height="item.media.height"
+                  :src="headerMedia?.src"
+                  :alt="headerMedia?.alt"
+                  :width="headerMedia?.width"
+                  :height="headerMedia?.height"
                   class="case-detail__image"
                   loading="eager"
                   fetchpriority="high"
@@ -604,25 +617,25 @@ useHead(() => ({
 
         <template v-if="item.id === 'audience'">
           <section class="audience-case audience-case--intro">
-            <h2>Вход в мир заведения,<br>а не просто его сайт.</h2>
+            <h2>Цифровая система пространства,<br>а не набор отдельных страниц.</h2>
             <div class="audience-case__copy audience-case__copy--split">
-              <p>Audience задумывался как место со своим характером, ритуалами и кругом людей. Поэтому сайт не начинается с каталога или формы бронирования. Сначала он вводит гостя в атмосферу пространства — через образ, темп и ощущение камерности.</p>
-              <p>Задача была собрать цифровой опыт, в котором бренд, интерьер, кухня и сервис не существуют отдельными разделами, а складываются в одну среду.</p>
+              <p>В проекте Audience мы перевели характер интерьера и визуального языка в структуру сайта. В кейсе показаны решения по композиции, навигации и управлению контентом.</p>
+              <p>Задача была связать сведения о концепции, интерьере, кухне и сервисе в одной последовательной цифровой системе.</p>
             </div>
             <CaseHorizontalRail class="audience-case__media-pair audience-case__media-pair--scroll">
               <picture class="audience-case__wave-media audience-case__wave-media--portrait">
                 <source
                   type="image/avif"
-                  srcset="/home/cases/audience-intro-1-480.avif 480w, /home/cases/audience-intro-1-960.avif 960w, /home/cases/audience-intro-1-1248.avif 1248w"
+                  srcset="/home/cases/audience/audience-intro-1-480.avif 480w, /home/cases/audience/audience-intro-1-960.avif 960w, /home/cases/audience/audience-intro-1-1248.avif 1248w"
                   sizes="(max-width: 767px) 94vw, 40vw"
                 >
                 <source
                   type="image/webp"
-                  srcset="/home/cases/audience-intro-1-480.webp 480w, /home/cases/audience-intro-1-960.webp 960w, /home/cases/audience-intro-1-1248.webp 1248w"
+                  srcset="/home/cases/audience/audience-intro-1-480.webp 480w, /home/cases/audience/audience-intro-1-960.webp 960w, /home/cases/audience/audience-intro-1-1248.webp 1248w"
                   sizes="(max-width: 767px) 94vw, 40vw"
                 >
                 <img
-                  src="/home/cases/audience-intro-1-960.webp"
+                  src="/home/cases/audience/audience-intro-1-960.webp"
                   width="1248"
                   height="1888"
                   alt="Audience — экран сайта"
@@ -630,98 +643,136 @@ useHead(() => ({
                   decoding="async"
                 >
               </picture>
-              <img
-                class="audience-case__wave-media audience-case__wave-media--landscape"
-                src="/home/cases/audience-img.webp"
-                alt="Audience — детали цифрового опыта"
-                loading="lazy"
-              >
+              <picture class="audience-case__wave-media audience-case__wave-media--landscape">
+                <source
+                  type="image/avif"
+                  srcset="/home/cases/audience/audience-intro-2-480.avif 480w, /home/cases/audience/audience-intro-2-960.avif 960w, /home/cases/audience/audience-intro-2-1440.avif 1440w, /home/cases/audience/audience-intro-2-1840.avif 1840w"
+                  sizes="(max-width: 767px) 94vw, 58vw"
+                >
+                <source
+                  type="image/webp"
+                  srcset="/home/cases/audience/audience-intro-2-480.webp 480w, /home/cases/audience/audience-intro-2-960.webp 960w, /home/cases/audience/audience-intro-2-1440.webp 1440w, /home/cases/audience/audience-intro-2-1840.webp 1840w"
+                  sizes="(max-width: 767px) 94vw, 58vw"
+                >
+                <img
+                  src="/home/cases/audience/case-detail-3.png"
+                  width="1840"
+                  height="1380"
+                  alt="Audience — детали цифрового опыта"
+                  loading="lazy"
+                  decoding="async"
+                >
+              </picture>
             </CaseHorizontalRail>
           </section>
 
           <section class="audience-case audience-case--disclosure">
-            <div
-              class="audience-case__disclosure-area"
-              role="button"
-              tabindex="0"
-              :aria-expanded="audienceNarrativeOpen"
-              aria-controls="audience-atmosphere-copy"
-              @click="toggleAudienceNarrative"
-              @keydown.enter="toggleAudienceNarrative"
-              @keydown.space.prevent="toggleAudienceNarrative"
-            >
-              <span class="audience-case__disclosure-heading">Атмосфера как система<br>навигации.</span>
-              <div
-                id="audience-atmosphere-copy"
-                ref="audienceDisclosureCopyEl"
-                class="audience-case__disclosure-copy"
-                :class="{ 'is-open': audienceNarrativeOpen }"
-                :style="{ '--audience-disclosure-height': audienceNarrativeHeight }"
-                @transitionend="handleAudienceDisclosureTransition"
-                @transitioncancel="handleAudienceDisclosureTransition"
+            <CaseNarrativeDisclosure
+              disclosure-id="audience-atmosphere-copy"
+              title="Визуальный язык как часть<br>навигации."
+              :paragraphs="audienceDisclosureParagraphs"
+              @layout-change="refreshAudienceScrollPositions"
+            />
+            <picture>
+              <source
+                type="image/avif"
+                srcset="/home/cases/audience/audience-atmosphere-480.avif 480w, /home/cases/audience/audience-atmosphere-960.avif 960w, /home/cases/audience/audience-atmosphere-1440.avif 1440w, /home/cases/audience/audience-atmosphere-1920.avif 1920w, /home/cases/audience/audience-atmosphere-2760.avif 2760w"
+                sizes="100vw"
               >
-                <p>Визуальная система не копирует восточную эстетику через декор. Она работает через глубину кадра, природные фактуры, контраст света и тени, свободное пространство и сдержанный темп взаимодействий. Каждый экран продолжает это ощущение без прямых цитат и лишнего декора.</p>
-                <p>Атмосфера удерживает пользователя, пока он переходит между историей места, меню, интерьером и бронированием. Сайт работает на трёх языках: русском, английском и китайском.</p>
-              </div>
-              <span
-                class="audience-case__disclosure-trigger"
-                aria-hidden="true"
+              <source
+                type="image/webp"
+                srcset="/home/cases/audience/audience-atmosphere-480.webp 480w, /home/cases/audience/audience-atmosphere-960.webp 960w, /home/cases/audience/audience-atmosphere-1440.webp 1440w, /home/cases/audience/audience-atmosphere-1920.webp 1920w, /home/cases/audience/audience-atmosphere-2760.webp 2760w"
+                sizes="100vw"
               >
-                <span class="audience-case__pill">
-                  <span class="audience-case__pill-label">{{ audienceNarrativeOpen ? 'свернуть' : 'читать' }}</span>
-                  <PhPlusMinus :minus="audienceNarrativeOpen" :size="18" />
-                </span>
-              </span>
-            </div>
-            <img class="audience-case__media-wide" src="/home/cases/audience-img.webp" alt="Audience — атмосфера сайта" loading="lazy">
+              <img
+                class="audience-case__media-wide"
+                src="/home/cases/audience/case-detail-4.png"
+                width="3680"
+                height="2760"
+                alt="Audience — атмосфера сайта"
+                loading="lazy"
+                decoding="async"
+              >
+            </picture>
           </section>
 
           <section class="audience-case audience-case--menu">
-            <h2>Как создать сложное меню<br>без ощущения каталога?</h2>
+            <h2>Как организовать сложную<br>контентную структуру?</h2>
             <div class="audience-case__menu-lead">
-              <img src="/home/cases/audience-img.webp" alt="Audience — меню" loading="lazy">
-              <p>Внутри сайта меню разделено на самостоятельные сценарии: кухня, чаши, напитки, чайная церемония, алкоголь и коктейли.</p>
+              <picture class="audience-case__menu-lead-media">
+                <source
+                  type="image/avif"
+                  srcset="/home/cases/audience/audience-menu-lead-480.avif 480w, /home/cases/audience/audience-menu-lead-960.avif 960w, /home/cases/audience/audience-menu-lead-1440.avif 1440w, /home/cases/audience/audience-menu-lead-1920.avif 1920w"
+                  sizes="(max-width: 767px) 100vw, 50vw"
+                >
+                <source
+                  type="image/webp"
+                  srcset="/home/cases/audience/audience-menu-lead-480.webp 480w, /home/cases/audience/audience-menu-lead-960.webp 960w, /home/cases/audience/audience-menu-lead-1440.webp 1440w, /home/cases/audience/audience-menu-lead-1920.webp 1920w"
+                  sizes="(max-width: 767px) 100vw, 50vw"
+                >
+                <img
+                  src="/home/cases/audience/case-detail-5.png"
+                  width="3840"
+                  height="2160"
+                  alt="Audience — меню"
+                  loading="lazy"
+                  decoding="async"
+                >
+              </picture>
+              <p>Разделы кухни, напитков и чайной церемонии получили собственную структуру категорий, карточек и материалов.</p>
             </div>
             <p ref="audienceMenuSecondaryEl" class="audience-case__menu-secondary case-text-fill">У каждого направления — собственная структура, категории, карточки и контент.</p>
             <div class="audience-case__media-mosaic">
               <div class="audience-case__menu-media-pair audience-case__menu-media-pair--top">
-                <img src="/home/cases/audience-img.webp" alt="Audience — раздел меню" loading="lazy">
+                <picture class="audience-case__responsive-picture audience-case__responsive-picture--menu-primary audience-case__mosaic-media">
+                  <source type="image/avif" srcset="/home/cases/audience/audience-menu-primary-480.avif 480w, /home/cases/audience/audience-menu-primary-960.avif 960w, /home/cases/audience/audience-menu-primary-1488.avif 1488w" sizes="(max-width: 767px) 100vw, 50vw">
+                  <source type="image/webp" srcset="/home/cases/audience/audience-menu-primary-480.webp 480w, /home/cases/audience/audience-menu-primary-960.webp 960w, /home/cases/audience/audience-menu-primary-1488.webp 1488w" sizes="(max-width: 767px) 100vw, 50vw">
+                  <img class="audience-case__menu-image--primary" src="/home/cases/audience/audience-menu-primary-960.webp" width="1488" height="2159" alt="Audience — раздел меню" loading="lazy" decoding="async">
+                </picture>
                 <div class="audience-case__menu-media-stack">
-                  <img src="/home/cases/audience-img.webp" alt="Audience — категория меню" loading="lazy">
-                  <p class="audience-case__statement audience-case__statement--menu">Главная UX-задача — сохранить широту выбора, но не превратить сайт в безличный прайс-лист.</p>
+                  <img class="audience-case__mosaic-media" src="/home/cases/audience/audience-img.webp" alt="Audience — категория меню" loading="lazy">
+                  <p class="audience-case__statement audience-case__statement--menu">Главная UX-задача — сохранить объём материалов и при этом сделать структуру понятной.</p>
                 </div>
               </div>
               <div class="audience-case__menu-media-pair audience-case__menu-media-pair--bottom">
                 <div class="audience-case__menu-media-stack audience-case__menu-media-stack--bottom">
-                  <img src="/home/cases/audience-img.webp" alt="Audience — карточка позиции" loading="lazy">
-                  <p class="audience-case__statement audience-case__statement--menu">Контентная карта пространства и каталог остаются частями одного опыта.</p>
+                  <img class="audience-case__mosaic-media" src="/home/cases/audience/audience-img.webp" alt="Audience — карточка позиции" loading="lazy">
+                  <p class="audience-case__statement audience-case__statement--menu">Информационная архитектура и система категорий работают по единым правилам.</p>
                 </div>
-                <img src="/home/cases/audience-img.webp" alt="Audience — детали меню" loading="lazy">
+                <picture class="audience-case__responsive-picture audience-case__responsive-picture--menu-details audience-case__mosaic-media">
+                  <source type="image/avif" srcset="/home/cases/audience/audience-menu-details-480.avif 480w, /home/cases/audience/audience-menu-details-960.avif 960w, /home/cases/audience/audience-menu-details-1488.avif 1488w" sizes="(max-width: 767px) 100vw, 50vw">
+                  <source type="image/webp" srcset="/home/cases/audience/audience-menu-details-480.webp 480w, /home/cases/audience/audience-menu-details-960.webp 960w, /home/cases/audience/audience-menu-details-1488.webp 1488w" sizes="(max-width: 767px) 100vw, 50vw">
+                  <img class="audience-case__menu-image--details" src="/home/cases/audience/audience-menu-details-960.webp" width="1488" height="2159" alt="Audience — детали меню" loading="lazy" decoding="async">
+                </picture>
               </div>
             </div>
           </section>
 
           <section class="audience-case audience-case--motion">
-            <h2>Движение, которое<br>не отпускает атмосферу.</h2>
-            <img class="audience-case__media-full" src="/home/cases/audience-img.webp" alt="Audience — анимации на сайте" loading="lazy">
-            <p ref="audienceMotionSecondaryEl" class="audience-case__motion-secondary case-text-fill">Анимации собирают маршрут в единое впечатление: помогают почувствовать темп пространства, связывают экраны и делают навигацию естественной — без лишней демонстративности.</p>
-            <CaseHorizontalRail class="audience-case__motion-pair audience-case__motion-pair--scroll">
-              <img src="/home/cases/audience-img.webp" alt="Audience — переход между разделами" loading="lazy">
-              <img src="/home/cases/audience-img.webp" alt="Audience — анимация интерфейса" loading="lazy">
-            </CaseHorizontalRail>
+            <h2>Движение как часть<br>навигации.</h2>
+            <p ref="audienceMotionSecondaryEl" class="audience-case__motion-secondary case-text-fill">Анимации связывают экраны, обозначают переходы между разделами и поддерживают порядок чтения без лишней демонстративности.</p>
+            <img class="audience-case__media-full" src="/home/cases/audience/audience-img.webp" alt="Audience — анимации на сайте" loading="lazy">
           </section>
 
           <section class="audience-case audience-case--live">
             <h2>Живой сайт,<br>а не разовый<br>запуск.</h2>
             <p class="audience-case__lede">Проект реализован как развиваемая контентная система. В ней можно обновлять меню, добавлять сезонные позиции, публиковать новости, менять изображения и поддерживать актуальность разделов без пересборки сайта вручную.</p>
             <CaseHorizontalRail class="audience-case__admin-media audience-case__admin-media--scroll">
-              <img src="/home/cases/audience-img.webp" alt="Audience — контентная система" loading="lazy">
-              <img src="/home/cases/audience-img.webp" alt="Audience — управление контентом" loading="lazy">
+              <picture class="audience-case__responsive-picture audience-case__responsive-picture--admin-small">
+                <source type="image/avif" srcset="/home/cases/audience/audience-admin-small-480.avif 480w, /home/cases/audience/audience-admin-small-960.avif 960w, /home/cases/audience/audience-admin-small-1020.avif 1020w" sizes="(max-width: 767px) 100vw, 36vw">
+                <source type="image/webp" srcset="/home/cases/audience/audience-admin-small-480.webp 480w, /home/cases/audience/audience-admin-small-960.webp 960w, /home/cases/audience/audience-admin-small-1020.webp 1020w" sizes="(max-width: 767px) 100vw, 36vw">
+                <img class="audience-case__admin-image--small" src="/home/cases/audience/audience-admin-small-960.webp" width="1020" height="691" alt="Audience — контентная система" loading="lazy" decoding="async">
+              </picture>
+              <picture class="audience-case__responsive-picture audience-case__responsive-picture--admin-large">
+                <source type="image/avif" srcset="/home/cases/audience/audience-admin-large-480.avif 480w, /home/cases/audience/audience-admin-large-960.avif 960w, /home/cases/audience/audience-admin-large-1440.avif 1440w" sizes="(max-width: 767px) 100vw, 64vw">
+                <source type="image/webp" srcset="/home/cases/audience/audience-admin-large-480.webp 480w, /home/cases/audience/audience-admin-large-960.webp 960w, /home/cases/audience/audience-admin-large-1440.webp 1440w" sizes="(max-width: 767px) 100vw, 64vw">
+                <img class="audience-case__admin-image--large" src="/home/cases/audience/audience-admin-large-960.webp" width="1440" height="1984" alt="Audience — управление контентом" loading="lazy" decoding="async">
+              </picture>
             </CaseHorizontalRail>
           </section>
 
           <section class="audience-case audience-case--final">
-            <p ref="audienceFinalTextEl" class="case-text-fill">Audience — цифровая среда для пространства с сильным характером. Сайт соединяет атмосферу, большую контентную структуру и понятные сервисные сценарии — от первого впечатления до бронирования и регулярных обновлений команды.</p>
+            <p ref="audienceFinalTextEl" class="case-text-fill">Для Audience мы разработали структуру, визуальную систему, интерфейс, анимацию и инструменты управления контентом. Кейс показывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или использовать представленную заказчиком продукцию.</p>
           </section>
         </template>
 
@@ -750,31 +801,56 @@ useHead(() => ({
               v-if="section.media.length > 1"
               class="project-story__media"
               :class="[`project-story__media--${section.media.length}`, 'project-story__media--scroll']"
+              :desktop-scroll-speed="section.id === 'baltika-collection' ? 1.28 : 1"
             >
-              <img
-                v-for="media in section.media"
-                :key="`${section.id}-${media.src}-${media.alt}`"
-                :src="media.src"
-                :alt="media.alt"
-                :class="`project-story__image--${media.shape ?? 'wide'}`"
-                loading="lazy"
-                decoding="async"
-              >
+              <template v-for="media in section.media" :key="`${section.id}-${media.src}-${media.alt}`">
+                <CaseAutoplayVideo
+                  v-if="media.type === 'video'"
+                  :src="media.src"
+                  :poster="media.poster"
+                  :alt="media.alt"
+                  :class="`project-story__image--${media.shape ?? 'wide'}`"
+                />
+                <picture v-else class="project-story__picture">
+                  <source v-if="media.avifSrcset" type="image/avif" :srcset="media.avifSrcset" :sizes="media.sizes">
+                  <source v-if="media.webpSrcset" type="image/webp" :srcset="media.webpSrcset" :sizes="media.sizes">
+                  <img
+                    :src="media.src"
+                    :alt="media.alt"
+                    :class="`project-story__image--${media.shape ?? 'wide'}`"
+                    :style="media.aspectRatio ? { aspectRatio: media.aspectRatio } : undefined"
+                    loading="lazy"
+                    decoding="async"
+                  >
+                </picture>
+              </template>
             </CaseHorizontalRail>
             <div
               v-else-if="section.media.length"
               class="project-story__media"
               :class="`project-story__media--${section.media.length}`"
             >
-              <img
-                v-for="media in section.media"
-                :key="`${section.id}-${media.src}-${media.alt}`"
-                :src="media.src"
-                :alt="media.alt"
-                :class="`project-story__image--${media.shape ?? 'wide'}`"
-                loading="lazy"
-                decoding="async"
-              >
+              <template v-for="media in section.media" :key="`${section.id}-${media.src}-${media.alt}`">
+                <CaseAutoplayVideo
+                  v-if="media.type === 'video'"
+                  :src="media.src"
+                  :poster="media.poster"
+                  :alt="media.alt"
+                  :class="`project-story__image--${media.shape ?? 'wide'}`"
+                />
+                <picture v-else class="project-story__picture">
+                  <source v-if="media.avifSrcset" type="image/avif" :srcset="media.avifSrcset" :sizes="media.sizes">
+                  <source v-if="media.webpSrcset" type="image/webp" :srcset="media.webpSrcset" :sizes="media.sizes">
+                  <img
+                    :src="media.src"
+                    :alt="media.alt"
+                    :class="`project-story__image--${media.shape ?? 'wide'}`"
+                    :style="media.aspectRatio ? { aspectRatio: media.aspectRatio } : undefined"
+                    loading="lazy"
+                    decoding="async"
+                  >
+                </picture>
+              </template>
             </div>
             <p v-if="section.statement" class="project-story__statement case-text-fill">{{ section.statement }}</p>
           </section>
@@ -790,7 +866,7 @@ useHead(() => ({
         class="audience-case__closing-media"
       >
         <img
-          src="/home/cases/audience-img.webp"
+          src="/home/cases/audience/audience-img.webp"
           alt="Audience — цифровая атмосфера проекта"
           loading="lazy"
           decoding="async"
@@ -800,12 +876,16 @@ useHead(() => ({
         v-else-if="projectDetail"
         class="project-story__closing-media"
       >
-        <img
-          :src="projectDetail.closing.src"
-          :alt="projectDetail.closing.alt"
-          loading="lazy"
-          decoding="async"
-        >
+        <picture>
+          <source v-if="projectDetail.closing.avifSrcset" type="image/avif" :srcset="projectDetail.closing.avifSrcset" :sizes="projectDetail.closing.sizes">
+          <source v-if="projectDetail.closing.webpSrcset" type="image/webp" :srcset="projectDetail.closing.webpSrcset" :sizes="projectDetail.closing.sizes">
+          <img
+            :src="projectDetail.closing.src"
+            :alt="projectDetail.closing.alt"
+            loading="lazy"
+            decoding="async"
+          >
+        </picture>
       </figure>
     </main>
 
@@ -830,6 +910,10 @@ useHead(() => ({
   z-index: 1;
   min-height: var(--app-screen);
   color: var(--palette-ink, #0a0a0a);
+  /* The native Baltika film and the fixed wave canvas both use multiply.
+     Keep their blend backdrop inside this page so swapping to the canvas on
+     pointer entry cannot pick up a darker surface from the app shell. */
+  isolation: isolate;
 }
 
 .case-detail--inverse {
@@ -1214,6 +1298,10 @@ h1 {
   grid-column: 1 / -1;
 }
 
+.project-story__picture {
+  display: contents;
+}
+
 .project-story__media:not(.project-story__media--scroll),
 .project-story__media--scroll :deep(.case-horizontal-rail__content) {
   display: grid;
@@ -1229,7 +1317,16 @@ h1 {
   object-fit: cover;
 }
 
+.project-story__media :deep(.case-autoplay-video) {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  overflow: hidden;
+}
+
 .project-story__image--wide { aspect-ratio: 16 / 10; }
+.project-story__image--landscape { aspect-ratio: 4 / 3; }
 .project-story__image--portrait { aspect-ratio: 4 / 5; }
 .project-story__image--square { aspect-ratio: 1; }
 
@@ -1272,6 +1369,13 @@ h1 {
   aspect-ratio: 16 / 8;
 }
 
+.project-story--feature .project-story__media :deep(.case-autoplay-video) {
+  /* Let the square motion piece occupy roughly nine columns on wide layouts. */
+  width: min(100%, 62rem);
+  margin-inline: auto;
+  aspect-ratio: 1;
+}
+
 .project-story--split > h2 { grid-column: 1 / span 7; }
 .project-story--split .project-story__copy {
   grid-column: 8 / -1;
@@ -1284,6 +1388,107 @@ h1 {
   grid-column: 8 / -1;
   grid-template-columns: 1fr;
 }
+
+/* Preserve the two editorial lines defined in the title copy. */
+.project-story--baltika-collection > h2 {
+  grid-column: 1 / -1;
+  max-width: none;
+  white-space: nowrap;
+}
+.project-story--baltika-collection .project-story__copy { grid-column: 7 / -2; }
+
+@media (min-width: 768px) {
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__viewport) {
+    overflow-x: auto;
+    overflow-y: hidden;
+    cursor: grab;
+    scrollbar-width: none;
+    user-select: none;
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__viewport::-webkit-scrollbar) {
+    display: none;
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__viewport:active) {
+    cursor: grabbing;
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content) {
+    display: flex;
+    width: max-content;
+    gap: calc(var(--layout-gutter) * 0.25);
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content img) {
+    width: auto;
+    max-width: none;
+    height: min(52svh, 28vw);
+    flex: 0 0 auto;
+    margin-top: 0;
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__bar) {
+    display: block;
+    width: calc(25% - var(--layout-gutter));
+    height: 8px;
+    margin: var(--space-4) auto 0;
+    padding-block: 3px;
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__bar::before) {
+    display: block;
+    height: 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, currentColor 20%, transparent);
+    content: '';
+  }
+
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__thumb) {
+    position: relative;
+    top: -2px;
+    display: block;
+    height: 4px;
+    border-radius: 999px;
+    background: currentColor;
+    cursor: grab;
+    touch-action: none;
+  }
+}
+
+.project-story--baltika-object > h2 { grid-column: 2 / span 8; }
+.project-story--baltika-object .project-story__copy { grid-column: 6 / -2; }
+
+@media (min-width: 768px) {
+  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content) {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    align-items: start;
+  }
+
+  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture) {
+    display: block;
+    min-width: 0;
+    grid-row: 1;
+  }
+
+  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture:first-child) {
+    grid-column: 1;
+  }
+
+  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture:last-child) {
+    grid-column: 2;
+  }
+
+  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture > img) {
+    margin-top: 0;
+  }
+}
+
+.project-story--baltika-route > h2 { grid-column: 2 / span 7; }
+.project-story--baltika-route .project-story__copy { grid-column: 8 / -2; }
+.project-story--baltika-route .project-story__media { grid-column: 2 / -2; }
 
 .project-story--disclosure {
   row-gap: var(--space-6);
@@ -1299,6 +1504,12 @@ h1 {
 
 .project-story--disclosure .project-story__media img {
   aspect-ratio: 16 / 8;
+}
+
+/* The supplied label frame is 4:3. Keep its composition intact instead of
+   forcing the panoramic disclosure treatment used by the other case media. */
+.project-story--baltika-label .project-story__media img {
+  aspect-ratio: 4 / 3;
 }
 
 .project-story p.project-story__statement {
@@ -1389,7 +1600,6 @@ h1 {
 }
 
 .audience-case__copy,
-.audience-case__disclosure-copy,
 .audience-case__statement,
 .audience-case__lede {
   color: color-mix(in srgb, var(--palette-milk, #f5f1e8) 78%, #0a0501);
@@ -1406,7 +1616,7 @@ h1 {
 }
 
 .audience-case__copy--split {
-  grid-column: 8 / -2;
+  grid-column: 6 / -2;
   grid-row: 2;
   grid-template-columns: 1fr;
   row-gap: var(--space-4);
@@ -1456,114 +1666,6 @@ h1 {
 
 .audience-case--disclosure { text-align: center; }
 
-.audience-case__disclosure-area {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 100%;
-  padding: 0;
-  cursor: pointer;
-}
-
-.audience-case__disclosure-trigger {
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.audience-case__disclosure-heading {
-  font-size: clamp(2.75rem, 6.5vw, 7.5rem);
-  letter-spacing: -0.01em;
-  line-height: 0.91;
-}
-
-.audience-case__pill {
-  display: inline-flex;
-  box-sizing: border-box;
-  align-items: center;
-  justify-content: center;
-  width: 3rem;
-  height: 3rem;
-  margin-top: var(--space-4);
-  padding-bottom: 0.12rem;
-  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
-  border-radius: 999px;
-  font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  overflow: hidden;
-  transition: width 300ms cubic-bezier(0.22, 1, 0.36, 1), padding-left 300ms cubic-bezier(0.22, 1, 0.36, 1), margin-top 1s cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms ease;
-}
-
-.audience-case__pill-label {
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateX(0.35rem);
-  transition: max-width 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 300ms ease;
-  white-space: nowrap;
-}
-
-.audience-case__disclosure-area:hover .audience-case__pill,
-.audience-case__disclosure-area:focus-visible .audience-case__pill {
-  width: 7.6rem;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-
-/* «читать» is shorter than «свернуть»: retain the same comfortable left
-   breathing room without changing the pill's overall proportion. */
-.audience-case__disclosure-area:not([aria-expanded='true']):hover .audience-case__pill,
-.audience-case__disclosure-area:not([aria-expanded='true']):focus-visible .audience-case__pill {
-  padding-left: 0.4rem;
-}
-
-.audience-case__disclosure-area[aria-expanded='true']:hover .audience-case__pill,
-.audience-case__disclosure-area[aria-expanded='true']:focus-visible .audience-case__pill {
-  /* «свернуть» длиннее «читать»: сохраняем тот же свободный край у текста и иконки. */
-  width: 9.6rem;
-}
-
-.audience-case__disclosure-area:hover .audience-case__pill-label,
-.audience-case__disclosure-area:focus-visible .audience-case__pill-label {
-  max-width: 6rem;
-  margin-right: 0.4rem;
-  opacity: 1;
-  transform: none;
-}
-
-.audience-case__disclosure-copy {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  column-gap: var(--layout-gutter);
-  row-gap: var(--space-4);
-  width: 100%;
-  height: 0;
-  margin-top: 0;
-  margin-inline: auto;
-  font-size: var(--type-case-body-large);
-  font-weight: 300;
-  letter-spacing: -0.04em;
-  line-height: 1.17;
-  overflow: hidden;
-  opacity: 0;
-  text-align: left;
-  will-change: height;
-  transition: height 1s cubic-bezier(0.22, 1, 0.36, 1), margin-top 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease;
-}
-
-.audience-case__disclosure-copy p:first-child { grid-column: 2 / span 4; }
-.audience-case__disclosure-copy p:last-child { grid-column: 8 / span 4; }
-
-.audience-case__disclosure-copy.is-open {
-  height: var(--audience-disclosure-height);
-  margin-top: var(--space-case-disclosure-open);
-  opacity: 1;
-}
-
 
 .audience-case__media-wide {
   aspect-ratio: 16 / 8;
@@ -1589,9 +1691,15 @@ h1 {
 .audience-case__media-mosaic,
 .audience-case__statement { grid-column: 1 / -1; }
 
-.audience-case__menu-lead img {
+.audience-case__menu-lead-media {
+  display: block;
   grid-column: 1 / span 6;
   aspect-ratio: 16 / 10;
+  overflow: hidden;
+}
+
+.audience-case__menu-lead-media img {
+  height: 100%;
 }
 
 .audience-case__menu-lead p {
@@ -1615,6 +1723,11 @@ h1 {
   text-align: center;
 }
 
+.audience-case p.audience-case__motion-secondary {
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
 .audience-case--motion {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1629,8 +1742,20 @@ h1 {
 
 .audience-case__media-mosaic {
   display: grid;
-  row-gap: var(--space-7);
+  row-gap: calc(var(--space-7) / 4);
   margin-top: 0;
+}
+
+.audience-case__responsive-picture {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.audience-case__responsive-picture > img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .audience-case__menu-media-pair {
@@ -1640,13 +1765,13 @@ h1 {
   gap: var(--layout-gutter);
 }
 
-.audience-case__menu-media-pair--top img:first-child { aspect-ratio: 4 / 5; }
+.audience-case__responsive-picture--menu-primary { aspect-ratio: 4 / 5; }
 .audience-case__menu-media-stack {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  row-gap: var(--space-5);
+  row-gap: var(--space-4);
   column-gap: 0;
-  margin-top: 14%;
+  margin-top: 100%;
 }
 
 .audience-case__menu-media-stack img {
@@ -1657,7 +1782,10 @@ h1 {
 .audience-case__menu-media-stack .audience-case__statement { grid-column: 2 / -2; }
 .audience-case__menu-media-stack--bottom { margin-top: 8%; }
 .audience-case__menu-media-stack--bottom img { aspect-ratio: 16 / 11; }
-.audience-case__menu-media-pair--bottom > img { aspect-ratio: 4 / 5; margin-top: 26%; }
+.audience-case__responsive-picture--menu-details {
+  aspect-ratio: 4 / 5;
+  margin-top: 16%;
+}
 
 .audience-case__statement {
   max-width: 34ch;
@@ -1702,9 +1830,11 @@ h1 {
 .audience-case__motion-pair img:first-child { aspect-ratio: 16 / 10; }
 .audience-case__motion-pair img:last-child { aspect-ratio: 4 / 5; }
 .audience-case__motion-pair img:last-child { margin-top: var(--space-5); }
-.audience-case__admin-media img:first-child { aspect-ratio: 16 / 10; }
-.audience-case__admin-media img:last-child { aspect-ratio: 4 / 5; }
-.audience-case__admin-media img:last-child { margin-top: var(--space-5); }
+.audience-case__responsive-picture--admin-small { aspect-ratio: 16 / 10; }
+.audience-case__responsive-picture--admin-large {
+  aspect-ratio: 4 / 5;
+  margin-top: var(--space-5);
+}
 
 .audience-case--final {
   display: grid;
@@ -1830,6 +1960,8 @@ h1 {
   .project-story__media--4 img:nth-child(even) { margin-top: var(--space-5); }
   .project-story--feature .project-story__media img,
   .project-story--disclosure .project-story__media img { aspect-ratio: 4 / 5; }
+  .project-story--feature .project-story__media :deep(.case-autoplay-video) { aspect-ratio: 1; }
+  .project-story--baltika-label .project-story__media img { aspect-ratio: 4 / 3; }
   .project-story p.project-story__statement { margin-top: var(--space-6); margin-bottom: 0; text-align: center; }
   .project-story--final { min-height: 0; margin: var(--space-7) 0 var(--space-6); }
   .project-story--schmidt-horizontal .project-story__statement { margin-top: var(--space-5); }
@@ -1848,8 +1980,7 @@ h1 {
   .audience-case__copy--split { margin-top: var(--space-4); }
   .audience-case--intro h2 { white-space: normal; }
   .audience-case__copy--split,
-  .audience-case__menu-lead,
-  .audience-case__disclosure-copy { grid-template-columns: 1fr; }
+  .audience-case__menu-lead { grid-template-columns: 1fr; }
   .audience-case--menu,
   .audience-case--motion { grid-template-columns: 1fr; }
   .audience-case--menu > h2,
@@ -1857,21 +1988,18 @@ h1 {
   .audience-case__menu-secondary,
   .audience-case__media-mosaic,
   .audience-case__statement { grid-column: 1; }
-  .audience-case p.audience-case__menu-secondary,
-  .audience-case p.audience-case__motion-secondary { margin-top: var(--space-7); margin-bottom: var(--space-7); }
+  .audience-case p.audience-case__menu-secondary { margin-top: var(--space-7); margin-bottom: var(--space-7); }
+  .audience-case p.audience-case__motion-secondary { margin-top: var(--space-5); margin-bottom: var(--space-5); }
   .audience-case--motion > .audience-case__motion-secondary { grid-column: 1; }
-  .audience-case__menu-lead img,
+  .audience-case__menu-lead-media,
   .audience-case__menu-lead p { grid-column: 1; }
-  .audience-case__disclosure-copy { width: 100%; }
-  .audience-case__disclosure-copy p:first-child,
-  .audience-case__disclosure-copy p:last-child { grid-column: 1; }
   .audience-case__copy--split p { grid-column: 1; }
   .audience-case__media-pair { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
   .audience-case__motion-pair,
   .audience-case__admin-media { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
   .audience-case__wave-media--portrait,
   .audience-case__motion-pair img:last-child,
-  .audience-case__admin-media img:last-child { margin-top: var(--space-4); }
+  .audience-case__responsive-picture--admin-large { margin-top: var(--space-4); }
   .project-story__media--scroll :deep(.case-horizontal-rail__viewport),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__viewport),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__viewport),
@@ -1891,9 +2019,19 @@ h1 {
   .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
-  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > img) {
+  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > .audience-case__responsive-picture) {
     flex: 0 0 calc(100vw - var(--layout-margin));
     width: calc(100vw - var(--layout-margin));
+    margin-top: 0;
+  }
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content) {
+    gap: calc(var(--space-1) * 0.25);
+  }
+  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content img) {
+    width: auto;
+    max-width: none;
+    height: min(62svh, 72vw);
+    flex: 0 0 auto;
     margin-top: 0;
   }
   .audience-case__wave-media {
@@ -1910,16 +2048,16 @@ h1 {
   }
   .audience-case__menu-media-pair { gap: var(--space-1); }
   .audience-case__menu-media-pair .audience-case__menu-media-stack { display: contents; }
-  .audience-case__menu-media-pair--top > img:first-child { grid-column: 1; grid-row: 1; }
-  .audience-case__menu-media-pair--top .audience-case__menu-media-stack img { grid-column: 2; grid-row: 1; margin-top: 14%; }
+  .audience-case__menu-media-pair--top .audience-case__responsive-picture--menu-primary { grid-column: 1; grid-row: 1; }
+  .audience-case__menu-media-pair--top .audience-case__menu-media-stack img { grid-column: 2; grid-row: 1; margin-top: 100%; }
   .audience-case__menu-media-pair--bottom .audience-case__menu-media-stack img { grid-column: 1; grid-row: 1; margin-top: 8%; }
-  .audience-case__menu-media-pair--bottom > img:last-child { grid-column: 2; grid-row: 1; }
+  .audience-case__menu-media-pair--bottom .audience-case__responsive-picture--menu-details { grid-column: 2; grid-row: 1; }
   .audience-case__menu-media-pair .audience-case__statement--menu {
     grid-column: 1 / -1;
     grid-row: 2;
     width: 100%;
     max-width: none;
-    margin: var(--space-3) 0 0;
+    margin: var(--space-2) 0 0;
   }
   .audience-case--motion .audience-case__lede { width: 100%; }
   .audience-case--live .audience-case__lede { width: 100%; }
@@ -1936,10 +2074,7 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   h1,
   .case-detail__meta,
-  .case-detail__media,
-  .audience-case__pill,
-  .audience-case__pill-label,
-  .audience-case__disclosure-copy {
+  .case-detail__media {
     transition: none;
   }
 

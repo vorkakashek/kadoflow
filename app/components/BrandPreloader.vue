@@ -31,11 +31,11 @@ const ORBIT_R = RING_OUTER + RING_GAP + ARC_STROKE / 2
 const APEX = -Math.PI / 2
 /** Brief beat after extra orbits — was 3s and made cold visits feel stuck at 99%. */
 const HOLD_S = 0.08
-/** First-lap durations — % is mapped across this window (~3s total). */
-const LAP1_DIVE_S = 1.91
-const LAP1_RISE_S = 1.09
+/** First lap stays legible but no longer imposes a three-second artificial wait. */
+const LAP1_DIVE_S = 0.68
+const LAP1_RISE_S = 0.37
 /** Warm revisit — odometer sprint before expand. */
-const WARM_PCT_S = 0.42
+const WARM_PCT_S = 0.2
 const DISC_END_R = 16
 const TRACK_OP = 0.14
 
@@ -62,7 +62,12 @@ let lap1StartA = APEX
 const flyerTransform = ref(`translate(0 ${-ORBIT_R})`)
 
 async function getGsap() {
-  if (!gsapMod) gsapMod = (await import('gsap')).default
+  if (!gsapMod) {
+    gsapMod = (await import('gsap')).default
+    gsapMod.ticker.fps(0)
+    gsapMod.ticker.lagSmoothing(0)
+    gsapMod.config({ force3D: true, nullTargetWarn: false })
+  }
   return gsapMod
 }
 
@@ -164,7 +169,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
       gsap.to(spin, {
         a: apexNow,
         flat: 1,
-        duration: 0.18,
+        duration: 0.12,
         ease: 'power3.out',
         onUpdate: () => {
           angle = spin.a
@@ -275,7 +280,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
     if (pctEl.value) {
       tl.to(
         pctEl.value,
-        { autoAlpha: 0, duration: 0.15, ease: 'power2.out' },
+        { autoAlpha: 0, duration: 0.1, ease: 'power2.out' },
         0,
       )
     }
@@ -287,7 +292,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         disc,
         {
           s: peakScale,
-          duration: 0.34,
+          duration: 0.22,
           ease: 'power2.out',
           onUpdate: () => {
             paintDiscScale(disc.s)
@@ -302,7 +307,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         morph,
         {
           outer: swallowR,
-          duration: 0.375,
+          duration: 0.24,
           ease: 'power2.out',
           onUpdate: paintMorph,
         },
@@ -312,7 +317,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         morph,
         {
           sw: swallowR,
-          duration: 0.225,
+          duration: 0.15,
           ease: 'power2.in',
           onUpdate: paintMorph,
         },
@@ -336,13 +341,13 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
       undefined,
       '>',
     )
-    tl.to({}, { duration: 0.045 })
+    tl.to({}, { duration: 0.03 })
 
     // Quick pinch, then iris opens the site.
     const pinch = { s: peakScale }
     tl.to(pinch, {
       s: pinchScale,
-      duration: 0.24,
+      duration: 0.16,
       ease: 'power2.in',
       onUpdate: () => {
         paintDiscScale(pinch.s)
@@ -366,12 +371,12 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         gsap.fromTo(
           surfaceEl,
           { scale: 0.94, transformOrigin: '50% 40%' },
-          { scale: 1, duration: 0.71, ease: 'power3.out' },
+          { scale: 1, duration: 0.46, ease: 'power3.out' },
         )
       }
       gsap.to(markEl.value, {
         autoAlpha: 0,
-        duration: 0.21,
+        duration: 0.14,
         ease: 'power2.out',
       })
       const hole = irisHoleEl.value
@@ -395,7 +400,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         irisHoleEl.value,
         {
           scale: irisScaleEnd,
-          duration: 0.71,
+          duration: 0.46,
           ease: 'power3.inOut',
           onUpdate: function () {
             preload.setRevealT(this.progress())
@@ -404,7 +409,7 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         '>',
       )
     } else {
-      tl.to({}, { duration: 0.71 })
+      tl.to({}, { duration: 0.46 })
     }
   })
 

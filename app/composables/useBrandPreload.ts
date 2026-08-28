@@ -27,9 +27,9 @@ let began = false
 let loadStartedAt = 0
 
 /** Typical first-visit scene budget (ms) — drives the time curve (not a hard wait). */
-const EXPECTED_LOAD_MS = 2800
+const EXPECTED_LOAD_MS = 1200
 /** Cached revisit — progress curve shouldn't invent a long wait. */
-const EXPECTED_LOAD_MS_REPEAT = 700
+const EXPECTED_LOAD_MS_REPEAT = 450
 /** Soft ceiling until exit — avoids the 93→99 slam. */
 const PRE_EXIT_CAP = 0.9
 

@@ -1,8 +1,5 @@
-import Lenis from 'lenis'
-import gsap from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
-
-const SMOOTH_SCROLL_ENABLED = '(prefers-reduced-motion: no-preference)'
+const SMOOTH_SCROLL_ENABLED =
+  '(prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine)'
 
 const SCROLL_LOCKS = [
   'preload-lock',
@@ -19,16 +16,20 @@ const SCROLL_LOCKS = [
  * permanent animation loop.
  */
 export default defineNuxtPlugin((nuxtApp) => {
-  let lenis: Lenis | null = null
+  let lenis: import('lenis').default | null = null
+  let gsap: typeof import('gsap').default | null = null
+  let ScrollTrigger: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
   let lockObserver: MutationObserver | null = null
   let tickerAttached = false
+  let createGeneration = 0
+  let idleId: number | null = null
 
   const enabledQuery = window.matchMedia(SMOOTH_SCROLL_ENABLED)
 
   function removeTicker() {
     if (!tickerAttached) return
     tickerAttached = false
-    gsap.ticker.remove(update)
+    gsap?.ticker.remove(update)
   }
 
   function update(time: number) {
@@ -38,7 +39,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
 
   function requestTicker() {
-    if (!lenis || lenis.isStopped || tickerAttached || document.hidden) return
+    if (!lenis || !gsap || lenis.isStopped || tickerAttached || document.hidden) return
 
     // Lenis advances from the time passed to `raf()`. When the idle ticker has
     // been detached, its previous timestamp may be seconds old; without this
@@ -66,6 +67,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
 
   function destroy() {
+    createGeneration += 1
     removeTicker()
     lockObserver?.disconnect()
     lockObserver = null
@@ -73,10 +75,24 @@ export default defineNuxtPlugin((nuxtApp) => {
     lenis = null
   }
 
-  function create() {
+  async function create() {
     if (lenis || !enabledQuery.matches) return
+    const generation = ++createGeneration
+    const [lenisModule, gsapModule, scrollTriggerModule] = await Promise.all([
+      import('lenis'),
+      import('gsap'),
+      import('gsap/ScrollTrigger'),
+    ])
+    if (generation !== createGeneration || !enabledQuery.matches || lenis) return
 
+    const Lenis = lenisModule.default
+    gsap = gsapModule.default
+    ScrollTrigger = scrollTriggerModule.ScrollTrigger
     gsap.registerPlugin(ScrollTrigger)
+    gsap.ticker.fps(0)
+    gsap.ticker.lagSmoothing(0)
+    gsap.config({ force3D: true, nullTargetWarn: false })
+    ScrollTrigger.config({ ignoreMobileResize: true })
     lenis = new Lenis({
       autoRaf: false,
       smoothWheel: true,
@@ -106,17 +122,30 @@ export default defineNuxtPlugin((nuxtApp) => {
 
   function syncInputMode() {
     destroy()
-    create()
+    if (enabledQuery.matches) void create()
   }
 
   nuxtApp.hook('app:mounted', () => {
-    create()
+    const activate = () => void create()
+    if (enabledQuery.matches) {
+      // Hydration and the first visual response keep priority. A short timeout
+      // still makes wheel smoothing ready before normal desktop interaction.
+      if ('requestIdleCallback' in window) {
+        idleId = window.requestIdleCallback(activate, { timeout: 1200 })
+      } else {
+        window.setTimeout(activate, 350)
+      }
+      window.addEventListener('wheel', activate, { once: true, passive: true })
+    }
     enabledQuery.addEventListener('change', syncInputMode)
     document.addEventListener('visibilitychange', syncRunState)
   })
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
+      if (idleId !== null && 'cancelIdleCallback' in window) {
+        window.cancelIdleCallback(idleId)
+      }
       enabledQuery.removeEventListener('change', syncInputMode)
       document.removeEventListener('visibilitychange', syncRunState)
       destroy()

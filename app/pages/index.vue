@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { heroToKadoPlan } from '~/utils/flowSurfaceMorph'
-import { preloadGsapBundle } from '~/utils/preloadHomeMotion'
 
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
@@ -22,7 +21,6 @@ const caseMediaEl = computed(() => cases.value?.mediaEl ?? null)
 const mountSurface = ref(false)
 
 onMounted(() => {
-  void preloadGsapBundle()
   requestAnimationFrame(() => {
     mountSurface.value = true
   })
@@ -37,7 +35,7 @@ onMounted(() => {
       class="pointer-events-none absolute inset-0 z-[1] overflow-x-clip"
       aria-hidden="true"
     />
-    <FlowSurfaceHost
+    <LazyFlowSurfaceHost
       v-if="mountSurface"
       :from-el="fromEl"
       :to-el="toEl"

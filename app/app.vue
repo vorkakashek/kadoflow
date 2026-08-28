@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { preloadHomeMotionBundles } from '~/utils/preloadHomeMotion'
+const enhancementsReady = ref(false)
+
+if (import.meta.client && 'scrollRestoration' in history) {
+  history.scrollRestoration = 'manual'
+}
 
 onMounted(() => {
-  if (!import.meta.client) return
-  const warm = () => {
-    void preloadHomeMotionBundles()
+  const mountEnhancements = () => {
+    enhancementsReady.value = true
   }
+  // Closed overlays and decorative controls are not part of the first frame.
+  // Load them during the first idle window, with a bounded fallback so the
+  // menu and route transitions are ready before a typical first interaction.
   if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(warm, { timeout: 1800 })
+    window.requestIdleCallback(mountEnhancements, { timeout: 1200 })
   } else {
-    window.setTimeout(warm, 600)
+    window.setTimeout(mountEnhancements, 400)
   }
 })
 </script>
@@ -26,11 +32,11 @@ onMounted(() => {
     </div>
     <SiteHeader />
     <ClientOnly>
-      <CaseDetailTransition />
-      <PageCanvas />
-      <PageIris />
-      <SiteCursor />
-      <CustomScrollbar />
+      <LazyCaseDetailTransition v-if="enhancementsReady" />
+      <LazyPageCanvas v-if="enhancementsReady" />
+      <LazyPageIris v-if="enhancementsReady" />
+      <LazySiteCursor v-if="enhancementsReady" />
+      <LazyCustomScrollbar v-if="enhancementsReady" />
     </ClientOnly>
   </div>
 </template>

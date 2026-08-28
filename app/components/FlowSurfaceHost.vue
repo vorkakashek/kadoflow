@@ -2188,6 +2188,11 @@ onMounted(async () => {
   resetFlowSurfaceMaskSession()
   gsapMod = await import('gsap')
   stMod = await import('gsap/ScrollTrigger')
+  gsapMod.default.registerPlugin(stMod.ScrollTrigger)
+  gsapMod.default.ticker.fps(0)
+  gsapMod.default.ticker.lagSmoothing(0)
+  gsapMod.default.config({ force3D: true, nullTargetWarn: false })
+  stMod.ScrollTrigger.config({ ignoreMobileResize: true })
   await nextTick()
   // Let the route/page DOM settle before ST — avoids refresh↔pin softlock on SPA entry.
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))

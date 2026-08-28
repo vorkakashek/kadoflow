@@ -55,7 +55,7 @@ function handleTransition(event: TransitionEvent) {
       aria-hidden="true"
     >
       <span class="case-disclosure__pill">
-        <span>{{ open ? 'свернуть' : 'читать' }}</span>
+        <span class="case-disclosure__pill-label">{{ open ? 'свернуть' : 'читать' }}</span>
         <PhPlusMinus :minus="open" :size="18" />
       </span>
     </span>
@@ -64,6 +64,9 @@ function handleTransition(event: TransitionEvent) {
 
 <style scoped>
 .case-disclosure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   width: 100%;
   text-align: center;
   cursor: pointer;
@@ -82,38 +85,63 @@ function handleTransition(event: TransitionEvent) {
 }
 
 .case-disclosure__title {
-  max-width: 13ch;
-  font-size: clamp(2.8rem, 7.2vw, 8.2rem);
+  display: block;
+  font-size: clamp(2.75rem, 6.5vw, 7.5rem);
   font-weight: 400;
-  letter-spacing: -0.065em;
-  line-height: 0.88;
+  letter-spacing: -0.01em;
+  line-height: 0.91;
 }
 
 .case-disclosure__pill {
   display: inline-flex;
-  min-width: 7.8rem;
+  box-sizing: border-box;
   align-items: center;
   justify-content: center;
-  gap: var(--space-1);
+  width: 3rem;
+  height: 3rem;
   margin-top: var(--space-4);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  padding-bottom: 0.12rem;
+  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
   border-radius: 999px;
-  font-size: var(--type-nav);
-  transition: color 220ms ease, background-color 220ms ease, transform 220ms ease;
+  font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow: hidden;
+  transition: width 300ms cubic-bezier(0.22, 1, 0.36, 1), padding-left 300ms cubic-bezier(0.22, 1, 0.36, 1), margin-top 1s cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms ease;
 }
 
 .case-disclosure:hover .case-disclosure__pill,
 .case-disclosure:focus-visible .case-disclosure__pill {
-  color: var(--palette-milk, #f5f1e8);
-  background: var(--palette-ink, #0a0a0a);
-  transform: scale(1.04);
+  width: 7.6rem;
+  background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
-.case-detail--inverse .case-disclosure:hover .case-disclosure__pill,
-.case-detail--inverse .case-disclosure:focus-visible .case-disclosure__pill {
-  color: var(--palette-ink, #0a0a0a);
-  background: var(--palette-milk, #f5f1e8);
+.case-disclosure:not([aria-expanded='true']):hover .case-disclosure__pill,
+.case-disclosure:not([aria-expanded='true']):focus-visible .case-disclosure__pill {
+  padding-left: 0.4rem;
+}
+
+.case-disclosure[aria-expanded='true']:hover .case-disclosure__pill,
+.case-disclosure[aria-expanded='true']:focus-visible .case-disclosure__pill {
+  width: 9.6rem;
+}
+
+.case-disclosure__pill-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(0.35rem);
+  transition: max-width 300ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 300ms ease;
+  white-space: nowrap;
+}
+
+.case-disclosure:hover .case-disclosure__pill-label,
+.case-disclosure:focus-visible .case-disclosure__pill-label {
+  max-width: 6rem;
+  margin-right: 0.4rem;
+  opacity: 1;
+  transform: none;
 }
 
 .case-disclosure:focus-visible {
@@ -124,45 +152,49 @@ function handleTransition(event: TransitionEvent) {
 .case-disclosure__body {
   display: grid;
   grid-template-rows: 0fr;
+  width: 100%;
+  margin-top: 0;
   opacity: 0;
-  transition: grid-template-rows 650ms cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease;
+  transition: grid-template-rows 1s cubic-bezier(0.22, 1, 0.36, 1), margin-top 1s cubic-bezier(0.22, 1, 0.36, 1), opacity 400ms ease;
 }
 
 .case-disclosure__body.is-open {
   grid-template-rows: 1fr;
+  margin-top: var(--space-case-disclosure-open);
   opacity: 1;
 }
 
 .case-disclosure__body-clip {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  column-gap: var(--layout-gutter);
   min-height: 0;
   overflow: hidden;
 }
 
 .case-disclosure__body-inner {
   display: grid;
-  grid-column: 2 / -2;
-  width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--layout-gutter);
-  margin: 0 auto;
-  padding-block: var(--space-3) var(--space-4);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--layout-gutter);
+  row-gap: var(--space-4);
   text-align: left;
 }
 
 .case-disclosure__body p {
   margin: 0;
   font-size: var(--type-case-body-large);
-  letter-spacing: -0.035em;
-  line-height: 1.18;
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  line-height: 1.17;
 }
+
+.case-disclosure__body p:first-child { grid-column: 2 / span 4; }
+.case-disclosure__body p:last-child { grid-column: 8 / span 4; }
+.case-disclosure__body p:only-child { grid-column: 4 / span 6; }
 
 @media (max-width: 767.98px) {
   .case-disclosure__title { font-size: clamp(1.875rem, 8vw, 2.25rem); }
-  .case-disclosure__body-clip { grid-template-columns: 1fr; }
-  .case-disclosure__body-inner { grid-column: 1; grid-template-columns: 1fr; }
+  .case-disclosure__body-inner { grid-template-columns: 1fr; }
+  .case-disclosure__body p:first-child,
+  .case-disclosure__body p:last-child,
+  .case-disclosure__body p:only-child { grid-column: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

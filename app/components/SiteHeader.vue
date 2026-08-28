@@ -1236,6 +1236,15 @@ onUnmounted(() => {
   z-index: 9;
 }
 
+/* The mobile cases rail owns the upper edge. Suppress the full wordmark for
+   the whole overlap; the teleported lower mark remains available. */
+.site-header--behind-mobile-cases .header-logo-link {
+  pointer-events: none;
+  opacity: 0 !important;
+  visibility: hidden;
+  transition: none !important;
+}
+
 .site-header--case {
   color: var(--palette-ink, #171915);
 }
@@ -1373,6 +1382,8 @@ html.page-canvas-lock .menu-btn--float {
   display: block;
   width: 32px;
   height: 32px;
+  /* Match the menu FAB's 1px optical lift from its asymmetric vertical padding. */
+  transform: translateY(-1px);
   transition: filter 0.35s var(--motion-ease, ease);
 }
 
