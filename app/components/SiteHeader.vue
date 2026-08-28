@@ -1446,8 +1446,7 @@ html.page-canvas-lock .menu-btn--float {
   border: 0;
   width: 8.5rem;
   min-height: 0;
-  /* Match the menu chip’s optical top/bottom balance. */
-  padding: 7px 0.9rem 9px;
+  padding: 8px 0.9rem;
   overflow: hidden;
   cursor: pointer;
   appearance: none;
@@ -1494,7 +1493,7 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .case-header-back__label {
-  transform: translateX(1rem);
+  transform: translate3d(1rem, var(--header-text-optical-y), 0);
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -1518,7 +1517,7 @@ html.page-canvas-lock .menu-btn--float {
 
   .case-header-back:hover .case-header-back__label,
   .case-header-back:focus-visible .case-header-back__label {
-    transform: translateX(-1rem);
+    transform: translate3d(-1rem, var(--header-text-optical-y), 0);
   }
 
   .case-header-back:hover .case-header-back__frame--after,
@@ -1635,8 +1634,7 @@ html.page-canvas-lock .menu-btn--float {
   position: relative;
   cursor: pointer;
   border-radius: 9999px;
-  /* The typeface’s visible glyph area sits slightly low in its line box. */
-  padding-block: 7px 9px;
+  padding-block: 8px;
   /* ~1.5× chip horizontal padding (2× then −25%) */
   padding-inline: 18px;
   margin-inline: -18px;
@@ -1711,6 +1709,7 @@ html.page-canvas-lock .menu-btn--float {
   justify-content: flex-end;
   height: 1.25em;
   white-space: nowrap;
+  transform: translateY(var(--header-text-optical-y));
 }
 
 .menu-btn:disabled,
@@ -1778,8 +1777,7 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   font: inherit;
   color: var(--palette-milk, #f5f1e8);
   border-radius: 9999px;
-  /* Keep the text/dots pair optically centered; this font sits low in its line box. */
-  padding: 9px 24px 11px;
+  padding: 10px 24px;
   opacity: 1;
   visibility: visible;
   background-color: var(--header-chip-bg);
@@ -1863,18 +1861,11 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   width: max-content;
 }
 
-.menu-btn-label,
-.menu-fab-label {
-  position: relative;
-  z-index: 1;
-  display: block;
-  white-space: nowrap;
-  min-width: max-content;
-  /* Optical vertical center — raw metrics sit a hair low. */
-  transform: translateY(-2px);
-}
-
 .site-nav {
+  /* Fixel's ink sits slightly high inside its line box. Keep one shared
+     optical correction instead of asymmetric padding per control. */
+  --header-text-optical-y: 1px;
+
   /* Between nav and lead — lead was too large for the chip row */
   font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
   font-weight: 400;
@@ -1899,12 +1890,14 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
 .nav-link__label {
   position: relative;
   z-index: 1;
+  transform: translateY(var(--header-text-optical-y));
 }
 
 .nav-link__comma {
   position: relative;
   z-index: 1;
   margin-left: 0.02em;
+  transform: translateY(var(--header-text-optical-y));
 }
 
 @media (prefers-reduced-motion: reduce) {

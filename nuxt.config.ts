@@ -44,13 +44,34 @@ export default defineNuxtConfig({
   },
 
   fonts: {
+    // The site is fully self-hosted: avoid provider metadata requests during builds.
+    providers: {
+      adobe: false,
+      bunny: false,
+      fontshare: false,
+      fontsource: false,
+      google: false,
+      googleicons: false,
+      npm: false,
+    },
     families: [
       {
-        name: 'Outfit',
-        provider: 'google',
+        name: 'Fixel Text',
+        provider: 'local',
         weights: [300, 400, 500, 600, 700],
+        styles: ['normal'],
         display: 'swap',
-        subsets: ['latin', 'latin-ext'],
+        // The local WOFF2 files contain both extended Latin and Cyrillic.
+        // `latin` is only the local provider's filename lookup key.
+        subsets: ['latin'],
+      },
+      {
+        name: 'Fixel Display',
+        provider: 'local',
+        weights: [300, 400, 500, 600, 700],
+        styles: ['normal'],
+        display: 'swap',
+        subsets: ['latin'],
       },
     ],
   },

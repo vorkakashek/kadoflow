@@ -207,39 +207,46 @@ async function setupDetailReveals() {
   const root = detailContentEl.value?.parentElement
   if (!root || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
-  const targets = Array.from(root.querySelectorAll<HTMLElement>([
+  const textTargets = Array.from(root.querySelectorAll<HTMLElement>([
     '.case-detail__hero h1',
     '.case-detail__meta',
-    '.case-detail__media',
     '.audience-case > h2',
     '.audience-case__copy > p',
-    '.audience-case__media-pair .audience-case__wave-media',
-    '.audience-case__media-wide',
-    '.audience-case__menu-lead-media',
     '.audience-case__menu-lead > p',
     '.audience-case__menu-secondary',
-    '.audience-case__mosaic-media',
-    '.audience-case__media-full',
     '.audience-case__motion-secondary',
-    '.audience-case__motion-pair',
+    '.audience-case__statement',
     '.audience-case__lede',
-    '.audience-case__admin-media .audience-case__responsive-picture',
     '.audience-case--final p',
-    '.audience-case__closing-media',
     '.project-story > h2',
-    '.project-story__copy',
-    '.project-story__media',
+    '.project-story__copy > p',
     '.project-story__statement',
     '.case-disclosure',
     '.project-story--final p',
-    '.project-story__closing-media',
   ].join(','))).filter((target) =>
     // The complete first screen is already staged by the detail entry
     // transition on every case. A second scroll reveal here makes the opening
     // media jump as its parallax begins.
     !target.closest('.case-detail__first-screen'),
   )
-  if (!targets.length) return
+  const mediaTargets = Array.from(root.querySelectorAll<HTMLElement>([
+    '.case-detail__media',
+    '.audience-case__media-pair .audience-case__wave-media',
+    '.audience-case__media-wide',
+    '.audience-case__menu-lead-media',
+    '.audience-case__mosaic-media',
+    '.audience-case__media-full',
+    '.audience-case__motion-pair > img',
+    '.audience-case__motion-pair .case-autoplay-video',
+    '.audience-case__admin-media .audience-case__responsive-picture',
+    '.audience-case__closing-media',
+    '.project-story__media img',
+    '.project-story__media .case-autoplay-video',
+    '.project-story__closing-media',
+  ].join(','))).filter((target) =>
+    !target.closest('.case-detail__first-screen'),
+  )
+  if (!textTargets.length && !mediaTargets.length) return
 
   const gsap = (await import('gsap')).default
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
@@ -247,20 +254,36 @@ async function setupDetailReveals() {
 
   detailRevealCtx?.revert()
   detailRevealCtx = gsap.context(() => {
-    targets.forEach((target) => {
+    const addReveal = (target: HTMLElement, media: boolean) => {
       // The shared media shader must not replace a target while GSAP owns its
-      // opacity and 3D transform during the scroll reveal/leave corridor.
+      // opacity or transform during the scroll reveal/leave corridor.
       target.dataset.caseReveal = ''
+      const enterY = media ? 4 : 7
+      const leaveY = media ? -4 : -7
       gsap.fromTo(target,
-        {
+        media ? {
           autoAlpha: 0,
-          yPercent: 9,
-          scale: 0.94,
-          rotationX: 7,
+          yPercent: enterY,
+        } : {
+          autoAlpha: 0,
+          yPercent: enterY,
+          scale: 0.975,
+          rotationX: 3,
           transformOrigin: '50% 0%',
-          transformPerspective: 1200,
+          transformPerspective: 1000,
         },
-        {
+        media ? {
+          autoAlpha: 1,
+          yPercent: 0,
+          ease: 'none',
+          scrollTrigger: {
+            trigger: target,
+            start: 'top 96%',
+            end: 'top 84%',
+            scrub: 0.65,
+            invalidateOnRefresh: true,
+          },
+        } : {
           autoAlpha: 1,
           yPercent: 0,
           scale: 1,
@@ -277,19 +300,34 @@ async function setupDetailReveals() {
       )
 
       gsap.fromTo(target,
-        {
+        media ? {
+          autoAlpha: 1,
+          yPercent: 0,
+        } : {
           autoAlpha: 1,
           yPercent: 0,
           scale: 1,
           rotationX: 0,
         },
-        {
+        media ? {
           autoAlpha: 0,
-          yPercent: -9,
-          scale: 0.94,
-          rotationX: -7,
+          yPercent: leaveY,
+          ease: 'none',
+          immediateRender: false,
+          scrollTrigger: {
+            trigger: target,
+            start: 'bottom 25%',
+            end: 'bottom top',
+            scrub: 0.65,
+            invalidateOnRefresh: true,
+          },
+        } : {
+          autoAlpha: 0,
+          yPercent: leaveY,
+          scale: 0.975,
+          rotationX: -3,
           transformOrigin: '50% 100%',
-          transformPerspective: 1200,
+          transformPerspective: 1000,
           ease: 'none',
           immediateRender: false,
           scrollTrigger: {
@@ -301,7 +339,10 @@ async function setupDetailReveals() {
           },
         },
       )
-    })
+    }
+
+    textTargets.forEach(target => addReveal(target, false))
+    mediaTargets.forEach(target => addReveal(target, true))
   }, root)
 }
 

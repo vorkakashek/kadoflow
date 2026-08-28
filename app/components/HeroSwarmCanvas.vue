@@ -2311,7 +2311,10 @@ async function bootScene() {
 
 .motion-intro__text {
   max-width: 18rem;
-  font: 400 clamp(1rem, 4.2vw, 1.2rem)/1.35 "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
+  font-size: clamp(1rem, 4.2vw, 1.2rem);
+  font-weight: 400;
+  line-height: 1.35;
   letter-spacing: -0.01em;
   text-align: center;
   text-wrap: balance;

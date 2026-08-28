@@ -242,6 +242,8 @@ let simulationAccumulator = 0
 let stopTransitionWatch: (() => void) | null = null
 let textureWarmupIdle = 0
 let rendererWarmupIdle = 0
+let scrollIdleTimer = 0
+let scrolling = false
 let mediaWarmupObserver: IntersectionObserver | null = null
 const textureWarmupQueue: WaveMedia[] = []
 const queuedTextureWarmups = new Set<WaveMedia>()
@@ -430,6 +432,36 @@ function selectMediaTexture(media: WaveMedia) {
   return true
 }
 
+function drainTextureWarmupQueue() {
+  if (textureWarmupIdle || scrolling || !textureWarmupQueue.length) return
+  const upload = () => {
+    textureWarmupIdle = 0
+    // requestIdleCallback may have been queued just before scrolling began.
+    // Keep the raster in the queue until the scroll/reveal corridor settles so
+    // a GPU upload cannot compete with a large image entering the compositor.
+    if (scrolling) return
+    const candidate = textureWarmupQueue.shift()
+    if (!candidate) return
+    queuedTextureWarmups.delete(candidate)
+    if (candidate.isConnected && textureFactory && gl && isMediaReady(candidate)) {
+      const key = textureKey(candidate)
+      if (!textureCache.has(key)) {
+        const texture = textureFactory(candidate)
+        // Force the raster upload outside pointer and active scroll frames so
+        // the first real hover only swaps a uniform.
+        texture.update(0)
+        textureCache.set(key, { texture, lastUsed: performance.now() - 1 })
+        trimTextureCache(key)
+      }
+    }
+    drainTextureWarmupQueue()
+  }
+
+  textureWarmupIdle = window.requestIdleCallback
+    ? window.requestIdleCallback(upload, { timeout: 1200 })
+    : window.setTimeout(upload, 32)
+}
+
 function enqueueTextureWarmup(media: WaveMedia) {
   const key = textureKey(media)
   if (
@@ -440,34 +472,7 @@ function enqueueTextureWarmup(media: WaveMedia) {
   ) return
   queuedTextureWarmups.add(media)
   textureWarmupQueue.push(media)
-
-  const warmNext = () => {
-    if (textureWarmupIdle || !textureWarmupQueue.length) return
-    const upload = () => {
-      textureWarmupIdle = 0
-      const candidate = textureWarmupQueue.shift()
-      if (!candidate) return
-      queuedTextureWarmups.delete(candidate)
-      if (candidate.isConnected && textureFactory && gl && isMediaReady(candidate)) {
-        const key = textureKey(candidate)
-        if (!textureCache.has(key)) {
-          const texture = textureFactory(candidate)
-          // Force the raster upload during idle time. Without this call OGL
-          // performs it on the first hover render, which can stall scrolling.
-          texture.update(0)
-          textureCache.set(key, { texture, lastUsed: performance.now() - 1 })
-          trimTextureCache(key)
-        }
-      }
-      warmNext()
-    }
-
-    textureWarmupIdle = window.requestIdleCallback
-      ? window.requestIdleCallback(upload)
-      : window.setTimeout(upload, 32)
-  }
-
-  warmNext()
+  drainTextureWarmupQueue()
 }
 
 function scheduleNearbyTextureWarmup(media: WaveMedia) {
@@ -1169,6 +1174,13 @@ function handleResize() {
 function handleScroll() {
   // Geometry is refreshed by the next animation frame. Never call setSize()
   // here: resizing the WebGL drawing buffer on every scroll event stalls GPU.
+  scrolling = true
+  if (scrollIdleTimer) window.clearTimeout(scrollIdleTimer)
+  scrollIdleTimer = window.setTimeout(() => {
+    scrollIdleTimer = 0
+    scrolling = false
+    drainTextureWarmupQueue()
+  }, 140)
   requestRender()
 }
 
@@ -1191,6 +1203,9 @@ function destroyRenderer() {
   if (rendererWarmupIdle && window.cancelIdleCallback) window.cancelIdleCallback(rendererWarmupIdle)
   else if (rendererWarmupIdle) window.clearTimeout(rendererWarmupIdle)
   rendererWarmupIdle = 0
+  if (scrollIdleTimer) window.clearTimeout(scrollIdleTimer)
+  scrollIdleTimer = 0
+  scrolling = false
   mediaWarmupObserver?.disconnect()
   mediaWarmupObserver = null
   textureWarmupQueue.length = 0

@@ -3,7 +3,8 @@
 @import "./fluid.generated.css";
 
 @theme {
-  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Fixel Text", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fixel Display", "Fixel Text", ui-sans-serif, system-ui, sans-serif;
 
   --color-milk: var(--palette-milk);
   --color-porcelain: var(--palette-porcelain);
@@ -117,6 +118,7 @@
   h4,
   h5,
   h6 {
+    font-family: var(--font-display);
     font-size: inherit;
     font-weight: inherit;
   }
