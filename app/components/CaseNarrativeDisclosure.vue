@@ -100,7 +100,7 @@ function handleTransition(event: TransitionEvent) {
   width: 3rem;
   height: 3rem;
   margin-top: var(--space-4);
-  padding-bottom: 0.12rem;
+  padding: 0;
   border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
   border-radius: 999px;
   font-size: calc((var(--type-nav) + var(--type-lead)) * 0.5);
@@ -124,7 +124,7 @@ function handleTransition(event: TransitionEvent) {
 
 .case-disclosure[aria-expanded='true']:hover .case-disclosure__pill,
 .case-disclosure[aria-expanded='true']:focus-visible .case-disclosure__pill {
-  width: 9.6rem;
+  width: 11rem;
 }
 
 .case-disclosure__pill-label {
@@ -138,7 +138,7 @@ function handleTransition(event: TransitionEvent) {
 
 .case-disclosure:hover .case-disclosure__pill-label,
 .case-disclosure:focus-visible .case-disclosure__pill-label {
-  max-width: 6rem;
+  max-width: 7.5rem;
   margin-right: 0.4rem;
   opacity: 1;
   transform: none;
@@ -191,7 +191,11 @@ function handleTransition(event: TransitionEvent) {
 
 @media (max-width: 767.98px) {
   .case-disclosure__title { font-size: clamp(1.875rem, 8vw, 2.25rem); }
-  .case-disclosure__body-inner { grid-template-columns: 1fr; }
+  .case-disclosure__body-inner {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-3);
+  }
+  .case-disclosure__body p { font-size: var(--type-case-body); }
   .case-disclosure__body p:first-child,
   .case-disclosure__body p:last-child,
   .case-disclosure__body p:only-child { grid-column: 1; }

@@ -4,6 +4,8 @@ export type ProjectCaseMedia = {
   shape?: 'wide' | 'landscape' | 'portrait' | 'square'
   type?: 'image' | 'video'
   poster?: string
+  mobileSrc?: string
+  mobilePoster?: string
   webpSrcset?: string
   avifSrcset?: string
   sizes?: string
@@ -83,11 +85,13 @@ const baltikaLabelMedia = baltikaResponsiveMedia(
 )
 
 const baltikaMotionMedia = {
-  src: '/home/cases/baltika/baltika-brew-mobile.mp4',
+  src: '/home/cases/baltika/baltika-motion.mp4',
+  mobileSrc: '/home/cases/baltika/baltika-motion-mobile.mp4',
   alt: 'Балтика Brew — движение 3D-сцены',
   shape: 'square' as const,
   type: 'video' as const,
-  poster: '/home/cases/baltika/baltika-brew-poster.webp',
+  poster: '/home/cases/baltika/baltika-motion-poster.webp',
+  mobilePoster: '/home/cases/baltika/baltika-motion-mobile-poster.webp',
 }
 
 const baltikaDataMedia = {
@@ -113,10 +117,10 @@ const baltikaRouteMedia = [
 ]
 
 const baltikaCollectionMedia = [
-  baltikaResponsiveMedia(4, 'Балтика Brew — продуктовая линейка, первая позиция', 'wide', '(max-width: 767.98px) 82vw, 38vw'),
-  baltikaResponsiveMedia(5, 'Балтика Brew — продуктовая линейка, вторая позиция', 'landscape', '(max-width: 767.98px) 82vw, 38vw'),
   baltikaResponsiveMedia(6, 'Балтика Brew — продуктовая линейка, третья позиция', 'wide', '(max-width: 767.98px) 82vw, 38vw'),
+  baltikaResponsiveMedia(5, 'Балтика Brew — продуктовая линейка, вторая позиция', 'landscape', '(max-width: 767.98px) 82vw, 38vw'),
   baltikaResponsiveMedia(7, 'Балтика Brew — продуктовая линейка, четвёртая позиция', 'landscape', '(max-width: 767.98px) 82vw, 38vw'),
+  baltikaResponsiveMedia(4, 'Балтика Brew — продуктовая линейка, первая позиция', 'wide', '(max-width: 767.98px) 82vw, 38vw'),
 ]
 
 const baltikaResponsiveCompositionMedia: ProjectCaseMedia = {
@@ -210,21 +214,19 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
   baltika: {
     summary: 'Как мы спроектировали интерфейс и 3D-систему для продуктового сайта.',
     headerMedia: {
-      src: '/home/cases/baltika/baltika-blender.png',
+      src: '/home/cases/baltika/baltika-detail-header-portrait-640.webp',
       alt: 'Балтика Brew — 3D-модель бутылки в Blender',
-      width: 1920,
-      height: 1140,
+      width: 640,
+      height: 1138,
       webpSrcset: [
-        '/home/cases/baltika/baltika-detail-header-480.webp 480w',
-        '/home/cases/baltika/baltika-detail-header-960.webp 960w',
-        '/home/cases/baltika/baltika-detail-header-1440.webp 1440w',
-        '/home/cases/baltika/baltika-detail-header-1920.webp 1920w',
+        '/home/cases/baltika/baltika-detail-header-portrait-320.webp 320w',
+        '/home/cases/baltika/baltika-detail-header-portrait-480.webp 480w',
+        '/home/cases/baltika/baltika-detail-header-portrait-640.webp 640w',
       ].join(', '),
       avifSrcset: [
-        '/home/cases/baltika/baltika-detail-header-480.avif 480w',
-        '/home/cases/baltika/baltika-detail-header-960.avif 960w',
-        '/home/cases/baltika/baltika-detail-header-1440.avif 1440w',
-        '/home/cases/baltika/baltika-detail-header-1920.avif 1920w',
+        '/home/cases/baltika/baltika-detail-header-portrait-320.avif 320w',
+        '/home/cases/baltika/baltika-detail-header-portrait-480.avif 480w',
+        '/home/cases/baltika/baltika-detail-header-portrait-640.avif 640w',
       ].join(', '),
     },
     sections: [
@@ -233,9 +235,9 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         layout: 'intro',
         title: 'Задача и объект<br>проектирования.',
         paragraphs: [
-          'В целях соблюдения требований законодательства Российской Федерации отдельные элементы изображений и макетов в этом кейсе скрыты или заменены нейтральными.',
           'В рамках проекта для «Балтика Brew» мы разработали структуру продуктового сайта, визуальную концепцию и набор 3D-сцен. Кейс фиксирует решения команды и этапы производства цифрового продукта.',
           'Основным графическим объектом стала модель бутылки. Она использовалась для демонстрации принципов композиции, работы с материалами и поведения интерфейса на разных экранах.',
+          'В целях соблюдения требований законодательства Российской Федерации отдельные элементы изображений и макетов в этом кейсе скрыты или заменены нейтральными.',
         ],
         media: [baltikaObjectMedia, baltikaObjectDetailMedia],
       },
@@ -277,7 +279,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
       {
         id: 'baltika-route',
         layout: 'split',
-        title: 'Редакционные и<br>справочные разделы.',
+        title: 'Редакционные<br>и справочные<br>разделы.',
         paragraphs: ['Новости, материалы о производстве и справочный раздел с перечнем мест продаж объединены общей навигацией. В кейсе этот блок рассматривается только как часть информационной архитектуры сайта.'],
         media: baltikaRouteMedia,
       },

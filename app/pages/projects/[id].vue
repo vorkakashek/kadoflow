@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowUpRight } from '@phosphor-icons/vue'
+import { PhArrowUp, PhArrowUpRight } from '@phosphor-icons/vue'
 import { homeCases } from '~/utils/homeCases'
 import { projectCaseDetails } from '~/utils/projectCaseDetails'
 import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
@@ -35,6 +35,11 @@ const nextItem = computed(() => {
 })
 const projectDetail = computed(() => item.value ? projectCaseDetails[item.value.id] : undefined)
 const headerMedia = computed(() => projectDetail.value?.headerMedia ?? item.value?.media)
+
+function scrollCaseToTop() {
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  window.scrollTo({ top: 0, left: 0, behavior: reducedMotion ? 'auto' : 'smooth' })
+}
 
 let mediaParallaxCtx: { revert: () => void } | null = null
 let headerScrollCtx: { revert: () => void } | null = null
@@ -558,12 +563,21 @@ useHead(() => ({
       :class="{
         'case-detail--inverse': item.inverse,
         'case-detail--audience': item.id === 'audience',
+        'case-detail--baltika': item.id === 'baltika',
         'case-detail--schmidt': item.id === 'schmidt',
         'case-detail--entering': !detailContentVisible,
       }"
       :style="{ backgroundColor: item.wash }"
     >
       <CaseMediaWaveLayer />
+      <button
+        type="button"
+        class="case-detail__scroll-top"
+        aria-label="Наверх"
+        @click="scrollCaseToTop"
+      >
+        <PhArrowUp :size="22" aria-hidden="true" />
+      </button>
       <div ref="detailContentEl" class="case-detail__inner">
       <div ref="firstScreenEl" class="case-detail__first-screen">
         <section ref="titleFrameEl" class="case-detail__hero">
@@ -771,13 +785,21 @@ useHead(() => ({
                   <img class="audience-case__menu-image--primary" src="/home/cases/audience/audience-menu-primary-960.webp" width="1488" height="2159" alt="Audience — раздел меню" loading="lazy" decoding="async">
                 </picture>
                 <div class="audience-case__menu-media-stack">
-                  <img class="audience-case__mosaic-media" src="/home/cases/audience/audience-img.webp" alt="Audience — категория меню" loading="lazy">
+                  <picture class="audience-case__mosaic-picture">
+                    <source type="image/avif" srcset="/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w" sizes="50vw">
+                    <source type="image/webp" srcset="/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w" sizes="50vw">
+                    <img class="audience-case__mosaic-media" src="/home/cases/audience/audience-img-960.webp" width="1856" height="2304" alt="Audience — категория меню" loading="lazy" decoding="async">
+                  </picture>
                   <p class="audience-case__statement audience-case__statement--menu">Главная UX-задача — сохранить объём материалов и при этом сделать структуру понятной.</p>
                 </div>
               </div>
               <div class="audience-case__menu-media-pair audience-case__menu-media-pair--bottom">
                 <div class="audience-case__menu-media-stack audience-case__menu-media-stack--bottom">
-                  <img class="audience-case__mosaic-media" src="/home/cases/audience/audience-img.webp" alt="Audience — карточка позиции" loading="lazy">
+                  <picture class="audience-case__mosaic-picture">
+                    <source type="image/avif" srcset="/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w" sizes="50vw">
+                    <source type="image/webp" srcset="/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w" sizes="50vw">
+                    <img class="audience-case__mosaic-media" src="/home/cases/audience/audience-img-960.webp" width="1856" height="2304" alt="Audience — карточка позиции" loading="lazy" decoding="async">
+                  </picture>
                   <p class="audience-case__statement audience-case__statement--menu">Информационная архитектура и система категорий работают по единым правилам.</p>
                 </div>
                 <picture class="audience-case__responsive-picture audience-case__responsive-picture--menu-details audience-case__mosaic-media">
@@ -792,7 +814,14 @@ useHead(() => ({
           <section class="audience-case audience-case--motion">
             <h2>Движение как часть<br>навигации.</h2>
             <p ref="audienceMotionSecondaryEl" class="audience-case__motion-secondary case-text-fill">Анимации связывают экраны, обозначают переходы между разделами и поддерживают порядок чтения без лишней демонстративности.</p>
-            <img class="audience-case__media-full" src="/home/cases/audience/audience-img.webp" alt="Audience — анимации на сайте" loading="lazy">
+            <CaseAutoplayVideo
+              class="audience-case__media-full"
+              src="/home/cases/audience/audience-vid-1.mp4"
+              mobile-src="/home/cases/audience/audience-vid-1-mobile.mp4"
+              poster="/home/cases/audience/audience-vid-1-poster.webp"
+              mobile-poster="/home/cases/audience/audience-vid-1-mobile-poster.webp"
+              alt="Audience — анимации на сайте"
+            />
           </section>
 
           <section class="audience-case audience-case--live">
@@ -842,13 +871,15 @@ useHead(() => ({
               v-if="section.media.length > 1"
               class="project-story__media"
               :class="[`project-story__media--${section.media.length}`, 'project-story__media--scroll']"
-              :desktop-scroll-speed="section.id === 'baltika-collection' ? 1.28 : 1"
+              :desktop-grab-speed="section.id === 'baltika-collection' ? 1.28 : 1"
             >
               <template v-for="media in section.media" :key="`${section.id}-${media.src}-${media.alt}`">
                 <CaseAutoplayVideo
                   v-if="media.type === 'video'"
                   :src="media.src"
+                  :mobile-src="media.mobileSrc"
                   :poster="media.poster"
+                  :mobile-poster="media.mobilePoster"
                   :alt="media.alt"
                   :class="`project-story__image--${media.shape ?? 'wide'}`"
                 />
@@ -875,7 +906,9 @@ useHead(() => ({
                 <CaseAutoplayVideo
                   v-if="media.type === 'video'"
                   :src="media.src"
+                  :mobile-src="media.mobileSrc"
                   :poster="media.poster"
+                  :mobile-poster="media.mobilePoster"
                   :alt="media.alt"
                   :class="`project-story__image--${media.shape ?? 'wide'}`"
                 />
@@ -906,12 +939,18 @@ useHead(() => ({
         v-if="item.id === 'audience'"
         class="audience-case__closing-media"
       >
-        <img
-          src="/home/cases/audience/audience-img.webp"
-          alt="Audience — цифровая атмосфера проекта"
-          loading="lazy"
-          decoding="async"
-        >
+        <picture>
+          <source type="image/avif" srcset="/home/cases/audience/audience-end-480.avif 480w, /home/cases/audience/audience-end-960.avif 960w, /home/cases/audience/audience-end-1440.avif 1440w, /home/cases/audience/audience-end-1920.avif 1920w" sizes="100vw">
+          <source type="image/webp" srcset="/home/cases/audience/audience-end-480.webp 480w, /home/cases/audience/audience-end-960.webp 960w, /home/cases/audience/audience-end-1440.webp 1440w, /home/cases/audience/audience-end-1920.webp 1920w" sizes="100vw">
+          <img
+            src="/home/cases/audience/audience-end-960.webp"
+            width="2080"
+            height="1234"
+            alt="Audience — цифровая атмосфера проекта"
+            loading="lazy"
+            decoding="async"
+          >
+        </picture>
       </figure>
       <figure
         v-else-if="projectDetail"
@@ -967,6 +1006,40 @@ useHead(() => ({
   padding-bottom: var(--space-section);
 }
 
+.case-detail__scroll-top {
+  position: fixed;
+  left: calc(2 * var(--layout-margin) + var(--safe-left, 0px));
+  bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
+  z-index: 110;
+  display: grid;
+  box-sizing: border-box;
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  place-items: center;
+  appearance: none;
+  color: inherit;
+  background-color: color-mix(in srgb, currentColor 30%, transparent);
+  cursor: pointer;
+  transition:
+    background-color 260ms ease,
+    transform 260ms var(--motion-ease, ease);
+}
+
+.case-detail__scroll-top:hover,
+.case-detail__scroll-top:focus-visible {
+  background-color: color-mix(in srgb, currentColor 42%, transparent);
+  transform: translateY(-2px);
+}
+
+.case-detail__scroll-top:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
 .case-detail__first-screen {
   --case-header-travel: 0px;
   --case-header-shift: 0px;
@@ -1005,6 +1078,7 @@ useHead(() => ({
 .case-detail__meta-motion {
   display: grid;
   gap: var(--space-3);
+  padding-top: var(--space-3);
 }
 
 @media (min-width: 768px) {
@@ -1039,6 +1113,10 @@ useHead(() => ({
 
   .case-detail__media {
     grid-column: 1 / -1;
+  }
+
+  .case-detail--baltika .case-detail__media {
+    grid-column: 4 / span 6;
   }
 
 }
@@ -1108,13 +1186,6 @@ h1 {
 }
 
 @media (max-width: 767.98px) {
-  .case-detail--audience .case-detail__inner {
-    /* The compact first screen otherwise ends before Audience can complete
-       the same masked image travel used on desktop. Keep touch scrolling
-       native and provide one stable viewport of runway after the frame. */
-    padding-bottom: var(--app-screen);
-  }
-
   .case-detail--audience .case-detail__media--audience {
     aspect-ratio: 4 / 5;
   }
@@ -1134,7 +1205,7 @@ h1 {
   }
 
   h1 {
-    font-size: var(--type-hero);
+    font-size: calc(var(--type-hero) * 1.2);
   }
 
   .case-detail__content {
@@ -1142,6 +1213,7 @@ h1 {
     min-height: 0;
     flex: 1;
     flex-direction: column;
+    gap: calc(var(--space-4) * 0.5);
     padding-top: 0;
   }
 
@@ -1161,7 +1233,7 @@ h1 {
   }
 
   .case-detail__media {
-    margin-top: auto;
+    margin-top: 0;
     margin-bottom: 0;
   }
 
@@ -1197,6 +1269,10 @@ h1 {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
+}
+
+.case-detail--baltika .case-detail__image {
+  aspect-ratio: 9 / 16;
 }
 
 .case-detail__media--audience .case-detail__image {
@@ -1417,6 +1493,19 @@ h1 {
   aspect-ratio: 1;
 }
 
+/* Keep Baltika's supplied landscape/portrait compositions intact. */
+.project-story--baltika-motion .project-story__media :deep(.case-autoplay-video) {
+  aspect-ratio: 16 / 9;
+  background-color: #e2dbcf;
+}
+
+.project-story--baltika-motion .project-story__media :deep(.case-autoplay-video__poster),
+.project-story--baltika-motion .project-story__media :deep(video) {
+  height: 100%;
+  background-color: #e2dbcf;
+  object-fit: cover;
+}
+
 .project-story--split > h2 { grid-column: 1 / span 7; }
 .project-story--split .project-story__copy {
   grid-column: 8 / -1;
@@ -1503,6 +1592,36 @@ h1 {
 .project-story--baltika-object .project-story__copy { grid-column: 6 / -2; }
 
 @media (min-width: 768px) {
+  .project-story--baltika-motion .project-story__media {
+    grid-column: 2 / -2;
+  }
+
+  .project-story--baltika-motion .project-story__media :deep(.case-autoplay-video) {
+    width: 100%;
+    max-width: none;
+  }
+
+  .project-story--baltika-object .project-story__copy {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--layout-gutter);
+    row-gap: var(--space-4);
+  }
+
+  .project-story--baltika-object .project-story__copy p:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .project-story--baltika-object .project-story__copy p:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .project-story--baltika-object .project-story__copy p:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
   .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content) {
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
     align-items: start;
@@ -1527,12 +1646,26 @@ h1 {
   }
 }
 
-.project-story--baltika-route > h2 { grid-column: 2 / span 7; }
+.project-story--baltika-route > h2 {
+  grid-column: 1 / -1;
+  max-width: none;
+  white-space: nowrap;
+}
 .project-story--baltika-route .project-story__copy { grid-column: 8 / -2; }
-.project-story--baltika-route .project-story__media { grid-column: 2 / -2; }
+.project-story--baltika-route .project-story__media {
+  grid-column: 2 / -2;
+  margin-top: calc(var(--space-5) * -0.5);
+}
 
 .project-story--disclosure {
   row-gap: var(--space-6);
+}
+
+/* These previews follow closed disclosures directly, so they need a tighter
+   visual handoff than the other expandable sections. */
+.project-story.project-story--baltika-data,
+.project-story.project-story--baltika-responsive {
+  row-gap: calc(var(--space-6) * 0.25);
 }
 
 .project-story--disclosure > :deep(.case-disclosure) {
@@ -1561,6 +1694,7 @@ h1 {
   letter-spacing: -0.01em;
   line-height: 1.04;
   text-align: center;
+  opacity: 0.7;
 }
 
 .project-story--final {
@@ -1815,14 +1949,19 @@ h1 {
   margin-top: 100%;
 }
 
-.audience-case__menu-media-stack img {
+.audience-case__mosaic-picture {
   grid-column: 1 / -1;
   aspect-ratio: 16 / 10;
+  overflow: hidden;
+}
+
+.audience-case__mosaic-picture img {
+  height: 100%;
 }
 
 .audience-case__menu-media-stack .audience-case__statement { grid-column: 2 / -2; }
 .audience-case__menu-media-stack--bottom { margin-top: 8%; }
-.audience-case__menu-media-stack--bottom img { aspect-ratio: 16 / 11; }
+.audience-case__menu-media-stack--bottom .audience-case__mosaic-picture { aspect-ratio: 16 / 11; }
 .audience-case__responsive-picture--menu-details {
   aspect-ratio: 4 / 5;
   margin-top: 16%;
@@ -1835,6 +1974,7 @@ h1 {
   letter-spacing: -0.01em;
   line-height: 1.28;
   text-align: left;
+  opacity: 0.7;
 }
 
 .audience-case__statement--menu {
@@ -1917,6 +2057,24 @@ h1 {
   font-size: clamp(2.2rem, 5vw, 6.2rem);
 }
 
+@media (min-width: 768px) and (max-width: 1279.98px) {
+  .case-detail__hero h1 {
+    font-size: clamp(2.4rem, 6.4vw, 6.4rem);
+  }
+}
+
+@media (max-width: 1279.98px) {
+  .audience-case__copy--split {
+    grid-column: 1 / span 6;
+  }
+
+  .audience-case--motion > .audience-case__motion-secondary,
+  .project-story--final p.case-text-fill,
+  .audience-case--final p.case-text-fill {
+    grid-column: 2 / -2;
+  }
+}
+
 .audience-case__closing-media {
   width: 100%;
   height: calc(75svh - 40px);
@@ -1925,10 +2083,14 @@ h1 {
   overflow: hidden;
 }
 
+.audience-case__closing-media picture,
 .audience-case__closing-media img {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.audience-case__closing-media img {
   object-fit: cover;
 }
 
@@ -1971,6 +2133,19 @@ h1 {
     row-gap: var(--space-5);
     margin-top: var(--space-section);
   }
+  .project-story > h2 + .project-story__copy {
+    margin-top: calc(var(--space-7) - var(--space-5));
+  }
+  .project-story--baltika-collection > h2 + .project-story__copy,
+  .project-story--baltika-motion > h2 + .project-story__copy,
+  .project-story--baltika-route > h2 + .project-story__copy {
+    margin-top: calc(var(--space-5) * -0.5);
+  }
+  .project-story.project-story--disclosure {
+    row-gap: calc(var(--space-5) * 0.5);
+  }
+  .project-story.project-story--baltika-data,
+  .project-story.project-story--baltika-responsive { row-gap: calc(var(--space-5) * 0.25); }
   .project-story > h2,
   .project-story__copy,
   .project-story--intro > h2,
@@ -2002,9 +2177,11 @@ h1 {
   .project-story--feature .project-story__media img,
   .project-story--disclosure .project-story__media img { aspect-ratio: 4 / 5; }
   .project-story--feature .project-story__media :deep(.case-autoplay-video) { aspect-ratio: 1; }
+  .project-story--baltika-motion .project-story__media :deep(.case-autoplay-video) { aspect-ratio: 1; }
+  .project-story--baltika-motion .project-story__media :deep(video) { object-fit: cover; }
   .project-story--baltika-label .project-story__media img { aspect-ratio: 4 / 3; }
-  .project-story p.project-story__statement { margin-top: var(--space-6); margin-bottom: 0; text-align: center; }
-  .project-story--final { min-height: 0; margin: var(--space-7) 0 var(--space-6); }
+  .project-story p.project-story__statement { margin-top: var(--space-2); margin-bottom: 0; text-align: center; }
+  .project-story--final { min-height: 0; margin: var(--space-6) 0; }
   .project-story--schmidt-horizontal .project-story__statement { margin-top: var(--space-5); }
   .project-story--schmidt-production .project-story__statement { margin-top: var(--space-4); }
   .project-story--keys-system .project-story__statement,
@@ -2030,7 +2207,7 @@ h1 {
   .audience-case__media-mosaic,
   .audience-case__statement { grid-column: 1; }
   .audience-case p.audience-case__menu-secondary { margin-top: var(--space-7); margin-bottom: var(--space-7); }
-  .audience-case p.audience-case__motion-secondary { margin-top: var(--space-5); margin-bottom: var(--space-5); }
+  .audience-case p.audience-case__motion-secondary { margin-top: var(--space-5); margin-bottom: calc(var(--space-5) * 0.5); }
   .audience-case--motion > .audience-case__motion-secondary { grid-column: 1; }
   .audience-case__menu-lead-media,
   .audience-case__menu-lead p { grid-column: 1; }
@@ -2053,55 +2230,79 @@ h1 {
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content) {
+    --case-rail-mobile-media-height: min(62svh, 72vw);
     display: flex;
     width: max-content;
+    align-items: flex-start;
     gap: var(--space-1);
   }
   .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
-  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > img),
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture),
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > .case-autoplay-video),
+  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > picture),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > .audience-case__responsive-picture) {
-    flex: 0 0 calc(100vw - var(--layout-margin));
-    width: calc(100vw - var(--layout-margin));
+    flex: 0 0 auto;
+    width: auto;
+    height: var(--case-rail-mobile-media-height);
     margin-top: 0;
+  }
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture) {
+    display: block;
+  }
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture > img),
+  .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > picture > img),
+  .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
+  .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > .audience-case__responsive-picture > img) {
+    width: auto;
+    max-width: none;
+    height: 100%;
+    margin-top: 0;
+    object-fit: contain;
+  }
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
+  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture > img) {
+    aspect-ratio: auto !important;
   }
   .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content) {
     gap: calc(var(--space-1) * 0.25);
-  }
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content img) {
-    width: auto;
-    max-width: none;
-    height: min(62svh, 72vw);
-    flex: 0 0 auto;
-    margin-top: 0;
-  }
-  .audience-case__wave-media {
-    flex: 0 0 calc(100vw - var(--layout-margin));
-    width: calc(100vw - var(--layout-margin));
-    margin-top: 0;
   }
   .project-story__media--scroll :deep(.case-horizontal-rail__bar),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__bar),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__bar),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__bar) {
-    width: 100vw;
-    margin-inline: calc(50% - 50vw);
+    width: 80vw;
+    margin-inline: calc(50% - 40vw);
   }
   .audience-case__menu-media-pair { gap: var(--space-1); }
   .audience-case__menu-media-pair .audience-case__menu-media-stack { display: contents; }
   .audience-case__menu-media-pair--top .audience-case__responsive-picture--menu-primary { grid-column: 1; grid-row: 1; }
-  .audience-case__menu-media-pair--top .audience-case__menu-media-stack img { grid-column: 2; grid-row: 1; margin-top: 100%; }
-  .audience-case__menu-media-pair--bottom .audience-case__menu-media-stack img { grid-column: 1; grid-row: 1; margin-top: 8%; }
+  .audience-case__menu-media-pair--top .audience-case__menu-media-stack .audience-case__mosaic-picture { grid-column: 2; grid-row: 1; margin-top: 100%; }
+  .audience-case__menu-media-pair--bottom .audience-case__menu-media-stack .audience-case__mosaic-picture { grid-column: 1; grid-row: 1; margin-top: 8%; }
   .audience-case__menu-media-pair--bottom .audience-case__responsive-picture--menu-details { grid-column: 2; grid-row: 1; }
   .audience-case__menu-media-pair .audience-case__statement--menu {
     grid-column: 1 / -1;
     grid-row: 2;
-    width: 100%;
-    max-width: none;
+    width: 80%;
+    max-width: var(--layout-span-8);
     margin: var(--space-2) 0 0;
   }
+  .audience-case__copy--split {
+    margin-top: var(--space-6);
+  }
+  .audience-case__menu-lead {
+    margin-top: calc(var(--space-6) * 0.5);
+  }
+  .audience-case--motion + .audience-case {
+    margin-top: calc(var(--space-section) * 0.5);
+  }
   .audience-case--motion .audience-case__lede { width: 100%; }
-  .audience-case--live .audience-case__lede { width: 100%; }
+  .audience-case--live .audience-case__lede {
+    width: 100%;
+    margin-inline: 0;
+    text-align: left;
+  }
   .audience-case--final {
     grid-template-columns: 1fr;
   }
@@ -2109,10 +2310,24 @@ h1 {
   .project-story p.case-text-fill,
   .audience-case p.case-text-fill,
   .audience-case div.case-text-fill { grid-column: 1; }
+  .project-story__copy p,
+  .audience-case__copy p,
+  .audience-case__menu-lead p,
+  .audience-case__statement,
+  .audience-case__lede {
+    font-size: var(--type-case-body);
+  }
+  .project-story--final p.case-text-fill,
+  .audience-case--final p.case-text-fill {
+    font-size: clamp(1.875rem, 4.5vw, 5.4rem);
+  }
   .audience-case__closing-media { min-height: calc(18rem - 40px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .case-detail__scroll-top {
+    transition: none;
+  }
   h1,
   .case-detail__meta,
   .case-detail__media {

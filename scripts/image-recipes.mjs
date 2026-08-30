@@ -33,6 +33,11 @@ export const imageRecipes = [
     widths: [480, 960, 1440, 1920],
   },
   {
+    source: 'public/home/cases/audience/audience-img.png',
+    outputStem: 'public/home/cases/audience/audience-img',
+    widths: [480, 960, 1440, 1856],
+  },
+  {
     source: 'public/home/cases/audience/case-detail-6.png',
     outputStem: 'public/home/cases/audience/audience-menu-primary',
     widths: [480, 960, 1488],
@@ -53,14 +58,23 @@ export const imageRecipes = [
     widths: [480, 960, 1440],
   },
   {
+    source: 'public/home/cases/audience/case-detail-end.png',
+    outputStem: 'public/home/cases/audience/audience-end',
+    widths: [480, 960, 1440, 1920],
+  },
+  {
     source: 'public/home/cases/baltika/baltika-cover.png',
     outputStem: 'public/home/cases/baltika/baltika-cover',
     widths: [480, 960, 1440],
   },
   {
     source: 'public/home/cases/baltika/baltika-blender.png',
-    outputStem: 'public/home/cases/baltika/baltika-detail-header',
-    widths: [480, 960, 1440, 1920],
+    outputStem: 'public/home/cases/baltika/baltika-detail-header-portrait',
+    widths: [320, 480, 640],
+    crop: {
+      aspectRatio: 9 / 16,
+      position: 'centre',
+    },
   },
   ...Array.from({ length: 7 }, (_, index) => {
     const imageNumber = index + 1

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import gsap from 'gsap'
+import { warmCaseDetailRoute } from '~/utils/caseDetailRouteWarmup'
 
 const router = useRouter()
 const { request, active, detailContentVisible } = useCaseDetailTransition()
@@ -20,7 +21,12 @@ function nextPaint() {
 }
 
 /** Keep a newly assigned transition src hidden until its raster can paint. */
-async function waitForImageDecode(image: HTMLImageElement) {
+async function waitForImageDecode(image: HTMLImageElement, rasterAlreadyPainted = false) {
+  // Opening from a visible case card gives us its exact currentSrc. The
+  // browser has already decoded and painted that raster, so another decode()
+  // only inserts a perceptible pause between the click and the first tween.
+  if (rasterAlreadyPainted && image.complete && image.naturalWidth > 0) return
+
   if (!image.complete) {
     await Promise.race([
       new Promise<void>((resolve) => {
@@ -80,14 +86,23 @@ watch(request, async (next) => {
   const image = imageEl.value
   if (!root || !backdrop || !image) return
 
+  // Start resolving the cold route before decoding and staging the transition
+  // image. Scheduled warmups normally finish this earlier; this is the fallback
+  // for an immediate click or direct programmatic open.
+  if (next.direction === 'open') void warmCaseDetailRoute(next.to)
+
   active.value = true
   wash.value = next.wash
-  src.value = next.src
-  webpSrcset.value = next.webpSrcset ?? ''
-  avifSrcset.value = next.avifSrcset ?? ''
+  const proxySrc = next.direction === 'open' ? next.proxySrc : undefined
+  src.value = proxySrc ?? next.src
+  // Keep the opening proxy on the exact candidate that is already visible in
+  // the source card. The destination page loads its own full-size responsive
+  // image underneath the transition.
+  webpSrcset.value = proxySrc ? '' : (next.webpSrcset ?? '')
+  avifSrcset.value = proxySrc ? '' : (next.avifSrcset ?? '')
   alt.value = next.alt
   await nextTick()
-  await waitForImageDecode(image)
+  await waitForImageDecode(image, !!proxySrc)
 
   const viewport = { width: window.innerWidth, height: window.innerHeight }
   gsap.set(root, { opacity: 1 })
@@ -115,9 +130,9 @@ watch(request, async (next) => {
 
   try {
     if (next.direction === 'open' && next.rect) {
-      // Start mounting the detail under the wash immediately. The image keeps
-      // moving while the route resolves, instead of stopping at fullscreen
-      // before its blur-out begins.
+      // Start mounting the detail under the wash immediately. Keep the proxy
+      // fully visible after it reaches fullscreen if a cold route still needs
+      // time; never reveal an empty wash between the two scenes.
       const navigation = router.push(next.to)
       const flight = gsap.timeline()
       flight.to(backdrop, { opacity: 1, duration: 0.18, ease: 'power1.out' }, 0)
@@ -133,22 +148,30 @@ watch(request, async (next) => {
         },
         0,
       )
-      flight.to(
-        image,
-        {
-          opacity: 0,
-          filter: 'blur(20px)',
-          duration: 0.36,
-          ease: 'power2.out',
-        },
-        0.44,
-      )
       await flight
       await navigation
       await nextPaint()
-      await gsap.to(root, { opacity: 0, duration: 0.18, ease: 'power1.out' })
-      // Let the now-uncovered detail start its own staged content timeline.
+
+      // Start the detail entrance while it is still covered. Two painted
+      // frames let CSS transitions leave their hidden pose before the proxy
+      // and wash reveal the new scene together.
       detailContentVisible.value = true
+      await nextPaint()
+
+      const reveal = gsap.timeline()
+      reveal.to(image, {
+        opacity: 0,
+        filter: 'blur(20px)',
+        duration: 0.42,
+        ease: 'power2.out',
+      }, 0)
+      reveal.to(backdrop, {
+        opacity: 0,
+        duration: 0.42,
+        ease: 'power1.out',
+      }, 0)
+      await reveal
+      gsap.set(root, { opacity: 0 })
       return
     }
 

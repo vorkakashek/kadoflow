@@ -24,23 +24,35 @@ async function buildRecipe(recipe) {
   await ensureSource(sourcePath)
 
   const metadata = await sharp(sourcePath).metadata()
-  if (!metadata.width) throw new Error(`Could not read image width: ${recipe.source}`)
+  if (!metadata.width || !metadata.height) throw new Error(`Could not read image dimensions: ${recipe.source}`)
 
   const widths = [...new Set(recipe.widths)].sort((a, b) => a - b)
-  const usableWidths = widths.filter((width) => width <= metadata.width)
-  const skippedWidths = widths.filter((width) => width > metadata.width)
+  const maxWidth = recipe.crop
+    ? Math.floor(Math.min(metadata.width, metadata.height * recipe.crop.aspectRatio))
+    : metadata.width
+  const usableWidths = widths.filter((width) => width <= maxWidth)
+  const skippedWidths = widths.filter((width) => width > maxWidth)
 
   if (skippedWidths.length) {
-    console.warn(`${recipe.source}: skipped upscaling widths ${skippedWidths.join(', ')}px (source is ${metadata.width}px)`)
+    console.warn(`${recipe.source}: skipped upscaling widths ${skippedWidths.join(', ')}px (usable source width is ${maxWidth}px)`)
   }
 
   await Promise.all(usableWidths.flatMap((width) => outputFormats.map(async ({ extension, encode }) => {
     const outputPath = resolve(root, `${recipe.outputStem}-${width}.${extension}`)
     await mkdir(dirname(outputPath), { recursive: true })
+    const resize = recipe.crop
+      ? {
+          width,
+          height: Math.round(width / recipe.crop.aspectRatio),
+          fit: 'cover',
+          position: recipe.crop.position,
+          withoutEnlargement: true,
+        }
+      : { width, withoutEnlargement: true }
     await encode(
       sharp(sourcePath)
         .rotate()
-        .resize({ width, withoutEnlargement: true }),
+        .resize(resize),
     ).toFile(outputPath)
     console.log(`Generated ${recipe.outputStem}-${width}.${extension}`)
   })))

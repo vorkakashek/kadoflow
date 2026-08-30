@@ -1,15 +1,29 @@
 <script setup lang="ts">
 import { homeCaseDetailPath, homeCases, type HomeCase } from '~/utils/homeCases'
+import { warmCaseDetailRoute } from '~/utils/caseDetailRouteWarmup'
 
 const { openCaseDetail } = useCaseDetailTransition()
+
+function warmCaseDetail(item: HomeCase) {
+  void warmCaseDetailRoute(homeCaseDetailPath(item))
+}
+
+onMounted(() => {
+  // Reaching the project catalog is already a strong navigation signal. Warm
+  // the shared detail route immediately; all cards resolve through [id].vue.
+  const firstCase = homeCases[0]
+  if (firstCase) warmCaseDetail(firstCase)
+})
 
 function openCase(item: HomeCase, event: MouseEvent) {
   const cover = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-case-cover]')
   const rect = cover?.getBoundingClientRect()
   if (!rect || rect.width < 2 || rect.height < 2) return
+  const paintedImage = cover?.querySelector<HTMLImageElement>('img')
   event.preventDefault()
   openCaseDetail({
     to: homeCaseDetailPath(item), origin: 'projects', src: item.media.src,
+    proxySrc: paintedImage?.currentSrc || undefined,
     webpSrcset: item.media.webpSrcset, avifSrcset: item.media.avifSrcset,
     alt: item.media.alt, wash: item.wash,
     rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
@@ -25,7 +39,15 @@ function openCase(item: HomeCase, event: MouseEvent) {
       </header>
       <ul class="projects-catalog__grid">
         <li v-for="(item, index) in homeCases" :key="item.id">
-          <a :href="homeCaseDetailPath(item)" class="projects-card" :style="{ backgroundColor: item.wash }" @click="openCase(item, $event)">
+          <a
+            :href="homeCaseDetailPath(item)"
+            class="projects-card"
+            :style="{ backgroundColor: item.wash }"
+            @pointerenter="warmCaseDetail(item)"
+            @focus="warmCaseDetail(item)"
+            @pointerdown="warmCaseDetail(item)"
+            @click="openCase(item, $event)"
+          >
             <div class="projects-card__cover" :data-case-cover="item.media.src">
               <picture>
                 <source v-if="item.media.avifSrcset" type="image/avif" :srcset="item.media.avifSrcset" sizes="(max-width: 767px) 100vw, 50vw">

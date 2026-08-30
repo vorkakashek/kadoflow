@@ -10,6 +10,7 @@ import {
   homeCases,
   type HomeCase,
 } from '~/utils/homeCases'
+import { warmCaseDetailRoute } from '~/utils/caseDetailRouteWarmup'
 import {
   isAppleTouchDevice,
   isCoarsePointer,
@@ -117,10 +118,12 @@ function openCaseDetailFromMedia(item: HomeCase) {
   if (!media) return
   const rect = media.getBoundingClientRect()
   if (rect.width < 2 || rect.height < 2) return
+  const paintedImage = mediaImgFrontEl.value ?? media.querySelector<HTMLImageElement>('img')
   openCaseDetail({
     to: homeCaseDetailPath(item),
     origin: 'home',
     src: item.media.src,
+    proxySrc: paintedImage?.currentSrc || undefined,
     webpSrcset: item.media.webpSrcset,
     avifSrcset: item.media.avifSrcset,
     alt: item.media.alt,
@@ -132,6 +135,10 @@ function openCaseDetailFromMedia(item: HomeCase) {
 function onCaseDetailLink(item: HomeCase, e: MouseEvent) {
   e.preventDefault()
   openCaseDetailFromMedia(item)
+}
+
+function warmCaseDetail(item: HomeCase) {
+  void warmCaseDetailRoute(homeCaseDetailPath(item))
 }
 
 let caseSwipeStart: { x: number; y: number; pointerId: number } | null = null
@@ -422,7 +429,11 @@ function warmFirstCaseMedia() {
 function scheduleFirstCaseWarm() {
   if (!preload.revealed.value || !firstCaseNear || firstCaseWarmScheduled) return
   firstCaseWarmScheduled = true
-  const warm = () => warmFirstCaseMedia()
+  const warm = () => {
+    const firstCase = homeCases[0]
+    if (firstCase) warmCaseDetail(firstCase)
+    warmFirstCaseMedia()
+  }
   if ('requestIdleCallback' in window) {
     window.requestIdleCallback(warm, { timeout: 1200 })
   } else {
@@ -1401,6 +1412,9 @@ onBeforeUnmount(() => {
           class="cases-case-link"
           :href="homeCaseDetailPath(activeCase)"
           :aria-label="`Открыть кейс ${activeCase.title}`"
+          @pointerenter="warmCaseDetail(activeCase)"
+          @focus="warmCaseDetail(activeCase)"
+          @pointerdown="warmCaseDetail(activeCase)"
           @click="onCaseDetailLink(activeCase, $event)"
         />
         <div class="cases-stage__visual">

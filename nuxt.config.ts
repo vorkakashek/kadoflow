@@ -22,6 +22,11 @@ export default defineNuxtConfig({
     server: {
       host: true,
       strictPort: true,
+      // Case detail is a frequent but route-lazy page. Transform it at dev
+      // startup so the first animated navigation cannot hit a cold waterfall.
+      warmup: {
+        clientFiles: ['./app/pages/projects/**/*.vue'],
+      },
       // Localtunnel / Cloudflare quick tunnels hit Vite's host check otherwise.
       allowedHosts: ['.loca.lt', '.trycloudflare.com', '.ngrok-free.app', '.ngrok.io'],
       // Vite 8: WS options live on `server.ws` (hmr.* is deprecated).

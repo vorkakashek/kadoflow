@@ -1,15 +1,21 @@
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   src: string
+  mobileSrc?: string
   alt: string
   poster?: string
+  mobilePoster?: string
 }>()
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 const rootEl = ref<HTMLElement | null>(null)
 const reducedMotion = ref(false)
+const responsivePosterVisible = ref(!!props.poster && !!props.mobilePoster)
+const useMobileSource = ref(false)
+const activeSrc = computed(() => useMobileSource.value && props.mobileSrc ? props.mobileSrc : props.src)
 
 let motionQuery: MediaQueryList | null = null
+let sourceQuery: MediaQueryList | null = null
 let observer: IntersectionObserver | null = null
 let inView = false
 
@@ -32,6 +38,27 @@ function syncMotionPreference() {
   syncPlayback()
 }
 
+function hideResponsivePoster() {
+  responsivePosterVisible.value = false
+}
+
+onBeforeMount(() => {
+  sourceQuery = window.matchMedia('(max-width: 767.98px)')
+  useMobileSource.value = sourceQuery.matches && !!props.mobileSrc
+  sourceQuery.addEventListener('change', syncVideoSource)
+})
+
+async function syncVideoSource() {
+  const nextUseMobileSource = !!sourceQuery?.matches && !!props.mobileSrc
+  if (useMobileSource.value === nextUseMobileSource) return
+
+  useMobileSource.value = nextUseMobileSource
+  responsivePosterVisible.value = !!props.poster && !!props.mobilePoster
+  await nextTick()
+  videoEl.value?.load()
+  syncPlayback()
+}
+
 onMounted(() => {
   motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   motionQuery.addEventListener('change', syncMotionPreference)
@@ -48,6 +75,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   motionQuery?.removeEventListener('change', syncMotionPreference)
+  sourceQuery?.removeEventListener('change', syncVideoSource)
   observer?.disconnect()
   document.removeEventListener('visibilitychange', syncPlayback)
 })
@@ -55,24 +83,46 @@ onBeforeUnmount(() => {
 
 <template>
   <figure ref="rootEl" class="case-autoplay-video">
+    <picture
+      v-if="poster && mobilePoster && responsivePosterVisible"
+      class="case-autoplay-video__poster"
+    >
+      <source :srcset="mobilePoster" type="image/webp" media="(max-width: 767.98px)">
+      <img :src="poster" alt="" aria-hidden="true">
+    </picture>
     <video
+      :key="activeSrc"
       ref="videoEl"
-      :poster="poster"
+      :poster="mobilePoster ? undefined : poster"
       preload="metadata"
       muted
       loop
       playsinline
       aria-hidden="true"
-    >
-      <source :src="src" type="video/mp4">
-    </video>
+      @playing="hideResponsivePoster"
+      :src="activeSrc"
+    />
     <figcaption class="sr-only">{{ alt }}</figcaption>
   </figure>
 </template>
 
 <style scoped>
 .case-autoplay-video {
+  position: relative;
   margin: 0;
+}
+
+.case-autoplay-video__poster {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+}
+
+.case-autoplay-video__poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .case-autoplay-video video {

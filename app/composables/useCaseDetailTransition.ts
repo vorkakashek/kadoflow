@@ -4,6 +4,8 @@ export type CaseDetailTransitionRequest = {
   historyBack?: boolean
   to: string
   src: string
+  /** Exact already-painted browser candidate used only by the opening proxy. */
+  proxySrc?: string
   webpSrcset?: string
   avifSrcset?: string
   alt: string

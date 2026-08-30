@@ -1152,7 +1152,7 @@ onUnmounted(() => {
   <Teleport to="body">
     <Transition name="mobile-scroll-mark">
       <NuxtLink
-        v-if="mobileScrollMarkVisible && !canvasSurface"
+        v-if="mobileScrollMarkVisible && !canvasSurface && !detailCase"
         to="/"
         class="mobile-scroll-mark pointer-events-auto"
         :class="{ 'mobile-scroll-mark--inverted': mobileScrollMarkInverted }"
