@@ -51,6 +51,7 @@ defineProps<{
   .project-story--final p.case-text-fill {
     grid-column: 1;
     font-size: clamp(1.875rem, 4.5vw, 5.4rem);
+    text-align: left;
   }
 }
 </style>

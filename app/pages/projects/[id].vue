@@ -1709,6 +1709,7 @@ h1 {
   }
   .audience-case--final p.case-text-fill {
     font-size: clamp(1.875rem, 4.5vw, 5.4rem);
+    text-align: left;
   }
 }
 
