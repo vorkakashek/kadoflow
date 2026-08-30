@@ -34,6 +34,79 @@ export type ProjectCaseSection = {
   railSpeed?: number
 }
 
+export type ProjectCaseStoryBlock = ProjectCaseSection & {
+  type: 'story'
+}
+
+export type ProjectCaseIntroRailBlock = {
+  type: 'intro-rail'
+  id: string
+  title: string
+  paragraphs: string[]
+  media: ProjectCaseMedia[]
+  railSpeed?: number
+}
+
+export type ProjectCaseDisclosureMediaBlock = {
+  type: 'disclosure-media'
+  id: string
+  title: string
+  paragraphs: string[]
+  media: ProjectCaseMedia
+}
+
+export type ProjectCaseMosaicRow = {
+  feature: ProjectCaseMedia
+  detail: ProjectCaseMedia
+  featureSide: 'start' | 'end'
+  statement: string
+}
+
+export type ProjectCaseContentMosaicBlock = {
+  type: 'content-mosaic'
+  id: string
+  title: string
+  lead: {
+    media: ProjectCaseMedia
+    text: string
+  }
+  fillText: string
+  rows: ProjectCaseMosaicRow[]
+}
+
+export type ProjectCaseMotionFeatureBlock = {
+  type: 'motion-feature'
+  id: string
+  title: string
+  fillText: string
+  media: ProjectCaseMedia & { type: 'video' }
+}
+
+export type ProjectCaseTextMediaRailBlock = {
+  type: 'text-media-rail'
+  id: string
+  title: string
+  text: string
+  media: ProjectCaseMedia[]
+  railSpeed?: number
+}
+
+export type ProjectCaseFinalBlock = {
+  type: 'final'
+  id: string
+  text: string
+  variant?: 'default' | 'editorial'
+}
+
+export type ProjectCaseBlock =
+  | ProjectCaseStoryBlock
+  | ProjectCaseIntroRailBlock
+  | ProjectCaseDisclosureMediaBlock
+  | ProjectCaseContentMosaicBlock
+  | ProjectCaseMotionFeatureBlock
+  | ProjectCaseTextMediaRailBlock
+  | ProjectCaseFinalBlock
+
 export type ProjectCaseDetail = {
   /** Optional case-detail summary; keeps portfolio framing separate from home copy. */
   summary?: string
@@ -46,9 +119,14 @@ export type ProjectCaseDetail = {
     webpSrcset?: string
     avifSrcset?: string
   }
-  sections: ProjectCaseSection[]
-  final: string
+  /** Ordered block list: cases may use any supported composition in any order. */
+  blocks: ProjectCaseBlock[]
   closing: ProjectCaseMedia
+  closingVariant?: 'story' | 'audience'
+}
+
+function storyBlocks(sections: ProjectCaseSection[]): ProjectCaseStoryBlock[] {
+  return sections.map(section => ({ type: 'story', ...section }))
 }
 
 const keysMedia = [
@@ -162,9 +240,200 @@ const schmidtMedia = {
   shape: 'wide' as const,
 }
 
+const audienceIntroPortrait: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-intro-1-960.webp',
+  alt: 'Audience — экран сайта',
+  width: 1248,
+  height: 1888,
+  shape: 'portrait',
+  avifSrcset: '/home/cases/audience/audience-intro-1-480.avif 480w, /home/cases/audience/audience-intro-1-960.avif 960w, /home/cases/audience/audience-intro-1-1248.avif 1248w',
+  webpSrcset: '/home/cases/audience/audience-intro-1-480.webp 480w, /home/cases/audience/audience-intro-1-960.webp 960w, /home/cases/audience/audience-intro-1-1248.webp 1248w',
+  sizes: '(max-width: 767px) 94vw, 40vw',
+}
+
+const audienceIntroLandscape: ProjectCaseMedia = {
+  src: '/home/cases/audience/case-detail-3.png',
+  alt: 'Audience — детали цифрового опыта',
+  width: 1840,
+  height: 1380,
+  shape: 'landscape',
+  avifSrcset: '/home/cases/audience/audience-intro-2-480.avif 480w, /home/cases/audience/audience-intro-2-960.avif 960w, /home/cases/audience/audience-intro-2-1440.avif 1440w, /home/cases/audience/audience-intro-2-1840.avif 1840w',
+  webpSrcset: '/home/cases/audience/audience-intro-2-480.webp 480w, /home/cases/audience/audience-intro-2-960.webp 960w, /home/cases/audience/audience-intro-2-1440.webp 1440w, /home/cases/audience/audience-intro-2-1840.webp 1840w',
+  sizes: '(max-width: 767px) 94vw, 58vw',
+}
+
+const audienceAtmosphereMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/case-detail-4.png',
+  alt: 'Audience — атмосфера сайта',
+  width: 3680,
+  height: 2760,
+  shape: 'wide',
+  avifSrcset: '/home/cases/audience/audience-atmosphere-480.avif 480w, /home/cases/audience/audience-atmosphere-960.avif 960w, /home/cases/audience/audience-atmosphere-1440.avif 1440w, /home/cases/audience/audience-atmosphere-1920.avif 1920w, /home/cases/audience/audience-atmosphere-2760.avif 2760w',
+  webpSrcset: '/home/cases/audience/audience-atmosphere-480.webp 480w, /home/cases/audience/audience-atmosphere-960.webp 960w, /home/cases/audience/audience-atmosphere-1440.webp 1440w, /home/cases/audience/audience-atmosphere-1920.webp 1920w, /home/cases/audience/audience-atmosphere-2760.webp 2760w',
+  sizes: '100vw',
+}
+
+const audienceMenuLeadMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/case-detail-5.png',
+  alt: 'Audience — меню',
+  width: 3840,
+  height: 2160,
+  shape: 'wide',
+  avifSrcset: '/home/cases/audience/audience-menu-lead-480.avif 480w, /home/cases/audience/audience-menu-lead-960.avif 960w, /home/cases/audience/audience-menu-lead-1440.avif 1440w, /home/cases/audience/audience-menu-lead-1920.avif 1920w',
+  webpSrcset: '/home/cases/audience/audience-menu-lead-480.webp 480w, /home/cases/audience/audience-menu-lead-960.webp 960w, /home/cases/audience/audience-menu-lead-1440.webp 1440w, /home/cases/audience/audience-menu-lead-1920.webp 1920w',
+  sizes: '(max-width: 767px) 100vw, 50vw',
+}
+
+const audienceMenuPrimaryMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-menu-primary-960.webp',
+  alt: 'Audience — раздел меню',
+  width: 1488,
+  height: 2159,
+  shape: 'portrait',
+  avifSrcset: '/home/cases/audience/audience-menu-primary-480.avif 480w, /home/cases/audience/audience-menu-primary-960.avif 960w, /home/cases/audience/audience-menu-primary-1488.avif 1488w',
+  webpSrcset: '/home/cases/audience/audience-menu-primary-480.webp 480w, /home/cases/audience/audience-menu-primary-960.webp 960w, /home/cases/audience/audience-menu-primary-1488.webp 1488w',
+  sizes: '(max-width: 767px) 100vw, 50vw',
+}
+
+const audienceMenuDetailMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-img-960.webp',
+  alt: 'Audience — категория меню',
+  width: 1856,
+  height: 2304,
+  shape: 'landscape',
+  avifSrcset: '/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w',
+  webpSrcset: '/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w',
+  sizes: '50vw',
+}
+
+const audienceMenuDetailsMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-menu-details-960.webp',
+  alt: 'Audience — детали меню',
+  width: 1488,
+  height: 2159,
+  shape: 'portrait',
+  avifSrcset: '/home/cases/audience/audience-menu-details-480.avif 480w, /home/cases/audience/audience-menu-details-960.avif 960w, /home/cases/audience/audience-menu-details-1488.avif 1488w',
+  webpSrcset: '/home/cases/audience/audience-menu-details-480.webp 480w, /home/cases/audience/audience-menu-details-960.webp 960w, /home/cases/audience/audience-menu-details-1488.webp 1488w',
+  sizes: '(max-width: 767px) 100vw, 50vw',
+}
+
+const audienceMotionMedia: ProjectCaseMedia & { type: 'video' } = {
+  type: 'video',
+  src: '/home/cases/audience/audience-vid-1.mp4',
+  mobileSrc: '/home/cases/audience/audience-vid-1-mobile.mp4',
+  poster: '/home/cases/audience/audience-vid-1-poster.webp',
+  mobilePoster: '/home/cases/audience/audience-vid-1-mobile-poster.webp',
+  alt: 'Audience — анимации на сайте',
+  shape: 'wide',
+}
+
+const audienceAdminSmallMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-admin-small-960.webp',
+  alt: 'Audience — контентная система',
+  width: 1020,
+  height: 691,
+  shape: 'landscape',
+  avifSrcset: '/home/cases/audience/audience-admin-small-480.avif 480w, /home/cases/audience/audience-admin-small-960.avif 960w, /home/cases/audience/audience-admin-small-1020.avif 1020w',
+  webpSrcset: '/home/cases/audience/audience-admin-small-480.webp 480w, /home/cases/audience/audience-admin-small-960.webp 960w, /home/cases/audience/audience-admin-small-1020.webp 1020w',
+  sizes: '(max-width: 767px) 100vw, 36vw',
+}
+
+const audienceAdminLargeMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-admin-large-960.webp',
+  alt: 'Audience — управление контентом',
+  width: 1440,
+  height: 1984,
+  shape: 'portrait',
+  avifSrcset: '/home/cases/audience/audience-admin-large-480.avif 480w, /home/cases/audience/audience-admin-large-960.avif 960w, /home/cases/audience/audience-admin-large-1440.avif 1440w',
+  webpSrcset: '/home/cases/audience/audience-admin-large-480.webp 480w, /home/cases/audience/audience-admin-large-960.webp 960w, /home/cases/audience/audience-admin-large-1440.webp 1440w',
+  sizes: '(max-width: 767px) 100vw, 64vw',
+}
+
+const audienceClosingMedia: ProjectCaseMedia = {
+  src: '/home/cases/audience/audience-end-960.webp',
+  alt: 'Audience — цифровая атмосфера проекта',
+  width: 2080,
+  height: 1234,
+  shape: 'wide',
+  webpSrcset: '/home/cases/audience/audience-end-480.webp 480w, /home/cases/audience/audience-end-960.webp 960w, /home/cases/audience/audience-end-1440.webp 1440w, /home/cases/audience/audience-end-1920.webp 1920w',
+  avifSrcset: '/home/cases/audience/audience-end-480.avif 480w, /home/cases/audience/audience-end-960.avif 960w, /home/cases/audience/audience-end-1440.avif 1440w, /home/cases/audience/audience-end-1920.avif 1920w',
+  sizes: '100vw',
+}
+
 export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
+  audience: {
+    blocks: [
+      {
+        type: 'intro-rail',
+        id: 'audience-system',
+        title: 'Цифровая система пространства,<br>а не набор отдельных страниц.',
+        paragraphs: [
+          'В проекте Audience мы перевели характер интерьера и визуального языка в структуру сайта. В кейсе показаны решения по композиции, навигации и управлению контентом.',
+          'Задача была связать сведения о концепции, интерьере, кухне и сервисе в одной последовательной цифровой системе.',
+        ],
+        media: [audienceIntroPortrait, audienceIntroLandscape],
+      },
+      {
+        type: 'disclosure-media',
+        id: 'audience-atmosphere',
+        title: 'Визуальный язык как часть<br>навигации.',
+        paragraphs: [
+          'Визуальная система не копирует восточную эстетику через декор. Она строится на глубине кадра, природных фактурах, контрасте света и тени, свободном пространстве и сдержанном темпе взаимодействий. Эти принципы последовательно применены во всех разделах сайта.',
+          'Навигация связывает сведения о концепции, интерьере, меню и сервисе. Одна и та же структура поддерживает три языковые версии: русскую, английскую и китайскую.',
+        ],
+        media: audienceAtmosphereMedia,
+      },
+      {
+        type: 'content-mosaic',
+        id: 'audience-menu',
+        title: 'Как организовать сложную<br>контентную структуру?',
+        lead: {
+          media: audienceMenuLeadMedia,
+          text: 'Разделы кухни, напитков и чайной церемонии получили собственную структуру категорий, карточек и материалов.',
+        },
+        fillText: 'У каждого направления — собственная структура, категории, карточки и контент.',
+        rows: [
+          {
+            feature: audienceMenuPrimaryMedia,
+            detail: audienceMenuDetailMedia,
+            featureSide: 'start',
+            statement: 'Главная UX-задача — сохранить объём материалов и при этом сделать структуру понятной.',
+          },
+          {
+            feature: audienceMenuDetailsMedia,
+            detail: { ...audienceMenuDetailMedia, alt: 'Audience — карточка позиции' },
+            featureSide: 'end',
+            statement: 'Информационная архитектура и система категорий работают по единым правилам.',
+          },
+        ],
+      },
+      {
+        type: 'motion-feature',
+        id: 'audience-motion',
+        title: 'Движение как часть<br>навигации.',
+        fillText: 'Анимации связывают экраны, обозначают переходы между разделами и поддерживают порядок чтения без лишней демонстративности.',
+        media: audienceMotionMedia,
+      },
+      {
+        type: 'text-media-rail',
+        id: 'audience-live',
+        title: 'Живой сайт,<br>а не разовый<br>запуск.',
+        text: 'Проект реализован как развиваемая контентная система. В ней можно обновлять меню, добавлять сезонные позиции, публиковать новости, менять изображения и поддерживать актуальность разделов без пересборки сайта вручную.',
+        media: [audienceAdminSmallMedia, audienceAdminLargeMedia],
+      },
+      {
+        type: 'final',
+        id: 'audience-final',
+        variant: 'editorial',
+        text: 'Для Audience мы разработали структуру, визуальную систему, интерфейс, анимацию и инструменты управления контентом. Кейс показывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или использовать представленную заказчиком продукцию.',
+      },
+    ],
+    closing: audienceClosingMedia,
+    closingVariant: 'audience',
+  },
   'keys-store': {
-    sections: [
+    blocks: [
+      ...storyBlocks([
       {
         id: 'keys-system',
         layout: 'intro',
@@ -222,8 +491,13 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         ],
         media: [keysMedia[0]],
       },
+      ]),
+      {
+        type: 'final',
+        id: 'keys-final',
+        text: 'Keys Store — большая торговая система, в которой разные цифровые продукты собраны в единый опыт. Пользователь сохраняет привычный маршрут, даже когда меняются товар, платформа и логика сделки.',
+      },
     ],
-    final: 'Keys Store — большая торговая система, в которой разные цифровые продукты собраны в единый опыт. Пользователь сохраняет привычный маршрут, даже когда меняются товар, платформа и логика сделки.',
     closing: keysMedia[1],
   },
   baltika: {
@@ -244,7 +518,8 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         '/home/cases/baltika/baltika-detail-header-portrait-640.avif 640w',
       ].join(', '),
     },
-    sections: [
+    blocks: [
+      ...storyBlocks([
       {
         id: 'baltika-object',
         layout: 'intro',
@@ -333,12 +608,18 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         media: [baltikaResponsiveCompositionMedia],
         presentation: { spacing: 'compact-disclosure' },
       },
+      ]),
+      {
+        type: 'final',
+        id: 'baltika-final',
+        text: 'В рамках проекта для «Балтика Brew» мы разработали структуру, визуальную систему, 3D-графику и анимацию продуктового сайта. Этот кейс описывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или употреблять алкогольную продукцию.',
+      },
     ],
-    final: 'В рамках проекта для «Балтика Brew» мы разработали структуру, визуальную систему, 3D-графику и анимацию продуктового сайта. Этот кейс описывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или употреблять алкогольную продукцию.',
     closing: baltikaClosingMedia,
   },
   schmidt: {
-    sections: [
+    blocks: [
+      ...storyBlocks([
       {
         id: 'schmidt-horizontal',
         layout: 'feature',
@@ -404,8 +685,13 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         ],
         media: [schmidtMedia],
       },
+      ]),
+      {
+        type: 'final',
+        id: 'schmidt-final',
+        text: 'SCHMIDT превращает знакомство с премиальной водкой в контролируемую последовательность сцен. Арт-дирекция, горизонтальный ритм и интерактивная анимация связывают предметный образ, происхождение, производство и культуру употребления.',
+      },
     ],
-    final: 'SCHMIDT превращает знакомство с премиальной водкой в контролируемую последовательность сцен. Арт-дирекция, горизонтальный ритм и интерактивная анимация связывают предметный образ, происхождение, производство и культуру употребления.',
     closing: schmidtMedia,
   },
 }

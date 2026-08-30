@@ -1,11 +1,17 @@
 <script setup lang="ts">
-defineProps<{
+withDefaults(defineProps<{
   text: string
-}>()
+  variant?: 'default' | 'editorial'
+}>(), {
+  variant: 'default',
+})
 </script>
 
 <template>
-  <section class="project-story project-story--final">
+  <section
+    class="project-story project-story--final"
+    :class="{ 'project-story--final-editorial audience-case audience-case--final': variant === 'editorial' }"
+  >
     <p class="case-text-fill">{{ text }}</p>
   </section>
 </template>
@@ -36,6 +42,19 @@ defineProps<{
   font-size: clamp(2.2rem, 5.4vw, 6.4rem);
 }
 
+.project-story--final-editorial {
+  margin: var(--space-7) 0 var(--space-6);
+}
+
+.project-story--final-editorial p,
+.project-story--final-editorial p.case-text-fill {
+  grid-column: 2 / -2;
+  max-width: none;
+  font-size: clamp(2.2rem, 5vw, 6.2rem);
+  letter-spacing: -0.02em;
+  line-height: 0.98;
+}
+
 @media (max-width: 1279.98px) {
   .project-story--final p.case-text-fill { grid-column: 2 / -2; }
 }
@@ -52,6 +71,11 @@ defineProps<{
     grid-column: 1;
     font-size: clamp(1.875rem, 4.5vw, 5.4rem);
     text-align: left;
+  }
+
+  .project-story--final-editorial p,
+  .project-story--final-editorial p.case-text-fill {
+    font-size: clamp(1.875rem, 4.5vw, 5.4rem);
   }
 }
 </style>
