@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowUp, PhArrowUpRight } from '@phosphor-icons/vue'
+import { PhArrowUpRight } from '@phosphor-icons/vue'
 import { homeCases } from '~/utils/homeCases'
 import { projectCaseDetails } from '~/utils/projectCaseDetails'
 import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
@@ -21,9 +21,6 @@ const metaFrameEl = ref<HTMLElement | null>(null)
 const mediaEnterEl = ref<HTMLElement | null>(null)
 const mediaParallaxEl = ref<HTMLElement | null>(null)
 const detailContentEl = ref<HTMLElement | null>(null)
-const audienceFinalTextEl = ref<HTMLElement | null>(null)
-const audienceMenuSecondaryEl = ref<HTMLElement | null>(null)
-const audienceMotionSecondaryEl = ref<HTMLElement | null>(null)
 const nextProjectContentEl = ref<HTMLElement | null>(null)
 const audienceDisclosureParagraphs = [
   'Визуальная система не копирует восточную эстетику через декор. Она строится на глубине кадра, природных фактурах, контрасте света и тени, свободном пространстве и сдержанном темпе взаимодействий. Эти принципы последовательно применены во всех разделах сайта.',
@@ -35,10 +32,14 @@ const nextItem = computed(() => {
 })
 const projectDetail = computed(() => item.value ? projectCaseDetails[item.value.id] : undefined)
 const headerMedia = computed(() => projectDetail.value?.headerMedia ?? item.value?.media)
-
-function scrollCaseToTop() {
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  window.scrollTo({ top: 0, left: 0, behavior: reducedMotion ? 'auto' : 'smooth' })
+const audienceClosingMedia = {
+  src: '/home/cases/audience/audience-end-960.webp',
+  alt: 'Audience — цифровая атмосфера проекта',
+  width: 2080,
+  height: 1234,
+  webpSrcset: '/home/cases/audience/audience-end-480.webp 480w, /home/cases/audience/audience-end-960.webp 960w, /home/cases/audience/audience-end-1440.webp 1440w, /home/cases/audience/audience-end-1920.webp 1920w',
+  avifSrcset: '/home/cases/audience/audience-end-480.avif 480w, /home/cases/audience/audience-end-960.avif 960w, /home/cases/audience/audience-end-1440.avif 1440w, /home/cases/audience/audience-end-1920.avif 1920w',
+  sizes: '100vw',
 }
 
 let mediaParallaxCtx: { revert: () => void } | null = null
@@ -564,20 +565,12 @@ useHead(() => ({
         'case-detail--inverse': item.inverse,
         'case-detail--audience': item.id === 'audience',
         'case-detail--baltika': item.id === 'baltika',
-        'case-detail--schmidt': item.id === 'schmidt',
         'case-detail--entering': !detailContentVisible,
       }"
       :style="{ backgroundColor: item.wash }"
     >
       <CaseMediaWaveLayer />
-      <button
-        type="button"
-        class="case-detail__scroll-top"
-        aria-label="Наверх"
-        @click="scrollCaseToTop"
-      >
-        <PhArrowUp :size="22" aria-hidden="true" />
-      </button>
+      <CaseScrollTop />
       <div ref="detailContentEl" class="case-detail__inner">
       <div ref="firstScreenEl" class="case-detail__first-screen">
         <section ref="titleFrameEl" class="case-detail__hero">
@@ -776,7 +769,7 @@ useHead(() => ({
               </picture>
               <p>Разделы кухни, напитков и чайной церемонии получили собственную структуру категорий, карточек и материалов.</p>
             </div>
-            <p ref="audienceMenuSecondaryEl" class="audience-case__menu-secondary case-text-fill">У каждого направления — собственная структура, категории, карточки и контент.</p>
+            <p class="audience-case__menu-secondary case-text-fill">У каждого направления — собственная структура, категории, карточки и контент.</p>
             <div class="audience-case__media-mosaic">
               <div class="audience-case__menu-media-pair audience-case__menu-media-pair--top">
                 <picture class="audience-case__responsive-picture audience-case__responsive-picture--menu-primary audience-case__mosaic-media">
@@ -813,7 +806,7 @@ useHead(() => ({
 
           <section class="audience-case audience-case--motion">
             <h2>Движение как часть<br>навигации.</h2>
-            <p ref="audienceMotionSecondaryEl" class="audience-case__motion-secondary case-text-fill">Анимации связывают экраны, обозначают переходы между разделами и поддерживают порядок чтения без лишней демонстративности.</p>
+            <p class="audience-case__motion-secondary case-text-fill">Анимации связывают экраны, обозначают переходы между разделами и поддерживают порядок чтения без лишней демонстративности.</p>
             <CaseAutoplayVideo
               class="audience-case__media-full"
               src="/home/cases/audience/audience-vid-1.mp4"
@@ -842,131 +835,31 @@ useHead(() => ({
           </section>
 
           <section class="audience-case audience-case--final">
-            <p ref="audienceFinalTextEl" class="case-text-fill">Для Audience мы разработали структуру, визуальную систему, интерфейс, анимацию и инструменты управления контентом. Кейс показывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или использовать представленную заказчиком продукцию.</p>
+            <p class="case-text-fill">Для Audience мы разработали структуру, визуальную систему, интерфейс, анимацию и инструменты управления контентом. Кейс показывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или использовать представленную заказчиком продукцию.</p>
           </section>
         </template>
 
         <template v-else-if="projectDetail">
-          <section
+          <CaseStorySection
             v-for="section in projectDetail.sections"
             :key="section.id"
-            class="project-story"
-            :class="[`project-story--${section.layout}`, `project-story--${section.id}`]"
-          >
-            <CaseNarrativeDisclosure
-              v-if="section.layout === 'disclosure'"
-              :disclosure-id="`case-${section.id}`"
-              :title="section.title"
-              :paragraphs="section.paragraphs"
-              @layout-change="refreshAudienceScrollPositions"
-            />
-            <template v-else>
-              <h2 v-html="section.title" />
-              <div class="project-story__copy">
-                <p v-for="paragraph in section.paragraphs" :key="paragraph">{{ paragraph }}</p>
-              </div>
-            </template>
+            :section="section"
+            @layout-change="refreshAudienceScrollPositions"
+          />
 
-            <CaseHorizontalRail
-              v-if="section.media.length > 1"
-              class="project-story__media"
-              :class="[`project-story__media--${section.media.length}`, 'project-story__media--scroll']"
-              :desktop-grab-speed="section.id === 'baltika-collection' ? 1.28 : 1"
-            >
-              <template v-for="media in section.media" :key="`${section.id}-${media.src}-${media.alt}`">
-                <CaseAutoplayVideo
-                  v-if="media.type === 'video'"
-                  :src="media.src"
-                  :mobile-src="media.mobileSrc"
-                  :poster="media.poster"
-                  :mobile-poster="media.mobilePoster"
-                  :alt="media.alt"
-                  :class="`project-story__image--${media.shape ?? 'wide'}`"
-                />
-                <picture v-else class="project-story__picture">
-                  <source v-if="media.avifSrcset" type="image/avif" :srcset="media.avifSrcset" :sizes="media.sizes">
-                  <source v-if="media.webpSrcset" type="image/webp" :srcset="media.webpSrcset" :sizes="media.sizes">
-                  <img
-                    :src="media.src"
-                    :alt="media.alt"
-                    :class="`project-story__image--${media.shape ?? 'wide'}`"
-                    :style="media.aspectRatio ? { aspectRatio: media.aspectRatio } : undefined"
-                    loading="lazy"
-                    decoding="async"
-                  >
-                </picture>
-              </template>
-            </CaseHorizontalRail>
-            <div
-              v-else-if="section.media.length"
-              class="project-story__media"
-              :class="`project-story__media--${section.media.length}`"
-            >
-              <template v-for="media in section.media" :key="`${section.id}-${media.src}-${media.alt}`">
-                <CaseAutoplayVideo
-                  v-if="media.type === 'video'"
-                  :src="media.src"
-                  :mobile-src="media.mobileSrc"
-                  :poster="media.poster"
-                  :mobile-poster="media.mobilePoster"
-                  :alt="media.alt"
-                  :class="`project-story__image--${media.shape ?? 'wide'}`"
-                />
-                <picture v-else class="project-story__picture">
-                  <source v-if="media.avifSrcset" type="image/avif" :srcset="media.avifSrcset" :sizes="media.sizes">
-                  <source v-if="media.webpSrcset" type="image/webp" :srcset="media.webpSrcset" :sizes="media.sizes">
-                  <img
-                    :src="media.src"
-                    :alt="media.alt"
-                    :class="`project-story__image--${media.shape ?? 'wide'}`"
-                    :style="media.aspectRatio ? { aspectRatio: media.aspectRatio } : undefined"
-                    loading="lazy"
-                    decoding="async"
-                  >
-                </picture>
-              </template>
-            </div>
-            <p v-if="section.statement" class="project-story__statement case-text-fill">{{ section.statement }}</p>
-          </section>
-
-          <section class="project-story project-story--final">
-            <p class="case-text-fill">{{ projectDetail.final }}</p>
-          </section>
+          <CaseFinalStatement :text="projectDetail.final" />
         </template>
       </div>
 
-      <figure
+      <CaseClosingMedia
         v-if="item.id === 'audience'"
-        class="audience-case__closing-media"
-      >
-        <picture>
-          <source type="image/avif" srcset="/home/cases/audience/audience-end-480.avif 480w, /home/cases/audience/audience-end-960.avif 960w, /home/cases/audience/audience-end-1440.avif 1440w, /home/cases/audience/audience-end-1920.avif 1920w" sizes="100vw">
-          <source type="image/webp" srcset="/home/cases/audience/audience-end-480.webp 480w, /home/cases/audience/audience-end-960.webp 960w, /home/cases/audience/audience-end-1440.webp 1440w, /home/cases/audience/audience-end-1920.webp 1920w" sizes="100vw">
-          <img
-            src="/home/cases/audience/audience-end-960.webp"
-            width="2080"
-            height="1234"
-            alt="Audience — цифровая атмосфера проекта"
-            loading="lazy"
-            decoding="async"
-          >
-        </picture>
-      </figure>
-      <figure
+        :media="audienceClosingMedia"
+        variant="audience"
+      />
+      <CaseClosingMedia
         v-else-if="projectDetail"
-        class="project-story__closing-media"
-      >
-        <picture>
-          <source v-if="projectDetail.closing.avifSrcset" type="image/avif" :srcset="projectDetail.closing.avifSrcset" :sizes="projectDetail.closing.sizes">
-          <source v-if="projectDetail.closing.webpSrcset" type="image/webp" :srcset="projectDetail.closing.webpSrcset" :sizes="projectDetail.closing.sizes">
-          <img
-            :src="projectDetail.closing.src"
-            :alt="projectDetail.closing.alt"
-            loading="lazy"
-            decoding="async"
-          >
-        </picture>
-      </figure>
+        :media="projectDetail.closing"
+      />
     </main>
 
     <NuxtLink
@@ -1004,40 +897,6 @@ useHead(() => ({
   width: min(var(--layout-content-max), calc(100% - 2 * var(--layout-margin-content)));
   margin: 0 auto;
   padding-bottom: var(--space-section);
-}
-
-.case-detail__scroll-top {
-  position: fixed;
-  left: calc(2 * var(--layout-margin) + var(--safe-left, 0px));
-  bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
-  z-index: 110;
-  display: grid;
-  box-sizing: border-box;
-  width: 42px;
-  height: 42px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  place-items: center;
-  appearance: none;
-  color: inherit;
-  background-color: color-mix(in srgb, currentColor 30%, transparent);
-  cursor: pointer;
-  transition:
-    background-color 260ms ease,
-    transform 260ms var(--motion-ease, ease);
-}
-
-.case-detail__scroll-top:hover,
-.case-detail__scroll-top:focus-visible {
-  background-color: color-mix(in srgb, currentColor 42%, transparent);
-  transform: translateY(-2px);
-}
-
-.case-detail__scroll-top:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 3px;
 }
 
 .case-detail__first-screen {
@@ -1377,369 +1236,6 @@ h1 {
   margin-top: var(--space-section);
 }
 
-.project-story {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  column-gap: var(--layout-gutter);
-  row-gap: var(--space-5);
-  margin-top: var(--space-section);
-}
-
-.project-story > h2 {
-  grid-column: 1 / -1;
-  max-width: 11ch;
-  margin: 0;
-  font-size: clamp(3rem, 8vw, 9rem);
-  font-weight: 400;
-  letter-spacing: -0.07em;
-  line-height: 0.86;
-}
-
-.project-story p { margin: 0; }
-
-.project-story__copy {
-  display: grid;
-  grid-column: 2 / -2;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--layout-gutter);
-}
-
-.project-story__copy p,
-.project-story p.project-story__statement {
-  font-size: var(--type-case-body);
-  letter-spacing: -0.04em;
-  line-height: 1.17;
-}
-
-.project-story__media {
-  grid-column: 1 / -1;
-}
-
-.project-story__picture {
-  display: contents;
-}
-
-.project-story__media:not(.project-story__media--scroll),
-.project-story__media--scroll :deep(.case-horizontal-rail__content) {
-  display: grid;
-  gap: var(--layout-gutter);
-  align-items: start;
-}
-
-.project-story__media img {
-  display: block;
-  width: 100%;
-  min-height: 0;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  object-fit: cover;
-}
-
-.project-story__media :deep(.case-autoplay-video) {
-  display: block;
-  width: 100%;
-  min-height: 0;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  overflow: hidden;
-}
-
-.project-story__image--wide { aspect-ratio: 16 / 10; }
-.project-story__image--landscape { aspect-ratio: 4 / 3; }
-.project-story__image--portrait { aspect-ratio: 4 / 5; }
-.project-story__image--square { aspect-ratio: 1; }
-
-.project-story__media--2:not(.project-story__media--scroll),
-.project-story__media--2.project-story__media--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
-.project-story__media--2 img:last-child { margin-top: var(--space-6); }
-.project-story__media--3:not(.project-story__media--scroll),
-.project-story__media--3.project-story__media--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.project-story__media--3 img:nth-child(2) { margin-top: var(--space-7); }
-.project-story__media--3 img:nth-child(3) { margin-top: var(--space-5); }
-.project-story__media--4:not(.project-story__media--scroll),
-.project-story__media--4.project-story__media--scroll :deep(.case-horizontal-rail__content) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.project-story__media--4 img:nth-child(even) { margin-top: var(--space-6); }
-
-.case-detail--schmidt .project-story--gallery .project-story__media--4:not(.project-story__media--scroll),
-.case-detail--schmidt .project-story--gallery .project-story__media--4.project-story__media--scroll :deep(.case-horizontal-rail__content) {
-  gap: calc(var(--layout-gutter) * 0.5);
-}
-
-.case-detail--schmidt .project-story--gallery .project-story__media--4 img:nth-child(even) {
-  margin-top: var(--space-4);
-}
-
-.project-story--intro > h2 { grid-column: 1 / span 8; }
-.project-story--intro .project-story__copy { grid-column: 7 / -1; }
-
-.project-story--feature > h2 {
-  grid-column: 2 / -2;
-  max-width: none;
-  text-align: center;
-}
-
-.project-story--feature .project-story__copy {
-  grid-column: 4 / -4;
-  grid-template-columns: 1fr;
-  text-align: center;
-}
-
-.project-story--feature .project-story__media img {
-  aspect-ratio: 16 / 8;
-}
-
-.project-story--feature .project-story__media :deep(.case-autoplay-video) {
-  /* Let the square motion piece occupy roughly nine columns on wide layouts. */
-  width: min(100%, 62rem);
-  margin-inline: auto;
-  aspect-ratio: 1;
-}
-
-/* Keep Baltika's supplied landscape/portrait compositions intact. */
-.project-story--baltika-motion .project-story__media :deep(.case-autoplay-video) {
-  aspect-ratio: 16 / 9;
-  background-color: #e2dbcf;
-}
-
-.project-story--baltika-motion .project-story__media :deep(.case-autoplay-video__poster),
-.project-story--baltika-motion .project-story__media :deep(video) {
-  height: 100%;
-  background-color: #e2dbcf;
-  object-fit: cover;
-}
-
-.project-story--split > h2 { grid-column: 1 / span 7; }
-.project-story--split .project-story__copy {
-  grid-column: 8 / -1;
-  grid-template-columns: 1fr;
-  align-self: end;
-}
-
-.project-story--gallery > h2 { grid-column: 1 / span 9; }
-.project-story--gallery .project-story__copy {
-  grid-column: 8 / -1;
-  grid-template-columns: 1fr;
-}
-
-/* Preserve the two editorial lines defined in the title copy. */
-.project-story--baltika-collection > h2 {
-  grid-column: 1 / -1;
-  max-width: none;
-  white-space: nowrap;
-}
-.project-story--baltika-collection .project-story__copy { grid-column: 7 / -2; }
-
-@media (min-width: 768px) {
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__viewport) {
-    overflow-x: auto;
-    overflow-y: hidden;
-    cursor: grab;
-    scrollbar-width: none;
-    user-select: none;
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__viewport::-webkit-scrollbar) {
-    display: none;
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__viewport:active) {
-    cursor: grabbing;
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content) {
-    display: flex;
-    width: max-content;
-    gap: calc(var(--layout-gutter) * 0.25);
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content img) {
-    width: auto;
-    max-width: none;
-    height: min(52svh, 28vw);
-    flex: 0 0 auto;
-    margin-top: 0;
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__bar) {
-    display: block;
-    width: calc(25% - var(--layout-gutter));
-    height: 8px;
-    margin: var(--space-4) auto 0;
-    padding-block: 3px;
-    cursor: pointer;
-    touch-action: none;
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__bar::before) {
-    display: block;
-    height: 2px;
-    border-radius: 999px;
-    background: color-mix(in srgb, currentColor 20%, transparent);
-    content: '';
-  }
-
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__thumb) {
-    position: relative;
-    top: -2px;
-    display: block;
-    height: 4px;
-    border-radius: 999px;
-    background: currentColor;
-    cursor: grab;
-    touch-action: none;
-  }
-}
-
-.project-story--baltika-object > h2 { grid-column: 2 / span 8; }
-.project-story--baltika-object .project-story__copy { grid-column: 6 / -2; }
-
-@media (min-width: 768px) {
-  .project-story--baltika-motion .project-story__media {
-    grid-column: 2 / -2;
-  }
-
-  .project-story--baltika-motion .project-story__media :deep(.case-autoplay-video) {
-    width: 100%;
-    max-width: none;
-  }
-
-  .project-story--baltika-object .project-story__copy {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: var(--layout-gutter);
-    row-gap: var(--space-4);
-  }
-
-  .project-story--baltika-object .project-story__copy p:nth-child(1) {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .project-story--baltika-object .project-story__copy p:nth-child(2) {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .project-story--baltika-object .project-story__copy p:nth-child(3) {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-
-  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content) {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    align-items: start;
-  }
-
-  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture) {
-    display: block;
-    min-width: 0;
-    grid-row: 1;
-  }
-
-  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture:first-child) {
-    grid-column: 1;
-  }
-
-  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture:last-child) {
-    grid-column: 2;
-  }
-
-  .project-story--baltika-object .project-story__media--2 :deep(.case-horizontal-rail__content > .project-story__picture > img) {
-    margin-top: 0;
-  }
-}
-
-.project-story--baltika-route > h2 {
-  grid-column: 1 / -1;
-  max-width: none;
-  white-space: nowrap;
-}
-.project-story--baltika-route .project-story__copy { grid-column: 8 / -2; }
-.project-story--baltika-route .project-story__media {
-  grid-column: 2 / -2;
-  margin-top: calc(var(--space-5) * -0.5);
-}
-
-.project-story--disclosure {
-  row-gap: var(--space-6);
-}
-
-/* These previews follow closed disclosures directly, so they need a tighter
-   visual handoff than the other expandable sections. */
-.project-story.project-story--baltika-data,
-.project-story.project-story--baltika-responsive {
-  row-gap: calc(var(--space-6) * 0.25);
-}
-
-.project-story--disclosure > :deep(.case-disclosure) {
-  grid-column: 1 / -1;
-}
-
-.project-story--disclosure .project-story__media {
-  grid-column: 2 / -2;
-}
-
-.project-story--disclosure .project-story__media img {
-  aspect-ratio: 16 / 8;
-}
-
-/* The supplied label frame is 4:3. Keep its composition intact instead of
-   forcing the panoramic disclosure treatment used by the other case media. */
-.project-story--baltika-label .project-story__media img {
-  aspect-ratio: 4 / 3;
-}
-
-.project-story p.project-story__statement {
-  grid-column: 3 / -3;
-  margin-top: var(--space-6);
-  margin-bottom: 0;
-  font-size: clamp(1.75rem, 3.5vw, 4rem);
-  letter-spacing: -0.01em;
-  line-height: 1.04;
-  text-align: center;
-  opacity: 0.7;
-}
-
-.project-story--final {
-  min-height: 0;
-  margin: var(--space-7) 0 var(--space-6);
-  place-items: center;
-  align-content: center;
-}
-
-.project-story--schmidt-horizontal .project-story__statement {
-  margin-top: var(--space-5);
-}
-
-.project-story--schmidt-production .project-story__statement {
-  margin-top: var(--space-4);
-}
-
-.project-story--keys-system .project-story__statement,
-.project-story--keys-difference .project-story__statement {
-  margin-top: var(--space-section);
-}
-
-.project-story--final p {
-  grid-column: 2 / -2;
-  max-width: 27ch;
-  font-size: clamp(2.2rem, 5.4vw, 6.4rem);
-  letter-spacing: -0.06em;
-  line-height: 0.96;
-  text-align: center;
-}
-
-.project-story__closing-media {
-  width: 100%;
-  height: min(82svh, 68rem);
-  margin: 0;
-  overflow: hidden;
-}
-
-.project-story__closing-media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 .audience-case--intro {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -2034,7 +1530,6 @@ h1 {
 }
 
 /* Every scroll-fill passage shares one reading measure and type scale. */
-.project-story p.case-text-fill,
 .audience-case p.case-text-fill,
 .audience-case div.case-text-fill {
   grid-column: 4 / -4;
@@ -2045,11 +1540,6 @@ h1 {
   letter-spacing: -0.01em;
   line-height: 1.04;
   text-align: center;
-}
-
-.project-story--final p.case-text-fill {
-  grid-column: 2 / -2;
-  font-size: clamp(2.2rem, 5.4vw, 6.4rem);
 }
 
 .audience-case--final p.case-text-fill {
@@ -2069,29 +1559,9 @@ h1 {
   }
 
   .audience-case--motion > .audience-case__motion-secondary,
-  .project-story--final p.case-text-fill,
   .audience-case--final p.case-text-fill {
     grid-column: 2 / -2;
   }
-}
-
-.audience-case__closing-media {
-  width: 100%;
-  height: calc(75svh - 40px);
-  min-height: calc(22rem - 40px);
-  margin: 0;
-  overflow: hidden;
-}
-
-.audience-case__closing-media picture,
-.audience-case__closing-media img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.audience-case__closing-media img {
-  object-fit: cover;
 }
 
 :deep(.audience-fill__line) {
@@ -2120,7 +1590,6 @@ h1 {
 }
 
 @media (max-width: 767.98px) {
-  .project-story > h2,
   .audience-case h2 {
     font-size: clamp(1.875rem, 8vw, 2.25rem);
   }
@@ -2128,65 +1597,6 @@ h1 {
   .case-detail__next { height: 20svh; min-height: 20svh; margin-top: 0; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: var(--space-2); padding-block: var(--space-2); }
   .case-detail__next-content { flex-direction: column; align-items: flex-start; gap: var(--space-3); }
   .case-detail__next-name { max-width: 100%; font-size: clamp(3rem, 13vw, 5rem); }
-  .project-story {
-    grid-template-columns: 1fr;
-    row-gap: var(--space-5);
-    margin-top: var(--space-section);
-  }
-  .project-story > h2 + .project-story__copy {
-    margin-top: calc(var(--space-7) - var(--space-5));
-  }
-  .project-story--baltika-collection > h2 + .project-story__copy,
-  .project-story--baltika-motion > h2 + .project-story__copy,
-  .project-story--baltika-route > h2 + .project-story__copy {
-    margin-top: calc(var(--space-5) * -0.5);
-  }
-  .project-story.project-story--disclosure {
-    row-gap: calc(var(--space-5) * 0.5);
-  }
-  .project-story.project-story--baltika-data,
-  .project-story.project-story--baltika-responsive { row-gap: calc(var(--space-5) * 0.25); }
-  .project-story > h2,
-  .project-story__copy,
-  .project-story--intro > h2,
-  .project-story--intro .project-story__copy,
-  .project-story--feature > h2,
-  .project-story--feature .project-story__copy,
-  .project-story--split > h2,
-  .project-story--split .project-story__copy,
-  .project-story--gallery > h2,
-  .project-story--gallery .project-story__copy,
-  .project-story--disclosure > :deep(.case-disclosure),
-  .project-story--disclosure .project-story__media,
-  .project-story__statement,
-  .project-story--final p {
-    grid-column: 1;
-  }
-  .project-story__copy { grid-template-columns: 1fr; }
-  .project-story--feature > h2,
-  .project-story--feature .project-story__copy { text-align: left; }
-  .project-story__media { gap: var(--space-1); }
-  .project-story__media--2 { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
-  .project-story__media--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .project-story__media--3 img:first-child { grid-column: 1 / -1; }
-  .project-story__media--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .project-story__media--2 img:last-child,
-  .project-story__media--3 img:nth-child(2),
-  .project-story__media--3 img:nth-child(3),
-  .project-story__media--4 img:nth-child(even) { margin-top: var(--space-5); }
-  .project-story--feature .project-story__media img,
-  .project-story--disclosure .project-story__media img { aspect-ratio: 4 / 5; }
-  .project-story--feature .project-story__media :deep(.case-autoplay-video) { aspect-ratio: 1; }
-  .project-story--baltika-motion .project-story__media :deep(.case-autoplay-video) { aspect-ratio: 1; }
-  .project-story--baltika-motion .project-story__media :deep(video) { object-fit: cover; }
-  .project-story--baltika-label .project-story__media img { aspect-ratio: 4 / 3; }
-  .project-story p.project-story__statement { margin-top: var(--space-2); margin-bottom: 0; text-align: center; }
-  .project-story--final { min-height: 0; margin: var(--space-6) 0; }
-  .project-story--schmidt-horizontal .project-story__statement { margin-top: var(--space-5); }
-  .project-story--schmidt-production .project-story__statement { margin-top: var(--space-4); }
-  .project-story--keys-system .project-story__statement,
-  .project-story--keys-difference .project-story__statement { margin-top: var(--space-7); }
-  .project-story__closing-media { height: 62svh; min-height: 22rem; }
   .audience-case { margin-top: var(--space-section); }
   .audience-case--intro {
     grid-template-columns: 1fr;
@@ -2218,7 +1628,6 @@ h1 {
   .audience-case__wave-media--portrait,
   .audience-case__motion-pair img:last-child,
   .audience-case__responsive-picture--admin-large { margin-top: var(--space-4); }
-  .project-story__media--scroll :deep(.case-horizontal-rail__viewport),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__viewport),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__viewport),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__viewport) {
@@ -2226,7 +1635,6 @@ h1 {
     width: 100vw;
     margin-inline: calc(50% - 50vw);
   }
-  .project-story__media--scroll :deep(.case-horizontal-rail__content),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content) {
@@ -2236,9 +1644,6 @@ h1 {
     align-items: flex-start;
     gap: var(--space-1);
   }
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture),
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > .case-autoplay-video),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > picture),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > .audience-case__responsive-picture) {
@@ -2247,11 +1652,6 @@ h1 {
     height: var(--case-rail-mobile-media-height);
     margin-top: 0;
   }
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture) {
-    display: block;
-  }
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture > img),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__content > picture > img),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__content > img),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__content > .audience-case__responsive-picture > img) {
@@ -2261,14 +1661,6 @@ h1 {
     margin-top: 0;
     object-fit: contain;
   }
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > img),
-  .project-story__media--scroll :deep(.case-horizontal-rail__content > picture > img) {
-    aspect-ratio: auto !important;
-  }
-  .project-story--baltika-collection .project-story__media--scroll :deep(.case-horizontal-rail__content) {
-    gap: calc(var(--space-1) * 0.25);
-  }
-  .project-story__media--scroll :deep(.case-horizontal-rail__bar),
   .audience-case__media-pair--scroll :deep(.case-horizontal-rail__bar),
   .audience-case__motion-pair--scroll :deep(.case-horizontal-rail__bar),
   .audience-case__admin-media--scroll :deep(.case-horizontal-rail__bar) {
@@ -2307,27 +1699,20 @@ h1 {
     grid-template-columns: 1fr;
   }
   .audience-case--final p { grid-column: 1; }
-  .project-story p.case-text-fill,
   .audience-case p.case-text-fill,
   .audience-case div.case-text-fill { grid-column: 1; }
-  .project-story__copy p,
   .audience-case__copy p,
   .audience-case__menu-lead p,
   .audience-case__statement,
   .audience-case__lede {
     font-size: var(--type-case-body);
   }
-  .project-story--final p.case-text-fill,
   .audience-case--final p.case-text-fill {
     font-size: clamp(1.875rem, 4.5vw, 5.4rem);
   }
-  .audience-case__closing-media { min-height: calc(18rem - 40px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .case-detail__scroll-top {
-    transition: none;
-  }
   h1,
   .case-detail__meta,
   .case-detail__media {

@@ -1,6 +1,8 @@
 export type ProjectCaseMedia = {
   src: string
   alt: string
+  width?: number
+  height?: number
   shape?: 'wide' | 'landscape' | 'portrait' | 'square'
   type?: 'image' | 'video'
   poster?: string
@@ -12,6 +14,15 @@ export type ProjectCaseMedia = {
   aspectRatio?: string
 }
 
+export type ProjectCaseSectionPresentation = {
+  title?: 'default' | 'nowrap' | 'offset'
+  copy?: 'default' | 'collection' | 'object-grid' | 'route'
+  media?: 'default' | 'collection-rail' | 'gallery-tight' | 'label' | 'motion' | 'object-pair' | 'route'
+  spacing?: 'default' | 'compact-disclosure'
+  mobileCopyGap?: 'default' | 'compact'
+  statementGap?: 'default' | 'medium' | 'section' | 'small'
+}
+
 export type ProjectCaseSection = {
   id: string
   layout: 'intro' | 'disclosure' | 'gallery' | 'feature' | 'split'
@@ -19,6 +30,8 @@ export type ProjectCaseSection = {
   paragraphs: string[]
   media: ProjectCaseMedia[]
   statement?: string
+  presentation?: ProjectCaseSectionPresentation
+  railSpeed?: number
 }
 
 export type ProjectCaseDetail = {
@@ -161,6 +174,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         ],
         media: [keysMedia[0], keysMedia[1]],
         statement: 'Задача была не в том, чтобы сделать ещё один каталог. Нужно было собрать торговую систему, в которой человек быстро понимает, что покупает, на какой платформе это работает и как завершить сделку.',
+        presentation: { statementGap: 'section' },
       },
       {
         id: 'keys-catalog-language',
@@ -179,6 +193,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         paragraphs: ['Единый стиль не означает одинаковые интерфейсы. Каждый каталог получает собственные акценты и только те данные, которые помогают принять решение в конкретном сценарии.'],
         media: [keysMedia[1], keysMedia[0], keysMedia[2]],
         statement: 'Сложность продукта не скрыта за декоративным единообразием — она переведена в понятные параметры выбора.',
+        presentation: { statementGap: 'section' },
       },
       {
         id: 'keys-checkout',
@@ -240,6 +255,11 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
           'В целях соблюдения требований законодательства Российской Федерации отдельные элементы изображений и макетов в этом кейсе скрыты или заменены нейтральными.',
         ],
         media: [baltikaObjectMedia, baltikaObjectDetailMedia],
+        presentation: {
+          title: 'offset',
+          copy: 'object-grid',
+          media: 'object-pair',
+        },
       },
       {
         id: 'baltika-label',
@@ -250,6 +270,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
           'Различия между позициями передавались через цвет, изображение и параметры сцены. Навигация и структура страниц при этом оставались единообразными.',
         ],
         media: [baltikaLabelMedia],
+        presentation: { media: 'label' },
       },
       {
         id: 'baltika-collection',
@@ -258,6 +279,13 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         paragraphs: ['Для каждой позиции линейки мы отобрали авторскую фотографию. Через цвет, фактуру и настроение она раскрывает характер сорта, а общая композиция связывает разные визуальные сюжеты в единую систему.'],
         media: baltikaCollectionMedia,
         statement: 'Фотографии помогают различать позиции и поддерживают характер каждой из них, сохраняя целостность линейки.',
+        railSpeed: 1.28,
+        presentation: {
+          title: 'nowrap',
+          copy: 'collection',
+          media: 'collection-rail',
+          mobileCopyGap: 'compact',
+        },
       },
       {
         id: 'baltika-motion',
@@ -265,6 +293,10 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         title: 'Движение как часть<br>интерфейса.',
         paragraphs: ['Анимация использовалась для переходов между состояниями 3D-сцены и последовательного появления информации. Она поддерживает навигацию и не демонстрирует употребление продукта.'],
         media: [baltikaMotionMedia],
+        presentation: {
+          media: 'motion',
+          mobileCopyGap: 'compact',
+        },
       },
       {
         id: 'baltika-data',
@@ -275,6 +307,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
           'Мы распределили информацию по уровням, чтобы пользователь мог последовательно ознакомиться с содержанием страницы.',
         ],
         media: [baltikaDataMedia],
+        presentation: { spacing: 'compact-disclosure' },
       },
       {
         id: 'baltika-route',
@@ -282,6 +315,12 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         title: 'Редакционные<br>и справочные<br>разделы.',
         paragraphs: ['Новости, материалы о производстве и справочный раздел с перечнем мест продаж объединены общей навигацией. В кейсе этот блок рассматривается только как часть информационной архитектуры сайта.'],
         media: baltikaRouteMedia,
+        presentation: {
+          title: 'nowrap',
+          copy: 'route',
+          media: 'route',
+          mobileCopyGap: 'compact',
+        },
       },
       {
         id: 'baltika-responsive',
@@ -292,6 +331,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
           'На мобильных устройствах те же материалы перестраиваются в последовательную вертикальную структуру с сохранением порядка чтения.',
         ],
         media: [baltikaResponsiveCompositionMedia],
+        presentation: { spacing: 'compact-disclosure' },
       },
     ],
     final: 'В рамках проекта для «Балтика Brew» мы разработали структуру, визуальную систему, 3D-графику и анимацию продуктового сайта. Этот кейс описывает выполненные дизайнерские и технические решения и не содержит предложения приобрести или употреблять алкогольную продукцию.',
@@ -306,6 +346,7 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         paragraphs: ['Вместо привычного движения вниз пользователь проходит историю SCHMIDT слева направо: от предметного образа бутылки к происхождению бренда, производству и коктейлям.'],
         media: [schmidtMedia],
         statement: 'Горизонтальный маршрут задаёт темп знакомства и превращает лендинг в непрерывную траекторию — это не эффект ради эффекта.',
+        presentation: { statementGap: 'medium' },
       },
       {
         id: 'schmidt-materials',
@@ -331,6 +372,10 @@ export const projectCaseDetails: Record<string, ProjectCaseDetail> = {
         paragraphs: ['Спирт, вода, купажирование и фильтрация получают собственный номер, предметный образ и короткое объяснение. Пользователь движется не по списку характеристик, а по логике создания напитка.'],
         media: [schmidtMedia, schmidtMedia, schmidtMedia, schmidtMedia],
         statement: 'Четыре этапа складываются в один осязаемый производственный маршрут.',
+        presentation: {
+          media: 'gallery-tight',
+          statementGap: 'small',
+        },
       },
       {
         id: 'schmidt-flavours',
