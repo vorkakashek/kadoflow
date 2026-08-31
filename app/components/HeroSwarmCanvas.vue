@@ -601,8 +601,9 @@ async function bootScene() {
   const isMobile = isNarrowViewport()
   const isIOS = isAppleTouchDevice()
   /**
-   * Mobile / coarse / iOS: budget for fill-rate — Standard mats, DPR 1, no MSAA,
-   * baked helix seats (no physics). Stable direct lights replace runtime HDR/PMREM.
+   * Mobile / coarse / iOS: budget for fill-rate — Standard mats, DPR 1 and
+   * baked helix seats (no physics). MSAA preserves silhouettes while stable
+   * direct lights replace runtime HDR/PMREM.
    */
   const lite = isMobile || isIOS || isCoarse
   const wide =
@@ -615,7 +616,7 @@ async function bootScene() {
     : lite
       ? BALL_COUNT_MOBILE
       : BALL_COUNT_TABLET
-  const sphereSegments = wide && !isCoarse ? 40 : lite ? 20 : 32
+  const sphereSegments = wide && !isCoarse ? 40 : lite ? 24 : 32
   const pixelRatioCap = wide && !isCoarse ? 1.35 : lite ? 1 : 1.25
   const cameraZ = layout.cameraZ
   const ballDiameterPx = layout.diameterPx
@@ -626,7 +627,7 @@ async function bootScene() {
   camera.position.set(0, 0.12, cameraZ)
 
   const gl = new WebGLRenderer({
-    antialias: !lite,
+    antialias: true,
     alpha: true,
     powerPreference: 'high-performance',
     // Page Canvas no longer snapshots this buffer. Keeping it discardable avoids
@@ -640,7 +641,7 @@ async function bootScene() {
   gl.transmissionResolutionScale = lite ? 1 : 0.5
   gl.outputColorSpace = SRGBColorSpace
   gl.toneMapping = ACESFilmicToneMapping
-  gl.toneMappingExposure = 0.92
+  gl.toneMappingExposure = lite ? 1.02 : 0.92
   /* Transparent frosted balls need depth sort — lite uses opaque Standard only. */
   gl.sortObjects = !lite
   // Avoid auto-clear gaps if a frame is skipped mid-composite.
@@ -683,29 +684,27 @@ async function bootScene() {
   // shell as soon as it is behind us; lighting may continue under the cover.
   emit('booted')
 
-  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.22)
+  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.72 : 0.22)
   scene.add(hemi)
 
-  const key = new DirectionalLight(0xf5f8fc, lite ? 0.62 : 0.55)
+  const key = new DirectionalLight(0xf5f8fc, lite ? 0.95 : 0.55)
   key.position.set(3.8, 5.2, 4.5)
   scene.add(key)
 
-  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.28 : 0.22)
+  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.5 : 0.22)
   fill.position.set(-4.5, 1.2, 2.8)
   scene.add(fill)
 
-  if (!lite) {
-    const rim = new DirectionalLight(0xd0dcea, 0.32)
-    rim.position.set(-1.8, 2.8, -4.8)
-    scene.add(rim)
-  }
+  const rim = new DirectionalLight(0xd0dcea, lite ? 0.42 : 0.32)
+  rim.position.set(-1.8, 2.8, -4.8)
+  scene.add(rim)
 
   const matte = (color: Color) => {
     const material = lite
       ? new MeshStandardMaterial({
           color,
           roughness: 0.86,
-          metalness: 0.04,
+          metalness: 0,
           envMapIntensity: 0.9,
         })
       : new MeshPhysicalMaterial({
@@ -730,7 +729,7 @@ async function bootScene() {
       ? new MeshStandardMaterial({
           color: color.clone().lerp(new Color('#eef4fa'), 0.35),
           roughness: 0.28,
-          metalness: 0.06,
+          metalness: 0,
           envMapIntensity: 1.25,
         })
       : new MeshPhysicalMaterial({
@@ -757,7 +756,7 @@ async function bootScene() {
       ? new MeshStandardMaterial({
           color,
           roughness: 0.22,
-          metalness: 0.1,
+          metalness: 0,
           envMapIntensity: 1.15,
         })
       : new MeshPhysicalMaterial({

@@ -635,12 +635,10 @@ onMounted(async () => {
   const compact = window.innerWidth < 768 || window.matchMedia('(pointer: coarse)').matches
 
   // Mobile and constrained connections keep the branded mark, but skip the
-  // GSAP orbit/iris. A short CSS reveal avoids spending the first seconds on
-  // decorative JS and layout work while the useful page is already ready.
+  // GSAP orbit/iris. A short CSS reveal covers the Hero intro handoff without
+  // spending the first seconds on decorative JS and layout work.
   if (compact || constrained || reduced.value) {
-    // Compact CSS has already completed its reveal before hydration. Re-adding
-    // the animation class here would replay the veil and create a late LCP.
-    liteExit.value = !compact
+    liteExit.value = true
     shownPct.value = 99
     updateArcFill(1)
     preload.markSceneReady()
@@ -871,12 +869,6 @@ onUnmounted(() => {
   0% { opacity: 1; transform: scale(1); }
   58% { opacity: 1; transform: scale(1.04); }
   100% { opacity: 0; transform: scale(0.94); }
-}
-
-@media (max-width: 767px), (pointer: coarse) {
-  .brand-preload {
-    display: none;
-  }
 }
 
 .brand-preload__iris {

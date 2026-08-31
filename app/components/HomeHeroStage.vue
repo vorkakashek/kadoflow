@@ -717,9 +717,11 @@ onMounted(() => {
       }
 
       if (mobile) {
-        // Surface + copy under iris; WebGL only after veil (mid-mask GL froze once).
+        // The compact preloader has already covered the handoff. Start useful
+        // Hero content immediately after it leaves instead of exposing the
+        // neutral stone while the longer desktop pacing runs.
         if (mediaEl.value) {
-          tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.85 }, 0.28)
+          tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.65 }, 0)
         }
         // `let` — immediate watch can fire before assignment (SPA return, revealT≈1).
         let stopRevealWatch: (() => void) | undefined
@@ -752,19 +754,19 @@ onMounted(() => {
 
       if (mobile) {
         if (sloganEl.value) {
-          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 0.45)
+          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.1)
         }
         if (titleLines.length) {
           tl.to(
             titleLines,
-            { autoAlpha: 1, y: 0, duration: 0.8, stagger: 0.14 },
-            0.85,
+            { autoAlpha: 1, y: 0, duration: 0.75, stagger: 0.12 },
+            0.28,
           )
         } else if (titleEl.value) {
-          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.8 }, 0.85)
+          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 0.28)
         }
         if (descEl.value) {
-          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.7 }, 1.25)
+          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.72)
         }
       } else {
         if (titleLines.length) {
