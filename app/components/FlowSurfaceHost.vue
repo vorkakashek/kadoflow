@@ -702,7 +702,11 @@ function paintKadoToCasesSegment(t: number) {
     return
   }
   if (t >= CASE_PIN_P) {
-    pinCaseFrame()
+    // Desktop remains in the fixed host. Teleporting the fully arrived frame
+    // into the case figure forces a one-frame repaint in Chromium, visible as
+    // a flash both on first Kado → Cases scroll and under the return proxy.
+    if (mobileActive) pinCaseFrame()
+    else paintBox(to, 1)
     return
   }
   caseSurfaceReady.value = false
@@ -1282,11 +1286,10 @@ function caseFramePinned() {
   return !!props.caseMediaEl && pinTo.value === props.caseMediaEl
 }
 
-/** The frame may only re-enter the card once this corridor has fully arrived. */
+/** Mobile may re-enter the card only after its native-scroll corridor arrives. */
 function caseFrameShouldBePinned() {
   return mobileActive
-    ? mobileCaseArrived || mobileCaseProgress >= CASE_PIN_P
-    : desktopLiveS >= 1 + CASE_PIN_P
+    && (mobileCaseArrived || mobileCaseProgress >= CASE_PIN_P)
 }
 
 /** Park the completed surface inside the case figure so it scrolls with content. */
