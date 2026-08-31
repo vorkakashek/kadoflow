@@ -23,6 +23,7 @@ const arcEl = ref<SVGPathElement | null>(null)
 const reduced = ref(false)
 const exiting = ref(false)
 const liteExit = ref(false)
+const connectionOptimized = ref(false)
 const show = ref(true)
 /** Odometer — driven by lap-1 orbit progress (not a slow post-queue). */
 const shownPct = ref(0)
@@ -637,6 +638,7 @@ onMounted(async () => {
     || connection?.effectiveType === '2g'
     || connection?.effectiveType === '3g',
   )
+  connectionOptimized.value = constrained
   // Save-data / slow networks keep the branded mark but skip the full orbit
   // and iris. Normal mobile devices use the same O → disc → iris story as
   // desktop; settleAndExit already selects its cheaper transform-only morph.
@@ -652,7 +654,7 @@ onMounted(async () => {
       preload.setRevealT(1)
       if (!preload.revealed.value) preload.markRevealed()
       show.value = false
-    }, 680)
+    }, constrained ? 1350 : 680)
     return
   }
 
@@ -730,7 +732,11 @@ onUnmounted(() => {
     v-if="show"
     ref="rootEl"
     class="brand-preload"
-    :class="{ 'is-exiting': exiting, 'is-lite': liteExit }"
+    :class="{
+      'is-exiting': exiting,
+      'is-lite': liteExit,
+      'is-connection-lite': connectionOptimized,
+    }"
     role="status"
     aria-live="polite"
     aria-busy="true"
@@ -822,6 +828,9 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <p v-if="connectionOptimized" class="brand-preload__connection-note">
+      {{ t('accessibility.connectionOptimized') }}
+    </p>
   </div>
 </template>
 
@@ -857,6 +866,14 @@ onUnmounted(() => {
   display: none;
 }
 
+.brand-preload.is-lite.is-connection-lite {
+  animation: brand-preload-connection-exit 1.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.brand-preload.is-lite.is-connection-lite .brand-preload__glyph {
+  animation: brand-preload-connection-mark 1.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
 @keyframes brand-preload-lite-exit {
   0%, 38% {
     opacity: 1;
@@ -871,6 +888,22 @@ onUnmounted(() => {
 @keyframes brand-preload-lite-mark {
   0% { opacity: 1; transform: scale(1); }
   58% { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 0; transform: scale(0.94); }
+}
+
+@keyframes brand-preload-connection-exit {
+  0%, 66% {
+    opacity: 1;
+    visibility: visible;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes brand-preload-connection-mark {
+  0%, 58% { opacity: 1; transform: scale(1); }
   100% { opacity: 0; transform: scale(0.94); }
 }
 
@@ -931,6 +964,24 @@ onUnmounted(() => {
   z-index: 2;
   right: max(var(--layout-margin, 1.25rem), 5vw);
   bottom: max(var(--layout-margin, 1.25rem), 4vh);
+}
+
+.brand-preload__connection-note {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: max(var(--layout-margin, 1.25rem), 4vh);
+  width: min(88vw, 28rem);
+  margin: 0;
+  color: var(--palette-ash);
+  font-family: var(--font-sans);
+  font-size: calc(var(--type-nav) * 0.78);
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  text-align: center;
+  opacity: 0.75;
+  transform: translateX(-50%);
 }
 
 .brand-preload__odometer {
