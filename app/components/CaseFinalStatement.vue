@@ -69,13 +69,13 @@ withDefaults(defineProps<{
   .project-story--final p,
   .project-story--final p.case-text-fill {
     grid-column: 1;
-    font-size: clamp(1.875rem, 4.5vw, 5.4rem);
+    font-size: clamp(2.25rem, 5.4vw, 6.48rem);
     text-align: left;
   }
 
   .project-story--final-editorial p,
   .project-story--final-editorial p.case-text-fill {
-    font-size: clamp(1.875rem, 4.5vw, 5.4rem);
+    font-size: clamp(2.25rem, 5.4vw, 6.48rem);
   }
 }
 </style>

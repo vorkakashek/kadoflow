@@ -355,7 +355,7 @@ const presentationClasses = computed(() => {
   .project-story > h2 { font-size: clamp(1.875rem, 8vw, 2.25rem); }
 
   .project-story > h2 + .project-story__copy {
-    margin-top: calc(var(--space-7) - var(--space-5));
+    margin-top: calc(var(--space-4) - var(--space-5));
   }
 
   .project-story--mobile-copy-compact > h2 + .project-story__copy {

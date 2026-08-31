@@ -105,7 +105,7 @@ p { margin: 0; }
   }
   .audience-case__copy {
     grid-column: 1;
-    margin-top: var(--space-6);
+    margin-top: var(--space-4);
   }
   .audience-case__copy p { font-size: var(--type-case-body); }
   .audience-case__media-pair { grid-column: 1; }

@@ -81,10 +81,17 @@ h2 {
 
 @media (max-width: 767.98px) {
   .case-text-media-rail { margin-top: calc(var(--space-section) * 0.5); }
-  h2 { font-size: clamp(1.875rem, 8vw, 2.25rem); }
+  h2 {
+    width: 80%;
+    margin-right: 0;
+    margin-left: auto;
+    font-size: clamp(1.875rem, 8vw, 2.25rem);
+    text-align: left;
+  }
   .audience-case__lede {
-    width: 100%;
-    margin-inline: 0;
+    width: 80%;
+    margin-right: 0;
+    margin-left: auto;
     font-size: var(--type-case-body);
     text-align: left;
   }

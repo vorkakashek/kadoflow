@@ -42,12 +42,6 @@ function hideResponsivePoster() {
   responsivePosterVisible.value = false
 }
 
-onBeforeMount(() => {
-  sourceQuery = window.matchMedia('(max-width: 767.98px)')
-  useMobileSource.value = sourceQuery.matches && !!props.mobileSrc
-  sourceQuery.addEventListener('change', syncVideoSource)
-})
-
 async function syncVideoSource() {
   const nextUseMobileSource = !!sourceQuery?.matches && !!props.mobileSrc
   if (useMobileSource.value === nextUseMobileSource) return
@@ -60,6 +54,12 @@ async function syncVideoSource() {
 }
 
 onMounted(() => {
+  // Keep the hydration render identical to SSR. The server cannot know the
+  // viewport width, so responsive source selection starts after hydration.
+  sourceQuery = window.matchMedia('(max-width: 767.98px)')
+  sourceQuery.addEventListener('change', syncVideoSource)
+  void syncVideoSource()
+
   motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   motionQuery.addEventListener('change', syncMotionPreference)
 

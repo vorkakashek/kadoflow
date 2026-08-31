@@ -835,13 +835,21 @@ async function setupEnterMotion() {
 
   const playIn = () => {
     if (switching.value || casesEnterMotionVisible) return
+    // On touch layouts the sticky rail must not cover the incoming Surface.
+    // Its entrance is owned by the settled-case signal below, not the section
+    // ScrollTrigger, so it starts only after the flight has reached the card.
+    if (mobileCases.value && (!caseSurfaceDocked.value || caseSurfaceReturning.value)) return
     localEnter?.kill()
     enterTl?.kill()
     const rail = mobileCases.value ? railAnimTargets() : []
+    const railPanel = mobileCases.value ? railEl.value : null
     const parts = stageCopyParts()
     if (!rail.length && !parts.all.length) return
     casesEnterMotionVisible = true
 
+    if (railPanel) {
+      gsap.set(railPanel, { autoAlpha: 0, pointerEvents: 'none' })
+    }
     if (rail.length) {
       gsap.set(
         rail,
@@ -855,6 +863,11 @@ async function setupEnterMotion() {
     const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
     localEnter = tl
     enterTl = tl
+    if (railPanel) {
+      tl.to(railPanel, { autoAlpha: 1, duration: 0.5 }, 0)
+      tl.set(railPanel, { pointerEvents: 'auto' }, 0.18)
+      tl.call(revealActiveCaseUnderline, [], 0.18)
+    }
     if (rail.length) {
       tl.to(
         rail,
@@ -868,6 +881,9 @@ async function setupEnterMotion() {
     if (rail.length) {
       tl.set(rail, { clearProps: 'opacity,transform' }, '>')
     }
+    if (railPanel) {
+      tl.set(railPanel, { clearProps: 'opacity,visibility,pointerEvents' }, '>')
+    }
   }
 
   const resetOut = () => {
@@ -876,6 +892,7 @@ async function setupEnterMotion() {
     localEnter?.kill()
     enterTl?.kill()
     const rail = mobileCases.value ? railAnimTargets() : []
+    const railPanel = mobileCases.value ? railEl.value : null
     const parts = stageCopyParts()
     if (!rail.length && !parts.all.length) {
       enterTl = null
@@ -886,6 +903,10 @@ async function setupEnterMotion() {
     const tl = gsap.timeline({ defaults: { ease: 'power2.in' } })
     localEnter = tl
     enterTl = tl
+    if (railPanel) {
+      tl.set(railPanel, { pointerEvents: 'none' }, 0)
+      tl.to(railPanel, { autoAlpha: 0, duration: 0.55 }, 0)
+    }
     if (rail.length) {
       tl.to(
         rail,
@@ -903,7 +924,11 @@ async function setupEnterMotion() {
 
   enterCtx = gsap.context(() => {
     const rail = mobileCases.value ? railAnimTargets() : []
+    const railPanel = mobileCases.value ? railEl.value : null
     const parts = stageCopyParts()
+    if (railPanel) {
+      gsap.set(railPanel, { autoAlpha: 0, pointerEvents: 'none' })
+    }
     if (rail.length) {
       gsap.set(
         rail,

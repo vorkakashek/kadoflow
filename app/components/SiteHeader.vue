@@ -1712,6 +1712,11 @@ html.page-canvas-lock .menu-btn--float {
   transform: translateY(var(--header-text-optical-y));
 }
 
+/* The mobile FAB's text sits optically low inside its pill. */
+.menu-fab .menu-chip-line {
+  transform: translateY(calc(var(--header-text-optical-y) - 2px));
+}
+
 .menu-btn:disabled,
 .menu-fab:disabled {
   pointer-events: none;
@@ -1721,7 +1726,6 @@ html.page-canvas-lock .menu-btn--float {
 
 .menu-dots {
   position: relative;
-  top: 2px;
   z-index: 1;
   display: inline-flex;
   align-items: center;

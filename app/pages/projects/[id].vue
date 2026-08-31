@@ -90,23 +90,19 @@ async function setupMediaParallax() {
   if (!media || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const audience = item.value?.id === 'audience'
   const mediaFrame = mediaEnterEl.value ?? media
-  const openingStory = audience
-    ? null
-    : detailContentEl.value?.querySelector<HTMLElement>(
-        '.case-detail__first-screen + .project-story',
-      ) ?? null
+
+  mediaParallaxCtx?.revert()
+  mediaParallaxCtx = null
+  if (!audience) return
 
   const gsap = (await import('gsap')).default
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
   gsap.registerPlugin(ScrollTrigger)
 
-  mediaParallaxCtx?.revert()
   mediaParallaxCtx = gsap.context(() => {
     const scrollTrigger = {
       trigger: mediaFrame,
-      start: audience
-        ? 'top bottom'
-        : () => `top top+=${Math.round(media.offsetHeight * 0.3)}px`,
+      start: 'top bottom',
       end: 'bottom top',
       scrub: 0.65,
       invalidateOnRefresh: true,
@@ -116,26 +112,13 @@ async function setupMediaParallax() {
       media,
       { yPercent: 0 },
       {
-        // Audience uses a shorter crop window. Its oversized image travels
-        // upward inside that window until the frame's lower edge clears the
-        // top of the viewport; other cases retain their existing page drift.
-        yPercent: audience ? -55 : 30,
+        // Audience keeps its oversized image moving inside the crop window.
+        // Other cases intentionally have no header-media parallax.
+        yPercent: -55,
         ease: 'none',
         scrollTrigger,
       },
     )
-
-    if (openingStory) {
-      // The media's bottom runway is reserved in layout for its final 30%
-      // downward drift. At the start of that drift the runway is still empty,
-      // so lift the opening story by the unused amount and release it in sync
-      // with the media. This keeps the perceived gap stable throughout.
-      gsap.fromTo(
-        openingStory,
-        { y: () => -(Number.parseFloat(getComputedStyle(mediaFrame).marginBottom) || 0) },
-        { y: 0, ease: 'none', scrollTrigger },
-      )
-    }
   }, mediaFrame)
 }
 
@@ -161,10 +144,6 @@ async function setupHeaderScroll() {
   headerScrollCtx?.revert()
   headerScrollCtx = gsap.context(() => {
     const mediaTravel = () => Math.min(window.innerHeight * 0.16, media.offsetHeight * 0.22)
-    const syncMediaTravel = () => {
-      gsap.set(scope, { '--case-header-travel': `${mediaTravel()}px` })
-    }
-    syncMediaTravel()
 
     const timeline = gsap.timeline({
       scrollTrigger: {
@@ -173,7 +152,6 @@ async function setupHeaderScroll() {
         end: 'bottom top',
         scrub: 0.7,
         invalidateOnRefresh: true,
-        onRefreshInit: syncMediaTravel,
       },
     })
 
@@ -652,9 +630,10 @@ useHead(() => ({
 
         <template v-if="projectDetail">
           <CaseBlockRenderer
-            v-for="block in projectDetail.blocks"
+            v-for="(block, blockIndex) in projectDetail.blocks"
             :key="block.id"
             :block="block"
+            :first="blockIndex === 0"
             @layout-change="refreshAudienceScrollPositions"
           />
         </template>
@@ -705,7 +684,6 @@ useHead(() => ({
 }
 
 .case-detail__first-screen {
-  --case-header-travel: 0px;
   --case-header-shift: 0px;
 }
 
@@ -850,6 +828,10 @@ h1 {
 }
 
 @media (max-width: 767.98px) {
+  .case-detail__inner {
+    padding-bottom: 0;
+  }
+
   .case-detail--audience .case-detail__media--audience {
     aspect-ratio: 4 / 5;
   }
@@ -859,7 +841,7 @@ h1 {
     display: flex;
     min-height: var(--app-screen);
     flex-direction: column;
-    padding-bottom: var(--space-3);
+    padding-bottom: var(--space-6);
   }
 
   .case-detail__hero {
@@ -896,11 +878,6 @@ h1 {
     margin-top: 0;
   }
 
-  .case-detail__media {
-    margin-top: 0;
-    margin-bottom: 0;
-  }
-
   .case-detail__image {
     aspect-ratio: auto;
   }
@@ -908,16 +885,11 @@ h1 {
 
 .case-detail__media {
   margin-top: var(--space-4);
-  /* The frame moves upward with the metadata. Remove that exact travel from
-     the reserved runway so the following story block keeps a deliberate gap. */
-  margin-bottom: calc(var(--space-case-media-runway) - var(--case-header-travel));
-  translate: 0 var(--case-header-shift);
-  will-change: translate;
+  margin-bottom: var(--space-case-media-runway);
 }
 
 .case-detail__media--video {
-  /* Baltika’s square film needs its full 30% travel below the block. */
-  margin-bottom: calc(var(--space-case-video-runway) - var(--case-header-travel));
+  margin-bottom: var(--space-case-video-runway);
 }
 
 .case-detail__media-parallax {
@@ -951,12 +923,19 @@ h1 {
    preserves the full raster height for the longer parallax travel. */
 .case-detail__media--audience {
   aspect-ratio: 16 / 9;
-  margin-bottom: calc(var(--space-case-audience-runway) - var(--case-header-travel));
+  margin-bottom: var(--space-case-audience-runway);
   overflow: hidden;
 }
 
 .case-detail__media--audience .case-detail__media-parallax {
   height: 222.222%;
+}
+
+@media (max-width: 767.98px) {
+  .case-detail__media {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
 }
 
 .case-detail__meta,
