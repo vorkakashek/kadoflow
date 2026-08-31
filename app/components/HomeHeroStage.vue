@@ -6,6 +6,7 @@
  */
 import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { useBrandPreload } from '~/composables/useBrandPreload'
+import { preloadThreeBundle } from '~/utils/preloadHomeMotion'
 import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
 
 const { locale, t, tm } = useI18n()
@@ -487,7 +488,20 @@ function scheduleSwarmMount(fromNavigation: boolean) {
       || connection?.effectiveType === '2g'
       || connection?.effectiveType === '3g',
     )
-    const delay = constrained ? 9000 : mobileLite.value ? 6000 : 5000
+    // Warm the large Three module in a quiet slot, then mount automatically
+    // shortly after the primary title/description entrance. Interaction stays
+    // gated separately until the scene has faded in.
+    if (!constrained) {
+      const warmThree = () => {
+        if (!stageUnmounted) void preloadThreeBundle()
+      }
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(warmThree, { timeout: 450 })
+      } else {
+        window.setTimeout(warmThree, 120)
+      }
+    }
+    const delay = constrained ? 5000 : mobileLite.value ? 1800 : 1100
     let stopIntroGate: (() => void) | null = null
     const onIntent = () => {
       if (!heroIntroSettled.value) {
@@ -530,7 +544,7 @@ function scheduleSwarmMount(fromNavigation: boolean) {
         swarmFallbackTimer = window.setTimeout(() => {
           swarmFallbackTimer = 0
           if ('requestIdleCallback' in window) {
-            swarmIdleId = window.requestIdleCallback(mount, { timeout: 1500 })
+            swarmIdleId = window.requestIdleCallback(mount, { timeout: 350 })
           } else mount()
         }, delay)
       })
