@@ -445,6 +445,7 @@ let introGen = 0
 
 const swarmMount = ref(false)
 const swarmLit = ref(false)
+const connectionConstrained = ref(false)
 const heroWebglPrebootRequested = useState<boolean>(
   'home-hero-webgl-preboot-requested',
   () => false,
@@ -490,6 +491,7 @@ function scheduleSwarmMount(fromNavigation: boolean) {
     || connection?.effectiveType === '2g'
     || connection?.effectiveType === '3g',
   )
+  connectionConstrained.value = constrained
 
   // On a normal mobile connection, build the lightweight scene behind the
   // opaque part of the compact preloader. Previously an intentional 1.8 s
@@ -870,7 +872,7 @@ onUnmounted(() => {
             @lit="onSwarmLit"
           />
         </ClientOnly>
-        <!-- Baked Hero frame stays visible until WebGL reports a stable frame. -->
+        <!-- Slow links get a scene-only poster; fast links keep the neutral lid. -->
         <div
           ref="swarmCoverEl"
           class="hero-swarm-cover"
@@ -880,15 +882,17 @@ onUnmounted(() => {
           }"
           aria-hidden="true"
         >
-          <picture
-            class="hero-swarm-poster"
-            :style="{
-              top: `${sceneBleedY - props.restTop}px`,
-              left: `${sceneBleedX - props.restLeft}px`,
-            }"
-          >
-            <source media="(max-width: 767.98px)" srcset="/previews/home-m.jpg">
-            <img src="/previews/home.jpg" alt="" decoding="async" fetchpriority="high">
+          <picture v-if="connectionConstrained" class="hero-swarm-poster">
+            <source
+              media="(max-width: 767.98px)"
+              srcset="/home/hero-swarm-poster-mobile.webp"
+            >
+            <img
+              src="/home/hero-swarm-poster.webp"
+              alt=""
+              decoding="async"
+              fetchpriority="high"
+            >
           </picture>
         </div>
         </div>
@@ -968,19 +972,20 @@ onUnmounted(() => {
   transition: opacity 0.5s var(--motion-ease, ease), visibility 0.5s;
 }
 
-.hero-swarm-poster {
-  position: absolute;
-  display: block;
-  width: 100vw;
-  height: var(--app-screen);
-  pointer-events: none;
-}
-
+.hero-swarm-poster,
 .hero-swarm-poster img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: fill;
+}
+
+.hero-swarm-poster {
+  position: absolute;
+  inset: 0;
+}
+
+.hero-swarm-poster img {
+  object-fit: cover;
 }
 
 .hero-swarm-cover--up {
