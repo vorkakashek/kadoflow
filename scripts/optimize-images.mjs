@@ -1,9 +1,13 @@
-import { access, mkdir } from 'node:fs/promises'
+import { access, mkdir, stat } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import sharp from 'sharp'
 import { imageRecipes } from './image-recipes.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+const pipelineMtime = Math.max(
+  (await stat(new URL(import.meta.url))).mtimeMs,
+  (await stat(new URL('./image-recipes.mjs', import.meta.url))).mtimeMs,
+)
 
 const outputFormats = [
   { extension: 'avif', encode: (image) => image.avif({ quality: 52, effort: 6 }) },
@@ -24,6 +28,7 @@ async function buildRecipe(recipe) {
   await ensureSource(sourcePath)
 
   const metadata = await sharp(sourcePath).metadata()
+  const sourceMtime = (await stat(sourcePath)).mtimeMs
   if (!metadata.width || !metadata.height) throw new Error(`Could not read image dimensions: ${recipe.source}`)
 
   const widths = [...new Set(recipe.widths)].sort((a, b) => a - b)
@@ -39,6 +44,13 @@ async function buildRecipe(recipe) {
 
   await Promise.all(usableWidths.flatMap((width) => outputFormats.map(async ({ extension, encode }) => {
     const outputPath = resolve(root, `${recipe.outputStem}-${width}.${extension}`)
+    try {
+      const outputStat = await stat(outputPath)
+      if (outputStat.size > 0 && outputStat.mtimeMs >= Math.max(sourceMtime, pipelineMtime)) return
+    }
+    catch {
+      // Missing output: generate it below.
+    }
     await mkdir(dirname(outputPath), { recursive: true })
     const resize = recipe.crop
       ? {

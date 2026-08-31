@@ -1861,6 +1861,12 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
   min-width: 0;
 }
 
+@media (max-width: 767.98px), (pointer: coarse) {
+  .menu-fab-word {
+    width: max-content;
+  }
+}
+
 .menu-fab-word__clip {
   display: block;
   width: max-content;

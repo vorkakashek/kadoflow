@@ -1,6 +1,15 @@
 <script setup lang="ts">
 const enhancementsReady = ref(false)
+const route = useRoute()
 const { locale, t } = useI18n()
+const brandPreloaderEnabled = useBrandPreloaderEnabled()
+
+// Capture only the initial document route. Later SPA navigation is covered by
+// the dedicated page/case transitions and must not remount the brand reveal.
+brandPreloaderEnabled.value = !/^\/projects\/[^/]+$/.test(route.path)
+if (import.meta.client && !brandPreloaderEnabled.value) {
+  useBrandPreload().bypass()
+}
 
 useHead(() => ({ htmlAttrs: { lang: locale.value } }))
 useSeoMeta({
@@ -29,7 +38,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <BrandPreloader />
+    <BrandPreloader v-if="brandPreloaderEnabled" />
     <div class="pc-live-stack">
       <div class="page-shell">
         <div class="page-shell__paint">

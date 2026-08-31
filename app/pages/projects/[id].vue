@@ -16,6 +16,7 @@ const {
   detailContentVisible,
 } = useCaseDetailTransition()
 const brandPreload = useBrandPreload()
+const brandPreloaderEnabled = useBrandPreloaderEnabled()
 const firstScreenEl = ref<HTMLElement | null>(null)
 const titleFrameEl = ref<HTMLElement | null>(null)
 const titleMotionEl = ref<HTMLElement | null>(null)
@@ -38,15 +39,65 @@ let audienceTextFillCtx: { revert: () => void } | null = null
 let nextProjectParallaxCtx: { revert: () => void } | null = null
 let audienceTextResizeObserver: ResizeObserver | null = null
 let caseMediaPreloadObserver: IntersectionObserver | null = null
+let caseMediaDecodeObserver: IntersectionObserver | null = null
+let waveLayerMediaQuery: MediaQueryList | null = null
+let waveLayerIdle = 0
 let audienceTextRebuildTimer = 0
 const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
 let stopDirectRevealWatch: (() => void) | null = null
+const waveLayerReady = ref(false)
+const mediaDecodeQueue: HTMLImageElement[] = []
+const queuedMediaDecodes = new Set<HTMLImageElement>()
+let activeMediaDecodes = 0
+
+type NetworkInformationHint = {
+  effectiveType?: string
+  saveData?: boolean
+}
+
+function connectionHint() {
+  return (navigator as Navigator & { connection?: NetworkInformationHint }).connection
+}
+
+function slowOrMeteredConnection() {
+  const connection = connectionHint()
+  return Boolean(
+    connection?.saveData
+    || connection?.effectiveType === 'slow-2g'
+    || connection?.effectiveType === '2g'
+    || connection?.effectiveType === '3g',
+  )
+}
+
+function pumpMediaDecodeQueue() {
+  const concurrency = slowOrMeteredConnection() ? 1 : 2
+  while (activeMediaDecodes < concurrency && mediaDecodeQueue.length) {
+    const image = mediaDecodeQueue.shift()
+    if (!image) break
+    queuedMediaDecodes.delete(image)
+    if (!image.isConnected) continue
+    activeMediaDecodes += 1
+    image.decoding = 'async'
+    void image.decode().catch(() => undefined).finally(() => {
+      activeMediaDecodes = Math.max(0, activeMediaDecodes - 1)
+      pumpMediaDecodeQueue()
+    })
+  }
+}
+
+function queueMediaDecode(image: HTMLImageElement) {
+  if (queuedMediaDecodes.has(image)) return
+  queuedMediaDecodes.add(image)
+  mediaDecodeQueue.push(image)
+  pumpMediaDecodeQueue()
+}
 
 // A direct request has no fullscreen cover to stage the page underneath. Start
 // it from the same hidden pose and release it after the hydrated DOM has painted.
 const isDirectEntry = !detailTransitionRequest.value && !detailTransitionActive.value
-if (isDirectEntry) detailContentVisible.value = false
+const directEntryWaitsForBrandReveal = isDirectEntry && brandPreloaderEnabled.value
+if (isDirectEntry) detailContentVisible.value = !directEntryWaitsForBrandReveal
 
 function releaseDirectEntry() {
   directRevealFrame = requestAnimationFrame(() => {
@@ -61,25 +112,68 @@ function setupCaseMediaPreload() {
   if (!root || !('IntersectionObserver' in window)) return
 
   caseMediaPreloadObserver?.disconnect()
-  const preloadDistance = Math.max(2400, Math.round(window.innerHeight * 4))
+  caseMediaDecodeObserver?.disconnect()
+  const slow = slowOrMeteredConnection()
+  const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  // Reading normally moves downward: keep a useful forward runway while the
+  // smaller top margin is enough for already cached reverse-scroll media.
+  const networkAhead = slow ? 0.65 : finePointer ? 1.5 : 0.8
+  const decodeAhead = slow ? 0.25 : finePointer ? 0.75 : 0.35
   caseMediaPreloadObserver = new IntersectionObserver((entries, observer) => {
     for (const entry of entries) {
       if (!entry.isIntersecting || !(entry.target instanceof HTMLImageElement)) continue
       const image = entry.target
       observer.unobserve(image)
-      // Start transfer well before the reveal corridor without competing with
-      // the opening screen. decode() keeps raster preparation asynchronous.
+      // Network first. Decode and GPU upload have their own, smaller corridors.
       image.loading = 'eager'
-      image.decoding = 'async'
-      void image.decode().catch(() => {
-        // The native image fallback remains visible if decode is interrupted.
-      })
+      if ('fetchPriority' in image) image.fetchPriority = 'low'
     }
-  }, { rootMargin: `${preloadDistance}px 0px ${preloadDistance}px 0px` })
+  }, {
+    rootMargin: `${Math.round(window.innerHeight * 0.25)}px 0px ${Math.round(window.innerHeight * networkAhead)}px 0px`,
+  })
+
+  caseMediaDecodeObserver = new IntersectionObserver((entries, observer) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting || !(entry.target instanceof HTMLImageElement)) continue
+      observer.unobserve(entry.target)
+      if ('fetchPriority' in entry.target) entry.target.fetchPriority = 'auto'
+      queueMediaDecode(entry.target)
+    }
+  }, {
+    rootMargin: `${Math.round(window.innerHeight * 0.15)}px 0px ${Math.round(window.innerHeight * decodeAhead)}px 0px`,
+  })
 
   for (const image of root.querySelectorAll<HTMLImageElement>('img[loading="lazy"]')) {
+    if ('fetchPriority' in image) image.fetchPriority = 'low'
     caseMediaPreloadObserver.observe(image)
+    caseMediaDecodeObserver.observe(image)
   }
+}
+
+function cancelWaveLayerWarmup() {
+  if (!waveLayerIdle) return
+  if ('cancelIdleCallback' in window) window.cancelIdleCallback(waveLayerIdle)
+  else window.clearTimeout(waveLayerIdle)
+  waveLayerIdle = 0
+}
+
+function syncWaveLayerMount() {
+  const eligible = Boolean(waveLayerMediaQuery?.matches)
+  if (!eligible) {
+    cancelWaveLayerWarmup()
+    waveLayerReady.value = false
+    return
+  }
+  if (waveLayerReady.value || waveLayerIdle) return
+  const mount = () => {
+    waveLayerIdle = 0
+    if (waveLayerMediaQuery?.matches) waveLayerReady.value = true
+  }
+  // The effect is desktop-only. Warm it shortly after critical paint so the
+  // first deliberate hover is ready without adding OGL to mobile case startup.
+  waveLayerIdle = 'requestIdleCallback' in window
+    ? window.requestIdleCallback(mount, { timeout: 900 })
+    : window.setTimeout(mount, 300)
 }
 
 async function refreshAudienceScrollPositions() {
@@ -465,6 +559,11 @@ onMounted(() => {
   // while the user reads the case so the return transition can mount it under
   // the fullscreen cover without a route-chunk pause.
   void preloadRouteComponents('/')
+  waveLayerMediaQuery = window.matchMedia(
+    '(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
+  )
+  waveLayerMediaQuery.addEventListener('change', syncWaveLayerMount)
+  syncWaveLayerMount()
   void nextTick(() => {
     setupCaseMediaPreload()
     void setupDetailReveals()
@@ -474,7 +573,7 @@ onMounted(() => {
     void setupNextProjectParallax()
   })
 
-  if (isDirectEntry) {
+  if (directEntryWaitsForBrandReveal) {
     if (brandPreload.revealed.value) releaseDirectEntry()
     else {
       stopDirectRevealWatch = watch(
@@ -508,6 +607,13 @@ onBeforeUnmount(() => {
   audienceTextResizeObserver = null
   caseMediaPreloadObserver?.disconnect()
   caseMediaPreloadObserver = null
+  caseMediaDecodeObserver?.disconnect()
+  caseMediaDecodeObserver = null
+  mediaDecodeQueue.length = 0
+  queuedMediaDecodes.clear()
+  waveLayerMediaQuery?.removeEventListener('change', syncWaveLayerMount)
+  waveLayerMediaQuery = null
+  cancelWaveLayerWarmup()
   if (audienceTextRebuildTimer) window.clearTimeout(audienceTextRebuildTimer)
   audienceTextRebuildTimer = 0
 })
@@ -536,7 +642,7 @@ useHead(() => ({
       }"
       :style="{ backgroundColor: item.wash }"
     >
-      <CaseMediaWaveLayer />
+      <LazyCaseMediaWaveLayer v-if="waveLayerReady" />
       <CaseScrollTop />
       <div ref="detailContentEl" class="case-detail__inner">
       <div ref="firstScreenEl" class="case-detail__first-screen">

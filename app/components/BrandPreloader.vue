@@ -15,6 +15,7 @@ const arcEl = ref<SVGPathElement | null>(null)
 
 const reduced = ref(false)
 const exiting = ref(false)
+const liteExit = ref(false)
 const show = ref(true)
 /** Odometer — driven by lap-1 orbit progress (not a slow post-queue). */
 const shownPct = ref(0)
@@ -63,6 +64,7 @@ let flyerR = ORBIT_R
 let settling = false
 let settled = false
 let holding = false
+let liteExitTimer = 0
 /** While true, odometer follows the first orbit (0→99). */
 let pacingLap1 = true
 let lap1StartA = APEX
@@ -575,6 +577,38 @@ onMounted(async () => {
   reduced.value =
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+  const connection = (navigator as Navigator & {
+    connection?: { effectiveType?: string; saveData?: boolean }
+  }).connection
+  const constrained = Boolean(
+    connection?.saveData
+    || connection?.effectiveType === 'slow-2g'
+    || connection?.effectiveType === '2g'
+    || connection?.effectiveType === '3g',
+  )
+  const compact = window.innerWidth < 768 || window.matchMedia('(pointer: coarse)').matches
+
+  // Mobile and constrained connections keep the branded mark, but skip the
+  // GSAP orbit/iris. A short CSS reveal avoids spending the first seconds on
+  // decorative JS and layout work while the useful page is already ready.
+  if (compact || constrained || reduced.value) {
+    // Compact CSS has already completed its reveal before hydration. Re-adding
+    // the animation class here would replay the veil and create a late LCP.
+    liteExit.value = !compact
+    shownPct.value = 99
+    updateArcFill(1)
+    preload.markSceneReady()
+    preload.markFontsReady()
+    preload.beginFinish()
+    liteExitTimer = window.setTimeout(() => {
+      settled = true
+      preload.setRevealT(1)
+      if (!preload.revealed.value) preload.markRevealed()
+      show.value = false
+    }, 680)
+    return
+  }
+
   // Hard unlock — if GSAP/exit stalls (hung tab after canvas nav), never leave
   // a blank sand veil forever.
   const forceUnlock = window.setTimeout(() => {
@@ -638,6 +672,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (liteExitTimer) window.clearTimeout(liteExitTimer)
   cycleTl?.kill()
   cycleTl = null
 })
@@ -648,7 +683,7 @@ onUnmounted(() => {
     v-if="show"
     ref="rootEl"
     class="brand-preload"
-    :class="{ 'is-exiting': exiting }"
+    :class="{ 'is-exiting': exiting, 'is-lite': liteExit }"
     role="status"
     aria-live="polite"
     aria-busy="true"
@@ -760,6 +795,42 @@ onUnmounted(() => {
   pointer-events: none;
   /* Hole punches through to the site; sand comes from iris box-shadow. */
   background: transparent;
+}
+
+.brand-preload.is-lite {
+  pointer-events: none;
+  animation: brand-preload-lite-exit 0.68s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.brand-preload.is-lite .brand-preload__glyph {
+  animation: brand-preload-lite-mark 0.68s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.brand-preload.is-lite .brand-preload__pct {
+  display: none;
+}
+
+@keyframes brand-preload-lite-exit {
+  0%, 38% {
+    opacity: 1;
+    visibility: visible;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes brand-preload-lite-mark {
+  0% { opacity: 1; transform: scale(1); }
+  58% { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 0; transform: scale(0.94); }
+}
+
+@media (max-width: 767px), (pointer: coarse) {
+  .brand-preload {
+    display: none;
+  }
 }
 
 .brand-preload__iris {

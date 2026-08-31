@@ -542,16 +542,29 @@ onUnmounted(() => {
             class="kado-surface-target pointer-events-none absolute left-1/2 top-[10%] -z-10 -translate-x-1/2"
             aria-hidden="true"
           />
-          <img
-            ref="stoneEl"
-            src="/home/rock.webp"
-            :alt="t('home.kado.imageAlt')"
-            class="kado-focus kado-stone relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
-            width="854"
-            height="1634"
-            loading="lazy"
-            decoding="async"
-          >
+          <picture class="contents">
+            <source
+              type="image/avif"
+              srcset="/home/rock-320.avif 320w, /home/rock-480.avif 480w, /home/rock-640.avif 640w, /home/rock-854.avif 854w, /home/rock-1088.avif 1088w"
+              sizes="(max-width: 767px) 70vw, 36vw"
+            >
+            <source
+              type="image/webp"
+              srcset="/home/rock-320.webp 320w, /home/rock-480.webp 480w, /home/rock-640.webp 640w, /home/rock-854.webp 854w, /home/rock-1088.webp 1088w"
+              sizes="(max-width: 767px) 70vw, 36vw"
+            >
+            <img
+              ref="stoneEl"
+              src="/home/rock.webp"
+              :alt="t('home.kado.imageAlt')"
+              class="kado-focus kado-stone relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
+              width="1088"
+              height="2109"
+              loading="lazy"
+              decoding="async"
+              fetchpriority="low"
+            >
+          </picture>
         </div>
       </div>
 

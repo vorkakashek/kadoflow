@@ -1,5 +1,6 @@
 import projectCaseDetailsStructure from '../data/projectCaseDetails.json'
 import { mergeLocalizedContent } from './localizedContent'
+import { attachResponsiveMedia } from './responsiveMedia'
 
 export type ProjectCaseMedia = {
   src: string
@@ -121,8 +122,10 @@ export type ProjectCaseDetail = {
 }
 
 export function localizeProjectCaseDetails(copy: unknown): Record<string, ProjectCaseDetail> {
-  return mergeLocalizedContent<Record<string, ProjectCaseDetail>>(
-    projectCaseDetailsStructure,
-    copy,
+  return attachResponsiveMedia(
+    mergeLocalizedContent<Record<string, ProjectCaseDetail>>(
+      projectCaseDetailsStructure,
+      copy,
+    ),
   )
 }

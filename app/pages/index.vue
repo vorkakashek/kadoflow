@@ -4,6 +4,7 @@ import { heroToKadoPlan } from '~/utils/flowSurfaceMorph'
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
 const cases = useTemplateRef('cases')
+const surfaceReady = ref(false)
 
 const fromEl = computed(() => hero.value?.surfaceSlot ?? null)
 const toEl = computed(() => kado.value?.surfaceTarget ?? null)
@@ -46,9 +47,10 @@ onMounted(() => {
       :case-section-el="caseSectionEl"
       :case-media-el="caseMediaEl"
       :plan="heroToKadoPlan"
+      @ready="surfaceReady = true"
     />
     <main class="pointer-events-none relative z-10">
-      <HomeHero ref="hero" />
+      <HomeHero ref="hero" :surface-ready="surfaceReady" />
       <HomeKado ref="kado" />
       <HomeCases ref="cases" />
       <section

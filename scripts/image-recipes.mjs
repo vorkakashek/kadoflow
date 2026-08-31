@@ -8,6 +8,33 @@
  */
 export const imageRecipes = [
   {
+    source: 'public/textures/grain-tile.png',
+    outputStem: 'public/textures/grain-tile',
+    widths: [128],
+  },
+  {
+    source: 'public/home/rock.png',
+    outputStem: 'public/home/rock',
+    widths: [320, 480, 640, 854, 1088],
+  },
+  {
+    source: 'public/home/cases/keys-store/keys-1.png',
+    outputStem: 'public/home/cases/keys-store/keys-1',
+    widths: [480, 960, 1440, 2079],
+  },
+  {
+    // Tall captured page; its intrinsic width is only 286 px. Modern encoding
+    // removes the 650 KB legacy fallback cost without inventing upscaled data.
+    source: 'public/home/cases/keys-store/keys-2.png',
+    outputStem: 'public/home/cases/keys-store/keys-2',
+    widths: [286],
+  },
+  {
+    source: 'public/home/cases/keys-store/keys-3.png',
+    outputStem: 'public/home/cases/keys-store/keys-3',
+    widths: [480, 960, 1440, 2110],
+  },
+  {
     source: 'public/home/cases/audience/audience-cover.png',
     outputStem: 'public/home/cases/audience/audience-cover',
     widths: [480, 960],

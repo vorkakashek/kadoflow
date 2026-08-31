@@ -18,10 +18,20 @@ function gzipSize(path) {
 }
 
 const html = readFileSync(htmlPath, 'utf8')
-const urls = Array.from(
-  html.matchAll(/<link\s+rel="modulepreload"[^>]+href="([^"]+)"/g),
-  (match) => match[1],
-)
+const urls = [...new Set([
+  ...Array.from(
+    html.matchAll(/<link\s+rel="modulepreload"[^>]+href="([^"]+)"/g),
+    (match) => match[1],
+  ),
+  ...Array.from(
+    html.matchAll(/<script\s+type="module"\s+src="([^"]+)"/g),
+    (match) => match[1],
+  ),
+  ...Array.from(
+    html.matchAll(/const start=\(\)=>import\("([^"]+)"\)/g),
+    (match) => match[1],
+  ),
+])]
 
 const rows = []
 for (const url of urls) {
@@ -78,7 +88,7 @@ console.table(
     gzipKB: (row.gzipBytes / 1024).toFixed(1),
   })),
 )
-console.log(`Initial modulepreloads: ${rows.length}`)
+console.log(`Initial entry/modulepreloads: ${rows.length}`)
 console.log(`Initial JS: ${(totals.bytes / 1024).toFixed(1)} KB minified / ${(totals.gzipBytes / 1024).toFixed(1)} KB gzip`)
 console.log(`Largest initial chunk: ${largest ? `${largest.file} (${(largest.bytes / 1024).toFixed(1)} KB)` : 'none'}`)
 console.log(`Prerendered HTML: ${(readFileSync(htmlPath).byteLength / 1024).toFixed(1)} KB`)

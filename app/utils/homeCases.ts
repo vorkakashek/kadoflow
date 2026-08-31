@@ -1,5 +1,6 @@
 import homeCasesStructure from '../data/homeCases.json'
 import { mergeLocalizedContent } from './localizedContent'
+import { attachResponsiveMedia } from './responsiveMedia'
 
 export type HomeCase = {
   id: string
@@ -36,7 +37,9 @@ export type HomeCase = {
 export const homeCaseIds = homeCasesStructure.map(item => item.id)
 
 export function localizeHomeCases(copy: unknown): HomeCase[] {
-  return mergeLocalizedContent<HomeCase[]>(homeCasesStructure, copy)
+  return attachResponsiveMedia(
+    mergeLocalizedContent<HomeCase[]>(homeCasesStructure, copy),
+  )
 }
 
 export function homeCaseDetailPath(item: Pick<HomeCase, 'id'>): string {

@@ -34,8 +34,6 @@ import {
   type Material,
   type Texture,
 } from 'three'
-import gsap from 'gsap'
-import MorphSVGPlugin from 'gsap/MorphSVGPlugin'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import {
   isAppleTouchDevice,
@@ -271,7 +269,8 @@ let motionIntroHeroObserver: IntersectionObserver | null = null
 let motionIntroPointerUpAt = 0
 let desktopMotionNoticeTimer = 0
 let androidHapticExitTimer = 0
-let desktopIconMorph: gsap.core.Tween | null = null
+let desktopIconMorph: { kill: () => void } | null = null
+let desktopIconMorphGen = 0
 
 function hasMotionIntroCookie() {
   return document.cookie
@@ -375,9 +374,10 @@ function onHapticControlTap() {
   }, HAPTIC_CONTROL_EXIT_MS)
 }
 
-function morphDesktopMotionIcon(sceneEnabled: boolean) {
+async function morphDesktopMotionIcon(sceneEnabled: boolean) {
   const path = desktopMotionIconPath.value
   if (!path) return
+  const gen = ++desktopIconMorphGen
   const target = sceneEnabled
     ? DESKTOP_PAUSE_ICON_PATH
     : DESKTOP_PLAY_ICON_PATH
@@ -387,6 +387,15 @@ function morphDesktopMotionIcon(sceneEnabled: boolean) {
     path.setAttribute('d', target)
     return
   }
+  // The paid MorphSVG helper is needed only after this explicit control is
+  // used. Keeping it out of Hero boot removes its parser/runtime from the
+  // already heavy Three.js initialization task.
+  const [{ default: gsap }, { default: MorphSVGPlugin }] = await Promise.all([
+    import('gsap'),
+    import('gsap/MorphSVGPlugin'),
+  ])
+  if (gen !== desktopIconMorphGen || !path.isConnected) return
+  gsap.registerPlugin(MorphSVGPlugin)
   desktopIconMorph = gsap.to(path, {
     duration: DESKTOP_ICON_MORPH_S,
     morphSVG: { shape: target, type: 'rotational' },
@@ -401,7 +410,7 @@ function morphDesktopMotionIcon(sceneEnabled: boolean) {
 
 function onDesktopMotionControlTap() {
   desktopSceneEnabled.value = !desktopSceneEnabled.value
-  morphDesktopMotionIcon(desktopSceneEnabled.value)
+  void morphDesktopMotionIcon(desktopSceneEnabled.value)
   desktopMotionNotice.value = desktopSceneEnabled.value
     ? t('accessibility.enabledShort')
     : t('accessibility.disabledShort')
@@ -538,7 +547,6 @@ function prepDataMap(tex: Texture, repeat = 2.4) {
 }
 
 onMounted(() => {
-  gsap.registerPlugin(MorphSVGPlugin)
   isIosClient.value = isAppleTouchDevice()
   isAndroidClient.value = /Android/i.test(navigator.userAgent)
   androidHapticConfirmed.value = isAndroidClient.value && swarmHapticIsArmed()
@@ -582,6 +590,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   bootGen += 1
+  desktopIconMorphGen += 1
   desktopIconMorph?.kill()
   desktopIconMorph = null
   removeWindowResize?.()

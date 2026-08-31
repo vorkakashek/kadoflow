@@ -443,6 +443,8 @@ let introGen = 0
 const swarmMount = ref(false)
 const swarmLit = ref(false)
 let swarmIdleId: number | null = null
+let swarmFallbackTimer = 0
+let removeSwarmIntent: (() => void) | null = null
 let stageUnmounted = false
 
 function scheduleSwarmMount(fromNavigation: boolean) {
@@ -451,23 +453,74 @@ function scheduleSwarmMount(fromNavigation: boolean) {
     return
   }
   const mount = () => {
+    if (swarmIdleId !== null && 'cancelIdleCallback' in window) {
+      window.cancelIdleCallback(swarmIdleId)
+      swarmIdleId = null
+    }
+    if (swarmFallbackTimer) {
+      window.clearTimeout(swarmFallbackTimer)
+      swarmFallbackTimer = 0
+    }
+    removeSwarmIntent?.()
+    removeSwarmIntent = null
     if (!stageUnmounted) swarmMount.value = true
   }
   if (fromNavigation) {
     requestAnimationFrame(mount)
     return
   }
-  // Paint the static Hero shell first; parse Three.js and create WebGL only
-  // after committed frames and an idle opportunity.
-  requestAnimationFrame(() => {
+
+  // The SSR/CSS Hero is a complete first frame, so the brand reveal no longer
+  // waits for Three.js, shader compilation or PMREM. The live scene upgrades it
+  // after the reveal, or immediately when the visitor expresses intent.
+  preload.markSceneReady()
+
+  const scheduleUpgrade = () => {
+    const connection = (navigator as Navigator & {
+      connection?: { effectiveType?: string; saveData?: boolean }
+    }).connection
+    const constrained = Boolean(
+      connection?.saveData
+      || connection?.effectiveType === 'slow-2g'
+      || connection?.effectiveType === '2g'
+      || connection?.effectiveType === '3g',
+    )
+    const delay = constrained ? 9000 : mobileLite.value ? 6000 : 5000
+    const onIntent = () => mount()
+    const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches
+    if (finePointer) window.addEventListener('pointermove', onIntent, { once: true, passive: true })
+    window.addEventListener('click', onIntent, { once: true, passive: true })
+    window.addEventListener('keydown', onIntent, { once: true })
+    removeSwarmIntent = () => {
+      if (finePointer) window.removeEventListener('pointermove', onIntent)
+      window.removeEventListener('click', onIntent)
+      window.removeEventListener('keydown', onIntent)
+    }
+
     requestAnimationFrame(() => {
-      if ('requestIdleCallback' in window) {
-        swarmIdleId = window.requestIdleCallback(mount, { timeout: 700 })
-      } else {
-        window.setTimeout(mount, 180)
-      }
+      requestAnimationFrame(() => {
+        if (stageUnmounted || swarmMount.value) return
+        swarmFallbackTimer = window.setTimeout(() => {
+          swarmFallbackTimer = 0
+          if ('requestIdleCallback' in window) {
+            swarmIdleId = window.requestIdleCallback(mount, { timeout: 1500 })
+          } else mount()
+        }, delay)
+      })
     })
-  })
+  }
+
+  if (preload.revealed.value) scheduleUpgrade()
+  else {
+    const stop = watch(
+      () => preload.revealed.value,
+      (revealed) => {
+        if (!revealed) return
+        stop()
+        scheduleUpgrade()
+      },
+    )
+  }
 }
 /** Intro may reveal the swarm; HDRI must be on first or balls look black. */
 const coverMayLift = ref(false)
@@ -660,6 +713,9 @@ onUnmounted(() => {
   if (swarmIdleId !== null && 'cancelIdleCallback' in window) {
     window.cancelIdleCallback(swarmIdleId)
   }
+  if (swarmFallbackTimer) window.clearTimeout(swarmFallbackTimer)
+  removeSwarmIntent?.()
+  removeSwarmIntent = null
   introGen += 1
   introTl?.kill()
   introTl = null
@@ -728,7 +784,9 @@ onUnmounted(() => {
             'hero-swarm-cover--lock': glCoverLocked,
           }"
           aria-hidden="true"
-        />
+        >
+          <HeroSwarmCss :active="preload.revealed.value && sceneLive" />
+        </div>
         </div>
       </div>
 

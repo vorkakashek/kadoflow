@@ -46,7 +46,7 @@ const clipEl = ref<HTMLElement | null>(null)
 const pathD = ref('')
 const size = reactive({ w: 1, h: 1 })
 /** Tiled film grain — static PNG (no SVG feTurbulence; that tanks WebKit FPS). */
-const GRAIN_TILE = '/textures/grain-tile.png'
+const GRAIN_TILE = 'var(--home-surface-grain)'
 /** Smaller tile = finer flecks. */
 const grainTilePx = ref(72)
 const grainEl = ref<HTMLElement | null>(null)
@@ -1075,7 +1075,7 @@ const slotInsetStyle = computed(() => {
         class="pointer-events-none absolute inset-0 z-[1]"
         aria-hidden="true"
         :style="{
-          backgroundImage: `url(${GRAIN_TILE})`,
+          backgroundImage: GRAIN_TILE,
           backgroundRepeat: 'repeat',
           backgroundSize: `${grainTilePx}px ${grainTilePx}px`,
           backgroundPosition: '0 0',
@@ -1109,7 +1109,7 @@ const slotInsetStyle = computed(() => {
         class="pointer-events-none absolute inset-0 z-[1]"
         aria-hidden="true"
         :style="{
-          backgroundImage: `url(${GRAIN_TILE})`,
+          backgroundImage: GRAIN_TILE,
           backgroundRepeat: 'repeat',
           backgroundSize: `${grainTilePx}px ${grainTilePx}px`,
           backgroundPosition: '0 0',

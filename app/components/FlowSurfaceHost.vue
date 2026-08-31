@@ -26,6 +26,10 @@ import {
   type SurfaceBox,
   type SurfaceMorphPlan,
 } from '~/utils/flowSurfaceMorph'
+
+const emit = defineEmits<{
+  ready: []
+}>()
 import {
   applyFlowSurfaceLive,
   flowSurfaceLiveFromMorph,
@@ -137,6 +141,7 @@ const {
   origin: caseDetailTransitionOrigin,
   homeReturnPending: caseDetailHomeReturnPending,
 } = useCaseDetailTransition()
+const preload = useBrandPreload()
 
 function returningHomeFromCaseDetail() {
   return caseDetailHomeReturnPending.value
@@ -266,9 +271,88 @@ let desktopTargetS = 0
 let desktopLiveS = 0
 /** True while lagged case progress is parked on the mockup. */
 let caseMediaActive = false
+let surfaceReadyEmitted = false
+
+/** Keep the SSR primer for one committed live frame, then hand paint ownership over. */
+function announceSurfaceReady() {
+  if (surfaceReadyEmitted || !frame.value) return
+  surfaceReadyEmitted = true
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => emit('ready'))
+  })
+}
 
 let gsapMod: typeof import('gsap') | null = null
 let stMod: typeof import('gsap/ScrollTrigger') | null = null
+let motionBootPromise: Promise<void> | null = null
+let motionBootTimer = 0
+let motionIdleId: number | null = null
+let removeMotionIntent: (() => void) | null = null
+let hostUnmounted = false
+
+async function bootMotionEngine() {
+  if (motionBootPromise) return motionBootPromise
+  motionBootPromise = (async () => {
+    if (motionBootTimer) {
+      window.clearTimeout(motionBootTimer)
+      motionBootTimer = 0
+    }
+    if (motionIdleId !== null && 'cancelIdleCallback' in window) {
+      window.cancelIdleCallback(motionIdleId)
+      motionIdleId = null
+    }
+    removeMotionIntent?.()
+    removeMotionIntent = null
+
+    const [nextGsap, nextScrollTrigger] = await Promise.all([
+      import('gsap'),
+      import('gsap/ScrollTrigger'),
+    ])
+    if (hostUnmounted) return
+    gsapMod = nextGsap
+    stMod = nextScrollTrigger
+    gsapMod.default.registerPlugin(stMod.ScrollTrigger)
+    gsapMod.default.ticker.fps(0)
+    gsapMod.default.ticker.lagSmoothing(0)
+    gsapMod.default.config({ force3D: true, nullTargetWarn: false })
+    stMod.ScrollTrigger.config({ ignoreMobileResize: true })
+    if (props.fromEl && props.toEl) buildMorph()
+  })()
+  return motionBootPromise
+}
+
+function scheduleColdMotionBoot() {
+  const onIntent = () => void bootMotionEngine()
+  const intentEvents: Array<keyof WindowEventMap> = [
+    'wheel',
+    'touchstart',
+    'pointerdown',
+    'keydown',
+  ]
+  for (const event of intentEvents) {
+    window.addEventListener(event, onIntent, { once: true, passive: true })
+  }
+  removeMotionIntent = () => {
+    for (const event of intentEvents) window.removeEventListener(event, onIntent)
+  }
+
+  // Let the fully usable static Hero own the critical rendering window. The
+  // scroll engine is still guaranteed to boot later if the visitor is idle.
+  motionBootTimer = window.setTimeout(() => {
+    motionBootTimer = 0
+    if ('requestIdleCallback' in window) {
+      motionIdleId = window.requestIdleCallback(
+        () => {
+          motionIdleId = null
+          void bootMotionEngine()
+        },
+        { timeout: 1500 },
+      )
+    } else {
+      void bootMotionEngine()
+    }
+  }, 3500)
+}
 
 /** Mobile corridor state */
 let mobileActive = false
@@ -485,6 +569,7 @@ function ensureHeroRestPlaceholder() {
   syncStageRest(pose)
   if (window.scrollY <= y0 + window.innerHeight * 0.35) {
     paintBox(pose, 0)
+    announceSurfaceReady()
   }
 }
 
@@ -2186,27 +2271,35 @@ function onCaseMediaScroll() {
 
 onMounted(async () => {
   resetFlowSurfaceMaskSession()
-  gsapMod = await import('gsap')
-  stMod = await import('gsap/ScrollTrigger')
-  gsapMod.default.registerPlugin(stMod.ScrollTrigger)
-  gsapMod.default.ticker.fps(0)
-  gsapMod.default.ticker.lagSmoothing(0)
-  gsapMod.default.config({ force3D: true, nullTargetWarn: false })
-  stMod.ScrollTrigger.config({ ignoreMobileResize: true })
+  hostUnmounted = false
+  const coldDirectEntry = !preload.revealed.value && !returningHomeFromCaseDetail()
   await nextTick()
   // Let the route/page DOM settle before ST — avoids refresh↔pin softlock on SPA entry.
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+  if (hostUnmounted) return
   registerFlowSurfaceClipPathEl(clipPathEl.value)
   registerFlowSurfaceLiveBoxNudge((deltaY) => {
     if (liveBox) liveBox = { ...liveBox, top: liveBox.top + deltaY }
   })
-  // Don't buildMorph here alone — props watch also drives corridor; gate duplicates.
-  if (props.fromEl && props.toEl) buildMorph()
+  // Paint the real Hero surface and copy before loading the scroll engine.
+  // This hands off the SSR primer without putting GSAP on the LCP path.
+  ensureHeroRestPlaceholder()
   window.addEventListener('resize', onResize, { passive: true })
   window.addEventListener('scroll', onCaseMediaScroll, { passive: true })
+  if (coldDirectEntry) scheduleColdMotionBoot()
+  else void bootMotionEngine()
 })
 
 onUnmounted(() => {
+  hostUnmounted = true
+  if (motionBootTimer) window.clearTimeout(motionBootTimer)
+  motionBootTimer = 0
+  if (motionIdleId !== null && 'cancelIdleCallback' in window) {
+    window.cancelIdleCallback(motionIdleId)
+  }
+  motionIdleId = null
+  removeMotionIntent?.()
+  removeMotionIntent = null
   morphGen += 1
   morphBooting = false
   lastFromEl = null

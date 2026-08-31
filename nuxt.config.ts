@@ -49,6 +49,11 @@ export default defineNuxtConfig({
   },
 
   fonts: {
+    defaults: {
+      // Preload only the face used by above-the-fold UI. Other weights load
+      // when their sections approach instead of competing on mobile startup.
+      preload: false,
+    },
     // The site is fully self-hosted: avoid provider metadata requests during builds.
     providers: {
       adobe: false,
@@ -120,7 +125,7 @@ export default defineNuxtConfig({
     '/_nuxt/**': {
       headers: { 'cache-control': 'public, max-age=31536000, immutable' },
     },
-    '/_fonts/**': {
+    '/fonts/**': {
       headers: { 'cache-control': 'public, max-age=31536000, immutable' },
     },
     '/**': {

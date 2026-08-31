@@ -33,6 +33,15 @@ const EXPECTED_LOAD_MS_REPEAT = 450
 /** Soft ceiling until exit — avoids the 93→99 slam. */
 const PRE_EXIT_CAP = 0.9
 
+/**
+ * Fixed for the lifetime of the hydrated app. A cold detail URL has no source
+ * card or Hero scene, so mounting the global brand reveal there would only
+ * delay SSR content. SPA case flights keep using CaseDetailTransition instead.
+ */
+export function useBrandPreloaderEnabled() {
+  return useState('brand-preloader-enabled', () => true)
+}
+
 function clamp01(n: number) {
   return Math.min(1, Math.max(0, n))
 }
@@ -118,6 +127,27 @@ function stopCrawl() {
 }
 
 export function useBrandPreload() {
+  function bypass() {
+    rawProgress.value = 1
+    displayProgress.value = 1
+    sceneProgress.value = 1
+    fontsReady.value = true
+    sceneReady.value = true
+    minOrbitDone.value = true
+    finishing.value = false
+    revealT.value = 1
+    revealed.value = true
+    active.value = false
+    stopCrawl()
+    if (safetyTimer) {
+      clearTimeout(safetyTimer)
+      safetyTimer = null
+    }
+    if (import.meta.client) {
+      document.documentElement.classList.remove('preload-lock')
+    }
+  }
+
   function setSceneProgress(p: number) {
     sceneProgress.value = clamp01(Math.max(sceneProgress.value, p))
     recomputeRaw()
@@ -226,6 +256,7 @@ export function useBrandPreload() {
     revealT: readonly(revealT),
     repeatVisit: readonly(repeatVisit),
     canExit,
+    bypass,
     setSceneProgress,
     setDisplayProgress,
     setRevealT,
