@@ -1,0 +1,550 @@
+{
+  "audience": {
+    "blocks": [
+      {
+        "type": "intro-rail",
+        "id": "audience-system",
+        "media": [
+          {
+            "src": "/home/cases/audience/audience-intro-1-960.webp",
+            "width": 1248,
+            "height": 1888,
+            "shape": "portrait",
+            "avifSrcset": "/home/cases/audience/audience-intro-1-480.avif 480w, /home/cases/audience/audience-intro-1-960.avif 960w, /home/cases/audience/audience-intro-1-1248.avif 1248w",
+            "webpSrcset": "/home/cases/audience/audience-intro-1-480.webp 480w, /home/cases/audience/audience-intro-1-960.webp 960w, /home/cases/audience/audience-intro-1-1248.webp 1248w",
+            "sizes": "(max-width: 767px) 94vw, 40vw"
+          },
+          {
+            "src": "/home/cases/audience/case-detail-3.png",
+            "width": 1840,
+            "height": 1380,
+            "shape": "landscape",
+            "avifSrcset": "/home/cases/audience/audience-intro-2-480.avif 480w, /home/cases/audience/audience-intro-2-960.avif 960w, /home/cases/audience/audience-intro-2-1440.avif 1440w, /home/cases/audience/audience-intro-2-1840.avif 1840w",
+            "webpSrcset": "/home/cases/audience/audience-intro-2-480.webp 480w, /home/cases/audience/audience-intro-2-960.webp 960w, /home/cases/audience/audience-intro-2-1440.webp 1440w, /home/cases/audience/audience-intro-2-1840.webp 1840w",
+            "sizes": "(max-width: 767px) 94vw, 58vw"
+          }
+        ]
+      },
+      {
+        "type": "disclosure-media",
+        "id": "audience-atmosphere",
+        "media": {
+          "src": "/home/cases/audience/case-detail-4.png",
+          "width": 3680,
+          "height": 2760,
+          "shape": "wide",
+          "avifSrcset": "/home/cases/audience/audience-atmosphere-480.avif 480w, /home/cases/audience/audience-atmosphere-960.avif 960w, /home/cases/audience/audience-atmosphere-1440.avif 1440w, /home/cases/audience/audience-atmosphere-1920.avif 1920w, /home/cases/audience/audience-atmosphere-2760.avif 2760w",
+          "webpSrcset": "/home/cases/audience/audience-atmosphere-480.webp 480w, /home/cases/audience/audience-atmosphere-960.webp 960w, /home/cases/audience/audience-atmosphere-1440.webp 1440w, /home/cases/audience/audience-atmosphere-1920.webp 1920w, /home/cases/audience/audience-atmosphere-2760.webp 2760w",
+          "sizes": "100vw"
+        }
+      },
+      {
+        "type": "content-mosaic",
+        "id": "audience-menu",
+        "lead": {
+          "media": {
+            "src": "/home/cases/audience/case-detail-5.png",
+            "width": 3840,
+            "height": 2160,
+            "shape": "wide",
+            "avifSrcset": "/home/cases/audience/audience-menu-lead-480.avif 480w, /home/cases/audience/audience-menu-lead-960.avif 960w, /home/cases/audience/audience-menu-lead-1440.avif 1440w, /home/cases/audience/audience-menu-lead-1920.avif 1920w",
+            "webpSrcset": "/home/cases/audience/audience-menu-lead-480.webp 480w, /home/cases/audience/audience-menu-lead-960.webp 960w, /home/cases/audience/audience-menu-lead-1440.webp 1440w, /home/cases/audience/audience-menu-lead-1920.webp 1920w",
+            "sizes": "(max-width: 767px) 100vw, 50vw"
+          }
+        },
+        "rows": [
+          {
+            "feature": {
+              "src": "/home/cases/audience/audience-menu-primary-960.webp",
+              "width": 1488,
+              "height": 2159,
+              "shape": "portrait",
+              "avifSrcset": "/home/cases/audience/audience-menu-primary-480.avif 480w, /home/cases/audience/audience-menu-primary-960.avif 960w, /home/cases/audience/audience-menu-primary-1488.avif 1488w",
+              "webpSrcset": "/home/cases/audience/audience-menu-primary-480.webp 480w, /home/cases/audience/audience-menu-primary-960.webp 960w, /home/cases/audience/audience-menu-primary-1488.webp 1488w",
+              "sizes": "(max-width: 767px) 100vw, 50vw"
+            },
+            "detail": {
+              "src": "/home/cases/audience/audience-img-960.webp",
+              "width": 1856,
+              "height": 2304,
+              "shape": "landscape",
+              "avifSrcset": "/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w",
+              "webpSrcset": "/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w",
+              "sizes": "50vw"
+            },
+            "featureSide": "start"
+          },
+          {
+            "feature": {
+              "src": "/home/cases/audience/audience-menu-details-960.webp",
+              "width": 1488,
+              "height": 2159,
+              "shape": "portrait",
+              "avifSrcset": "/home/cases/audience/audience-menu-details-480.avif 480w, /home/cases/audience/audience-menu-details-960.avif 960w, /home/cases/audience/audience-menu-details-1488.avif 1488w",
+              "webpSrcset": "/home/cases/audience/audience-menu-details-480.webp 480w, /home/cases/audience/audience-menu-details-960.webp 960w, /home/cases/audience/audience-menu-details-1488.webp 1488w",
+              "sizes": "(max-width: 767px) 100vw, 50vw"
+            },
+            "detail": {
+              "src": "/home/cases/audience/audience-img-960.webp",
+              "width": 1856,
+              "height": 2304,
+              "shape": "landscape",
+              "avifSrcset": "/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w",
+              "webpSrcset": "/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w",
+              "sizes": "50vw"
+            },
+            "featureSide": "end"
+          }
+        ]
+      },
+      {
+        "type": "motion-feature",
+        "id": "audience-motion",
+        "media": {
+          "type": "video",
+          "src": "/home/cases/audience/audience-vid-1.mp4",
+          "mobileSrc": "/home/cases/audience/audience-vid-1-mobile.mp4",
+          "poster": "/home/cases/audience/audience-vid-1-poster.webp",
+          "mobilePoster": "/home/cases/audience/audience-vid-1-mobile-poster.webp",
+          "shape": "wide"
+        }
+      },
+      {
+        "type": "text-media-rail",
+        "id": "audience-live",
+        "media": [
+          {
+            "src": "/home/cases/audience/audience-admin-small-960.webp",
+            "width": 1020,
+            "height": 691,
+            "shape": "landscape",
+            "avifSrcset": "/home/cases/audience/audience-admin-small-480.avif 480w, /home/cases/audience/audience-admin-small-960.avif 960w, /home/cases/audience/audience-admin-small-1020.avif 1020w",
+            "webpSrcset": "/home/cases/audience/audience-admin-small-480.webp 480w, /home/cases/audience/audience-admin-small-960.webp 960w, /home/cases/audience/audience-admin-small-1020.webp 1020w",
+            "sizes": "(max-width: 767px) 100vw, 36vw"
+          },
+          {
+            "src": "/home/cases/audience/audience-admin-large-960.webp",
+            "width": 1440,
+            "height": 1984,
+            "shape": "portrait",
+            "avifSrcset": "/home/cases/audience/audience-admin-large-480.avif 480w, /home/cases/audience/audience-admin-large-960.avif 960w, /home/cases/audience/audience-admin-large-1440.avif 1440w",
+            "webpSrcset": "/home/cases/audience/audience-admin-large-480.webp 480w, /home/cases/audience/audience-admin-large-960.webp 960w, /home/cases/audience/audience-admin-large-1440.webp 1440w",
+            "sizes": "(max-width: 767px) 100vw, 64vw"
+          }
+        ]
+      },
+      {
+        "type": "final",
+        "id": "audience-final",
+        "variant": "editorial"
+      }
+    ],
+    "closing": {
+      "src": "/home/cases/audience/audience-end-960.webp",
+      "width": 2080,
+      "height": 1234,
+      "shape": "wide",
+      "webpSrcset": "/home/cases/audience/audience-end-480.webp 480w, /home/cases/audience/audience-end-960.webp 960w, /home/cases/audience/audience-end-1440.webp 1440w, /home/cases/audience/audience-end-1920.webp 1920w",
+      "avifSrcset": "/home/cases/audience/audience-end-480.avif 480w, /home/cases/audience/audience-end-960.avif 960w, /home/cases/audience/audience-end-1440.avif 1440w, /home/cases/audience/audience-end-1920.avif 1920w",
+      "sizes": "100vw"
+    },
+    "closingVariant": "audience"
+  },
+  "keys-store": {
+    "blocks": [
+      {
+        "type": "story",
+        "id": "keys-system",
+        "layout": "intro",
+        "media": [
+          {
+            "src": "/home/cases/keys-store/keys-1.webp",
+            "shape": "portrait"
+          },
+          {
+            "src": "/home/cases/keys-store/keys-2.png",
+            "shape": "wide"
+          }
+        ],
+        "presentation": {
+          "statementGap": "section"
+        }
+      },
+      {
+        "type": "story",
+        "id": "keys-catalog-language",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/keys-store/keys-1.webp",
+            "shape": "portrait"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "keys-difference",
+        "layout": "gallery",
+        "media": [
+          {
+            "src": "/home/cases/keys-store/keys-2.png",
+            "shape": "wide"
+          },
+          {
+            "src": "/home/cases/keys-store/keys-1.webp",
+            "shape": "portrait"
+          },
+          {
+            "src": "/home/cases/keys-store/keys-3.png",
+            "shape": "square"
+          }
+        ],
+        "presentation": {
+          "statementGap": "section"
+        }
+      },
+      {
+        "type": "story",
+        "id": "keys-checkout",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/keys-store/keys-3.png",
+            "shape": "square"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "keys-trust",
+        "layout": "split",
+        "media": [
+          {
+            "src": "/home/cases/keys-store/keys-3.png",
+            "shape": "square"
+          },
+          {
+            "src": "/home/cases/keys-store/keys-2.png",
+            "shape": "wide"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "keys-identity",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/keys-store/keys-1.webp",
+            "shape": "portrait"
+          }
+        ]
+      },
+      {
+        "type": "final",
+        "id": "keys-final"
+      }
+    ],
+    "closing": {
+      "src": "/home/cases/keys-store/keys-2.png",
+      "shape": "wide"
+    }
+  },
+  "baltika": {
+    "headerMedia": {
+      "src": "/home/cases/baltika/baltika-detail-header-portrait-640.webp",
+      "width": 640,
+      "height": 1138,
+      "webpSrcset": "/home/cases/baltika/baltika-detail-header-portrait-320.webp 320w, /home/cases/baltika/baltika-detail-header-portrait-480.webp 480w, /home/cases/baltika/baltika-detail-header-portrait-640.webp 640w",
+      "avifSrcset": "/home/cases/baltika/baltika-detail-header-portrait-320.avif 320w, /home/cases/baltika/baltika-detail-header-portrait-480.avif 480w, /home/cases/baltika/baltika-detail-header-portrait-640.avif 640w"
+    },
+    "blocks": [
+      {
+        "type": "story",
+        "id": "baltika-object",
+        "layout": "intro",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-1.png",
+            "shape": "wide",
+            "webpSrcset": "/home/cases/baltika/baltika-1-480.webp 480w, /home/cases/baltika/baltika-1-960.webp 960w, /home/cases/baltika/baltika-1-1440.webp 1440w, /home/cases/baltika/baltika-1-1920.webp 1920w, /home/cases/baltika/baltika-1-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-1-480.avif 480w, /home/cases/baltika/baltika-1-960.avif 960w, /home/cases/baltika/baltika-1-1440.avif 1440w, /home/cases/baltika/baltika-1-1920.avif 1920w, /home/cases/baltika/baltika-1-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 100vw, 42vw"
+          },
+          {
+            "src": "/home/cases/baltika/baltika-2.png",
+            "shape": "landscape",
+            "webpSrcset": "/home/cases/baltika/baltika-2-480.webp 480w, /home/cases/baltika/baltika-2-960.webp 960w, /home/cases/baltika/baltika-2-1440.webp 1440w, /home/cases/baltika/baltika-2-1920.webp 1920w, /home/cases/baltika/baltika-2-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-2-480.avif 480w, /home/cases/baltika/baltika-2-960.avif 960w, /home/cases/baltika/baltika-2-1440.avif 1440w, /home/cases/baltika/baltika-2-1920.avif 1920w, /home/cases/baltika/baltika-2-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 100vw, 58vw"
+          }
+        ],
+        "presentation": {
+          "copy": "object-grid",
+          "media": "object-pair"
+        }
+      },
+      {
+        "type": "story",
+        "id": "baltika-label",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-3.png",
+            "shape": "landscape",
+            "webpSrcset": "/home/cases/baltika/baltika-3-480.webp 480w, /home/cases/baltika/baltika-3-960.webp 960w, /home/cases/baltika/baltika-3-1440.webp 1440w, /home/cases/baltika/baltika-3-1920.webp 1920w, /home/cases/baltika/baltika-3-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-3-480.avif 480w, /home/cases/baltika/baltika-3-960.avif 960w, /home/cases/baltika/baltika-3-1440.avif 1440w, /home/cases/baltika/baltika-3-1920.avif 1920w, /home/cases/baltika/baltika-3-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 100vw, 83.333vw"
+          }
+        ],
+        "presentation": {
+          "media": "label"
+        }
+      },
+      {
+        "type": "story",
+        "id": "baltika-collection",
+        "layout": "gallery",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-6.png",
+            "shape": "wide",
+            "webpSrcset": "/home/cases/baltika/baltika-6-480.webp 480w, /home/cases/baltika/baltika-6-960.webp 960w, /home/cases/baltika/baltika-6-1440.webp 1440w, /home/cases/baltika/baltika-6-1920.webp 1920w, /home/cases/baltika/baltika-6-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-6-480.avif 480w, /home/cases/baltika/baltika-6-960.avif 960w, /home/cases/baltika/baltika-6-1440.avif 1440w, /home/cases/baltika/baltika-6-1920.avif 1920w, /home/cases/baltika/baltika-6-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 82vw, 38vw"
+          },
+          {
+            "src": "/home/cases/baltika/baltika-5.png",
+            "shape": "landscape",
+            "webpSrcset": "/home/cases/baltika/baltika-5-480.webp 480w, /home/cases/baltika/baltika-5-960.webp 960w, /home/cases/baltika/baltika-5-1440.webp 1440w, /home/cases/baltika/baltika-5-1920.webp 1920w, /home/cases/baltika/baltika-5-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-5-480.avif 480w, /home/cases/baltika/baltika-5-960.avif 960w, /home/cases/baltika/baltika-5-1440.avif 1440w, /home/cases/baltika/baltika-5-1920.avif 1920w, /home/cases/baltika/baltika-5-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 82vw, 38vw"
+          },
+          {
+            "src": "/home/cases/baltika/baltika-7.png",
+            "shape": "landscape",
+            "webpSrcset": "/home/cases/baltika/baltika-7-480.webp 480w, /home/cases/baltika/baltika-7-960.webp 960w, /home/cases/baltika/baltika-7-1440.webp 1440w, /home/cases/baltika/baltika-7-1920.webp 1920w, /home/cases/baltika/baltika-7-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-7-480.avif 480w, /home/cases/baltika/baltika-7-960.avif 960w, /home/cases/baltika/baltika-7-1440.avif 1440w, /home/cases/baltika/baltika-7-1920.avif 1920w, /home/cases/baltika/baltika-7-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 82vw, 38vw"
+          },
+          {
+            "src": "/home/cases/baltika/baltika-4.png",
+            "shape": "wide",
+            "webpSrcset": "/home/cases/baltika/baltika-4-480.webp 480w, /home/cases/baltika/baltika-4-960.webp 960w, /home/cases/baltika/baltika-4-1440.webp 1440w, /home/cases/baltika/baltika-4-1920.webp 1920w, /home/cases/baltika/baltika-4-2640.webp 2640w",
+            "avifSrcset": "/home/cases/baltika/baltika-4-480.avif 480w, /home/cases/baltika/baltika-4-960.avif 960w, /home/cases/baltika/baltika-4-1440.avif 1440w, /home/cases/baltika/baltika-4-1920.avif 1920w, /home/cases/baltika/baltika-4-2640.avif 2640w",
+            "sizes": "(max-width: 767.98px) 82vw, 38vw"
+          }
+        ],
+        "railSpeed": 1.28,
+        "presentation": {
+          "copy": "collection",
+          "media": "collection-rail",
+          "mobileCopyGap": "compact"
+        }
+      },
+      {
+        "type": "story",
+        "id": "baltika-motion",
+        "layout": "feature",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-motion.mp4",
+            "mobileSrc": "/home/cases/baltika/baltika-motion-mobile.mp4",
+            "shape": "square",
+            "type": "video",
+            "poster": "/home/cases/baltika/baltika-motion-poster.webp",
+            "mobilePoster": "/home/cases/baltika/baltika-motion-mobile-poster.webp"
+          }
+        ],
+        "presentation": {
+          "media": "motion",
+          "mobileCopyGap": "compact"
+        }
+      },
+      {
+        "type": "story",
+        "id": "baltika-data",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-8.png",
+            "shape": "landscape",
+            "aspectRatio": "2760 / 2070",
+            "webpSrcset": "/home/cases/baltika/baltika-8-480.webp 480w, /home/cases/baltika/baltika-8-960.webp 960w, /home/cases/baltika/baltika-8-1440.webp 1440w, /home/cases/baltika/baltika-8-1920.webp 1920w, /home/cases/baltika/baltika-8-2760.webp 2760w",
+            "avifSrcset": "/home/cases/baltika/baltika-8-480.avif 480w, /home/cases/baltika/baltika-8-960.avif 960w, /home/cases/baltika/baltika-8-1440.avif 1440w, /home/cases/baltika/baltika-8-1920.avif 1920w, /home/cases/baltika/baltika-8-2760.avif 2760w",
+            "sizes": "(max-width: 767.98px) 100vw, min(83.333vw, 1206px)"
+          }
+        ],
+        "presentation": {
+          "spacing": "compact-disclosure"
+        }
+      },
+      {
+        "type": "story",
+        "id": "baltika-route",
+        "layout": "split",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-9.png",
+            "shape": "wide",
+            "aspectRatio": "3750 / 2500",
+            "webpSrcset": "/home/cases/baltika/baltika-9-480.webp 480w, /home/cases/baltika/baltika-9-960.webp 960w, /home/cases/baltika/baltika-9-1440.webp 1440w",
+            "avifSrcset": "/home/cases/baltika/baltika-9-480.avif 480w, /home/cases/baltika/baltika-9-960.avif 960w, /home/cases/baltika/baltika-9-1440.avif 1440w",
+            "sizes": "(max-width: 767.98px) 100vw, min(83.333vw, 1440px)"
+          }
+        ],
+        "presentation": {
+          "copy": "route",
+          "media": "route",
+          "mobileCopyGap": "compact"
+        }
+      },
+      {
+        "type": "story",
+        "id": "baltika-responsive",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/baltika/baltika-11.png",
+            "shape": "landscape",
+            "aspectRatio": "4 / 3",
+            "webpSrcset": "/home/cases/baltika/baltika-11-480.webp 480w, /home/cases/baltika/baltika-11-960.webp 960w, /home/cases/baltika/baltika-11-1440.webp 1440w, /home/cases/baltika/baltika-11-1920.webp 1920w, /home/cases/baltika/baltika-11-2760.webp 2760w",
+            "avifSrcset": "/home/cases/baltika/baltika-11-480.avif 480w, /home/cases/baltika/baltika-11-960.avif 960w, /home/cases/baltika/baltika-11-1440.avif 1440w, /home/cases/baltika/baltika-11-1920.avif 1920w, /home/cases/baltika/baltika-11-2760.avif 2760w",
+            "sizes": "(max-width: 767.98px) 100vw, min(83.333vw, 1440px)"
+          }
+        ],
+        "presentation": {
+          "spacing": "compact-disclosure"
+        }
+      },
+      {
+        "type": "final",
+        "id": "baltika-final"
+      }
+    ],
+    "closing": {
+      "src": "/home/cases/baltika/baltika-12.png",
+      "shape": "wide",
+      "aspectRatio": "1040 / 617",
+      "webpSrcset": "/home/cases/baltika/baltika-12-480.webp 480w, /home/cases/baltika/baltika-12-960.webp 960w, /home/cases/baltika/baltika-12-1440.webp 1440w, /home/cases/baltika/baltika-12-2080.webp 2080w",
+      "avifSrcset": "/home/cases/baltika/baltika-12-480.avif 480w, /home/cases/baltika/baltika-12-960.avif 960w, /home/cases/baltika/baltika-12-1440.avif 1440w, /home/cases/baltika/baltika-12-2080.avif 2080w",
+      "sizes": "100vw"
+    }
+  },
+  "schmidt": {
+    "blocks": [
+      {
+        "type": "story",
+        "id": "schmidt-horizontal",
+        "layout": "feature",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ],
+        "presentation": {
+          "statementGap": "medium"
+        }
+      },
+      {
+        "type": "story",
+        "id": "schmidt-materials",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "schmidt-brand",
+        "layout": "split",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          },
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "schmidt-production",
+        "layout": "gallery",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          },
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          },
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          },
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ],
+        "presentation": {
+          "media": "gallery-tight",
+          "statementGap": "small"
+        }
+      },
+      {
+        "type": "story",
+        "id": "schmidt-flavours",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "schmidt-navigation",
+        "layout": "intro",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          },
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ]
+      },
+      {
+        "type": "story",
+        "id": "schmidt-responsive",
+        "layout": "disclosure",
+        "media": [
+          {
+            "src": "/home/cases/schmidt/schmidt.webp",
+            "shape": "wide"
+          }
+        ]
+      },
+      {
+        "type": "final",
+        "id": "schmidt-final"
+      }
+    ],
+    "closing": {
+      "src": "/home/cases/schmidt/schmidt.webp",
+      "shape": "wide"
+    }
+  }
+}

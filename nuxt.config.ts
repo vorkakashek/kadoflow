@@ -1,5 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
-import { homeCases } from './app/utils/homeCases'
+import { homeCaseIds } from './app/utils/homeCases'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -83,14 +83,7 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      htmlAttrs: { lang: 'ru' },
-      title: 'Kadoflow — свобода формы, порядок процесса',
       meta: [
-        {
-          name: 'description',
-          content:
-            'Авторская студия дизайна и разработки. Создаю выразительные сайты под ключ — от структуры до запуска.',
-        },
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
       ],
       // Before first paint: warm revisit shows full black macron, not empty gray track.
@@ -119,7 +112,7 @@ export default defineNuxtConfig({
     // without doing compression work at request time.
     compressPublicAssets: true,
     prerender: {
-      routes: homeCases.map((item) => `/projects/${item.id}`),
+      routes: homeCaseIds.map(id => `/projects/${id}`),
     },
   },
 

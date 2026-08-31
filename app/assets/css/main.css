@@ -121,6 +121,11 @@
     font-family: var(--font-display);
     font-size: inherit;
     font-weight: inherit;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   a {

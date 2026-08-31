@@ -1,10 +1,11 @@
 <script setup lang="ts">
+const { t } = useI18n()
 </script>
 
 <template>
   <PageStub
-    title="О Кадо"
-    blurb="Кто стоит за студией, как устроен процесс и чем мы отличаемся."
+    :title="t('pages.about.title')"
+    :blurb="t('pages.about.blurb')"
     index="04"
   />
 </template>

@@ -5,6 +5,7 @@
  * Repeat / warm cache: skip the orbit — quick % + expand exit.
  */
 const preload = useBrandPreload()
+const { t } = useI18n()
 
 const rootEl = ref<HTMLElement | null>(null)
 const markEl = ref<HTMLElement | null>(null)
@@ -651,7 +652,7 @@ onUnmounted(() => {
     role="status"
     aria-live="polite"
     aria-busy="true"
-    :aria-label="`Загрузка ${percentLabel} процентов`"
+    :aria-label="t('accessibility.preload', { percent: percentLabel })"
   >
     <!-- GPU iris: scaled hole + box-shadow veil (avoids per-frame CSS mask). -->
     <div

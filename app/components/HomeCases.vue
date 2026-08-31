@@ -7,7 +7,6 @@
  */
 import {
   homeCaseDetailPath,
-  homeCases,
   type HomeCase,
 } from '~/utils/homeCases'
 import { warmCaseDetailRoute } from '~/utils/caseDetailRouteWarmup'
@@ -17,6 +16,9 @@ import {
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
+
+const { t } = useI18n()
+const homeCases = useHomeCases()
 
 const rootEl = ref<HTMLElement | null>(null)
 const introEl = ref<HTMLElement | null>(null)
@@ -48,9 +50,11 @@ const caseGestureHintSeen = useCookie<boolean>('kadoflow-case-gesture-hint-v2', 
 const showCaseGestureHint = computed(
   () => mobileCases.value && !caseGestureHintSeen.value,
 )
-const CASES_INTRO_TITLE = 'Кейсы'
+const casesIntroTitle = computed(() => t('home.cases.title'))
+const casesIntroCopy = computed(() => t('home.cases.intro'))
+const casesIntroWords = computed(() => casesIntroCopy.value.split(' '))
 
-const activeId = useState('home-active-case-id', () => homeCases[0]?.id ?? 'audience')
+const activeId = useState('home-active-case-id', () => homeCases.value[0]?.id ?? 'audience')
 const switching = ref(false)
 const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
 /** True only after FlowSurface has finished its final settle and is pinned to media. */
@@ -86,17 +90,13 @@ const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
  */
 const caseMediaReady = useState('home-case-media-ready', () => false)
 const preload = useBrandPreload()
-const caseInverse = useState('home-case-inverse', () => !!homeCases[0]?.inverse)
+const caseInverse = useState('home-case-inverse', () => !!homeCases.value[0]?.inverse)
 const { openCaseDetail } = useCaseDetailTransition()
 
 const activeCase = computed(
-  () => homeCases.find((c) => c.id === activeId.value) ?? homeCases[0],
+  () => homeCases.value.find((c) => c.id === activeId.value) ?? homeCases.value[0],
 )
-const blurbLines = computed(() =>
-  activeCase.value?.blurb.split('\n').filter(Boolean) ?? [],
-)
-/** On mobile keep the authored break only when its first phrase fits intact. */
-const mobileBlurbBreak = ref(true)
+const activeBlurb = computed(() => activeCase.value?.blurb ?? '')
 
 const sections = computed(() => {
   const el = rootEl.value
@@ -304,9 +304,9 @@ function hideActiveCaseUnderline() {
 }
 
 function selectAdjacentCase(direction: 1 | -1) {
-  const from = homeCases.findIndex((item) => item.id === targetCaseId)
+  const from = homeCases.value.findIndex((item) => item.id === targetCaseId)
   const index = from >= 0 ? from : 0
-  const next = homeCases[(index + direction + homeCases.length) % homeCases.length]
+  const next = homeCases.value[(index + direction + homeCases.value.length) % homeCases.value.length]
   if (next) void selectCase(next)
 }
 
@@ -323,7 +323,6 @@ function isMobileCases() {
 
 function refreshMobileCases() {
   mobileCases.value = isMobileCases()
-  scheduleMobileBlurbBreak()
   scheduleMobileStageCollapse()
 }
 
@@ -334,39 +333,6 @@ function captureMobileCasesHeight() {
   document.body.appendChild(probe)
   mobileCasesHeight.value = Math.ceil(probe.getBoundingClientRect().height)
   probe.remove()
-}
-
-function syncMobileBlurbBreak() {
-  const el = blurbEl.value
-  const firstLine = blurbLines.value[0]
-  if (!el || !firstLine || !mobileCases.value || blurbLines.value.length < 2) {
-    mobileBlurbBreak.value = true
-    return
-  }
-
-  const style = getComputedStyle(el)
-  const probe = document.createElement('span')
-  probe.textContent = firstLine
-  probe.style.position = 'fixed'
-  probe.style.visibility = 'hidden'
-  probe.style.pointerEvents = 'none'
-  probe.style.whiteSpace = 'nowrap'
-  probe.style.width = 'auto'
-  probe.style.fontFamily = style.fontFamily
-  probe.style.fontSize = style.fontSize
-  probe.style.fontWeight = style.fontWeight
-  probe.style.fontStyle = style.fontStyle
-  probe.style.letterSpacing = style.letterSpacing
-  probe.style.lineHeight = style.lineHeight
-  probe.style.textTransform = style.textTransform
-  document.body.append(probe)
-  const firstLineWidth = probe.getBoundingClientRect().width
-  probe.remove()
-  mobileBlurbBreak.value = firstLineWidth <= el.clientWidth + 0.5
-}
-
-function scheduleMobileBlurbBreak() {
-  void nextTick(() => requestAnimationFrame(syncMobileBlurbBreak))
 }
 
 function publishSurfaceMedia(item: HomeCase | undefined) {
@@ -393,7 +359,6 @@ watch(
   { immediate: true },
 )
 
-watch([activeCase, mobileCases], scheduleMobileBlurbBreak, { flush: 'post' })
 watch([activeCase, mobileCases], scheduleMobileStageCollapse, { flush: 'post' })
 watch(switching, (active) => {
   if (!active) scheduleMobileStageCollapse()
@@ -406,12 +371,12 @@ let firstCaseObserver: IntersectionObserver | null = null
 
 function warmFirstCaseMedia() {
   if (caseMediaReady.value || firstCaseWarmImage) return
-  const src = homeCases[0]?.media.src
+  const src = homeCases.value[0]?.media.src
   if (!src) return
 
   const image = new Image()
   firstCaseWarmImage = image
-  image.srcset = homeCases[0]?.media.avifSrcset ?? homeCases[0]?.media.webpSrcset ?? ''
+  image.srcset = homeCases.value[0]?.media.avifSrcset ?? homeCases.value[0]?.media.webpSrcset ?? ''
   image.sizes = '(max-width: 767px) 92vw, 42vw'
   image.src = src
   const finish = () => {
@@ -430,7 +395,7 @@ function scheduleFirstCaseWarm() {
   if (!preload.revealed.value || !firstCaseNear || firstCaseWarmScheduled) return
   firstCaseWarmScheduled = true
   const warm = () => {
-    const firstCase = homeCases[0]
+    const firstCase = homeCases.value[0]
     if (firstCase) warmCaseDetail(firstCase)
     warmFirstCaseMedia()
   }
@@ -596,20 +561,20 @@ function railAnimTargets(): HTMLElement[] {
 
 type IntroMotionParts = {
   chars: HTMLElement[]
-  lines: HTMLElement[]
+  words: HTMLElement[]
   all: HTMLElement[]
 }
 
 function introMotionParts(): IntroMotionParts {
   const intro = introEl.value
-  if (!intro) return { chars: [], lines: [], all: [] }
+  if (!intro) return { chars: [], words: [], all: [] }
   const chars = Array.from(
     intro.querySelectorAll<HTMLElement>('.cases-intro__char'),
   )
-  const lines = Array.from(
-    intro.querySelectorAll<HTMLElement>('.cases-intro__line'),
+  const words = Array.from(
+    intro.querySelectorAll<HTMLElement>('.cases-intro__word'),
   )
-  return { chars, lines, all: [...chars, ...lines] }
+  return { chars, words, all: [...chars, ...words] }
 }
 
 function setIntroHidden(
@@ -617,7 +582,7 @@ function setIntroHidden(
   parts: IntroMotionParts,
 ) {
   if (parts.chars.length) gsap.set(parts.chars, { yPercent: 115 })
-  if (parts.lines.length) gsap.set(parts.lines, { yPercent: 115 })
+  if (parts.words.length) gsap.set(parts.words, { yPercent: 115 })
 }
 
 async function setupIntroMotion() {
@@ -653,10 +618,10 @@ async function setupIntroMotion() {
         0,
       )
     }
-    if (parts.lines.length) {
+    if (parts.words.length) {
       tl.to(
-        parts.lines,
-        { yPercent: 0, duration: 0.9, stagger: 0.1 },
+        parts.words,
+        { yPercent: 0, duration: 0.82, stagger: 0.04 },
         0.24,
       )
     }
@@ -1259,13 +1224,11 @@ onMounted(async () => {
   if (blurbEl.value && typeof ResizeObserver !== 'undefined') {
     blurbRo?.disconnect()
     blurbRo = new ResizeObserver(() => {
-      scheduleMobileBlurbBreak()
       scheduleMobileStageCollapse()
     })
     blurbRo.observe(blurbEl.value)
   }
   void document.fonts?.ready.then(() => {
-    syncMobileBlurbBreak()
     scheduleMobileStageCollapse()
   })
 })
@@ -1318,7 +1281,7 @@ onBeforeUnmount(() => {
       'home-cases--mobile': mobileCases,
     }"
     :data-case-id="activeCase?.id"
-    :aria-label="`Кейс: ${activeCase?.title ?? ''}`"
+    :aria-label="t('home.cases.sectionLabel', { title: activeCase?.title ?? '' })"
     :style="mobileCasesHeight ? { '--cases-mobile-h': `${mobileCasesHeight}px` } : undefined"
     @pointerdown="onCaseStagePointerDown"
     @pointerup="onCaseStagePointerUp"
@@ -1341,7 +1304,7 @@ onBeforeUnmount(() => {
         class="cases-gesture-hint"
         role="button"
         tabindex="0"
-        aria-label="Свайпайте для перелистывания. Тапните, чтобы закрыть подсказку."
+        :aria-label="t('home.cases.gestureLabel')"
         @pointerdown="onCaseGesturePointerDown"
         @pointerup="onCaseGesturePointerUp"
         @pointercancel="onCaseGesturePointerCancel"
@@ -1364,8 +1327,8 @@ onBeforeUnmount(() => {
             <path class="cases-gesture-hint__hand" d="M60,216,34.68,174a20,20,0,0,1,34.64-20L88,184V76a20,20,0,0,1,40,0v56a20,20,0,0,1,40,0v16a20,20,0,0,1,40,0v36c0,13.84-1.75,25-4,32" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
           </svg>
           <p class="cases-gesture-hint__copy">
-            <span>Свайпайте для перелистывания.</span>
-            <span>Тапните, чтобы закрыть подсказку.</span>
+            <span>{{ t('home.cases.gestureSwipe') }}</span>
+            <span>{{ t('home.cases.gestureDismiss') }}</span>
           </p>
         </div>
       </div>
@@ -1380,18 +1343,21 @@ onBeforeUnmount(() => {
       }"
     >
       <header ref="introEl" class="cases-intro col-span-12">
-        <h2 class="cases-intro__title" :aria-label="CASES_INTRO_TITLE">
+        <h2 class="cases-intro__title" :aria-label="casesIntroTitle">
           <span
-            v-for="(char, index) in CASES_INTRO_TITLE"
+            v-for="(char, index) in casesIntroTitle"
             :key="`${char}-${index}`"
             class="cases-intro__char"
             aria-hidden="true"
           >{{ char }}</span>
         </h2>
-        <p class="cases-intro__copy">
-          <span class="cases-intro__line-mask"><span class="cases-intro__line">Избранные проекты:</span></span>
-          <span class="cases-intro__line-mask"><span class="cases-intro__line">от идеи и визуальной системы</span></span>
-          <span class="cases-intro__line-mask"><span class="cases-intro__line">до работающего сайта.</span></span>
+        <p class="cases-intro__copy" :aria-label="casesIntroCopy">
+          <span
+            v-for="(word, index) in casesIntroWords"
+            :key="`${word}-${index}`"
+            class="cases-intro__word-mask"
+            aria-hidden="true"
+          ><span class="cases-intro__word">{{ word }}</span></span>
         </p>
       </header>
 
@@ -1399,7 +1365,7 @@ onBeforeUnmount(() => {
         ref="railEl"
         class="cases-rail col-span-12 md:col-span-10 md:col-start-2 md:row-start-2"
         :style="{ '--cases-wash': activeCase?.wash }"
-        aria-label="Кейсы"
+        :aria-label="t('home.cases.navigationLabel')"
       >
         <ul
           ref="railListEl"
@@ -1436,7 +1402,7 @@ onBeforeUnmount(() => {
         <a
           class="cases-case-link"
           :href="homeCaseDetailPath(activeCase)"
-          :aria-label="`Открыть кейс ${activeCase.title}`"
+          :aria-label="t('home.cases.openCase', { title: activeCase.title })"
           @pointerenter="warmCaseDetail(activeCase)"
           @focus="warmCaseDetail(activeCase)"
           @pointerdown="warmCaseDetail(activeCase)"
@@ -1451,14 +1417,7 @@ onBeforeUnmount(() => {
               `cases-media--${activeCase.media.orientation ?? 'portrait'}`,
               { 'cases-media--video': !!activeCase.media.video },
             ]"
-            :style="
-              {
-                aspectRatio: `${activeCase.media.width} / ${activeCase.media.height}`,
-                ...(activeCase.media.cols && !mobileCases
-                  ? { width: `var(--layout-span-${activeCase.media.cols})`, maxWidth: '100%' }
-                  : {}),
-              }
-            "
+            :style="{ aspectRatio: `${activeCase.media.width} / ${activeCase.media.height}` }"
           >
             <picture v-if="caseMediaReady" class="cases-media__picture">
               <source
@@ -1498,14 +1457,7 @@ onBeforeUnmount(() => {
           <p
             ref="blurbEl"
             class="cases-blurb"
-            :class="{ 'cases-blurb--natural': mobileCases && !mobileBlurbBreak }"
-          >
-            <span
-              v-for="(line, i) in blurbLines"
-              :key="i"
-              class="cases-blurb__line"
-            >{{ line }}</span>
-          </p>
+          >{{ activeBlurb }}</p>
         </aside>
         <div ref="mobileTailEl" class="cases-stage__mobile-tail" aria-hidden="true" />
       </div>
@@ -1569,7 +1521,7 @@ onBeforeUnmount(() => {
 }
 
 .cases-intro__title {
-  grid-column: 2 / span 8;
+  grid-column: 2 / span 7;
   font-size: clamp(3.25rem, 8.5vw, 8rem);
   font-weight: 400;
   letter-spacing: -0.065em;
@@ -1583,20 +1535,28 @@ onBeforeUnmount(() => {
 }
 
 .cases-intro__copy {
-  grid-column: 10 / span 2;
+  grid-column: 9 / -2;
+  justify-self: end;
+  max-inline-size: 30ch;
   font-size: var(--type-body);
   letter-spacing: -0.025em;
   line-height: 1.3;
   opacity: 0.68;
+  text-wrap: pretty;
 }
 
-.cases-intro__line-mask {
-  display: block;
+.cases-intro__word-mask {
+  display: inline-block;
   overflow: hidden;
+  vertical-align: bottom;
 }
 
-.cases-intro__line {
-  display: block;
+.cases-intro__word-mask:not(:last-child) {
+  margin-inline-end: 0.24em;
+}
+
+.cases-intro__word {
+  display: inline-block;
   will-change: transform;
 }
 
@@ -2351,30 +2311,14 @@ onBeforeUnmount(() => {
 }
 
 .cases-blurb {
-  display: flex;
-  flex-direction: column;
+  display: block;
   margin: 0;
   font-size: var(--type-lead);
   font-weight: 300;
   letter-spacing: -0.02em;
   line-height: 1.35;
   text-align: left;
-}
-
-.cases-blurb__line {
-  display: block;
-}
-
-.cases-blurb--natural {
-  display: block;
-}
-
-.cases-blurb--natural .cases-blurb__line {
-  display: inline;
-}
-
-.cases-blurb--natural .cases-blurb__line + .cases-blurb__line::before {
-  content: ' ';
+  text-wrap: pretty;
 }
 
 /* Editorial case poses. Navigation and media share one 12-column field. */
@@ -2441,21 +2385,21 @@ onBeforeUnmount(() => {
     margin: 0;
   }
 
-  .home-cases[data-case-id='audience'] .cases-media { grid-column: 4 / span 5; }
+  .home-cases[data-case-id='audience'] .cases-media { grid-column: 3 / span 5; }
   .home-cases[data-case-id='audience'] .cases-blurb {
-    grid-column: 8 / span 3;
+    grid-column: 7 / -2;
     align-self: start;
     /* Audience media is 1856 × 2304: 20% of its rendered height. */
     margin-top: calc(var(--layout-span-5) * 0.2483);
   }
 
   .home-cases[data-case-id='keys-store'] .cases-media {
-    grid-column: 3 / span 8;
+    grid-column: 2 / span 9;
     grid-row: 1;
     margin-top: 0;
   }
   .home-cases[data-case-id='keys-store'] .cases-blurb {
-    grid-column: 4 / span 3;
+    grid-column: 3 / span 5;
     grid-row: 2;
     align-self: start;
     margin-top: clamp(2rem, 2.1vw, 2.5rem);
@@ -2466,22 +2410,41 @@ onBeforeUnmount(() => {
     justify-self: end;
   }
   .home-cases[data-case-id='baltika'] .cases-blurb {
-    grid-column: 3 / span 3;
+    grid-column: 2 / span 4;
     align-self: end;
     margin-bottom: 0;
   }
 
   .home-cases[data-case-id='schmidt'] .cases-media {
-    grid-column: 3 / span 8;
+    grid-column: 2 / span 9;
     grid-row: 1;
     margin-top: 0;
   }
   .home-cases[data-case-id='schmidt'] .cases-blurb {
-    grid-column: 8 / span 3;
+    grid-column: 7 / -2;
     grid-row: 2;
     align-self: start;
     margin-top: clamp(2rem, 2.1vw, 2.5rem);
   }
+}
+
+@media (min-width: 1440px) {
+  .home-cases[data-case-id='audience'] .cases-media { grid-column: 4 / span 5; }
+  .home-cases[data-case-id='audience'] .cases-blurb { grid-column: 7 / -2; }
+
+  .home-cases[data-case-id='keys-store'] .cases-media { grid-column: 3 / span 8; }
+  .home-cases[data-case-id='keys-store'] .cases-blurb { grid-column: 4 / span 4; }
+
+  .home-cases[data-case-id='baltika'] .cases-blurb { grid-column: 3 / span 3; }
+
+  .home-cases[data-case-id='schmidt'] .cases-media { grid-column: 3 / span 8; }
+  .home-cases[data-case-id='schmidt'] .cases-blurb { grid-column: 7 / -2; }
+}
+
+@media (min-width: 1920px) {
+  .home-cases[data-case-id='audience'] .cases-blurb { grid-column: 8 / span 3; }
+  .home-cases[data-case-id='keys-store'] .cases-blurb { grid-column: 4 / span 3; }
+  .home-cases[data-case-id='schmidt'] .cases-blurb { grid-column: 8 / span 3; }
 }
 
 @media (max-width: 767.98px) {

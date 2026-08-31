@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { homeCases } from '~/utils/homeCases'
-
 /**
  * Lusion-style overlay scrollbar: native bar hidden, thin thumb appears only while scrolling.
  * Short rail (not full viewport) — track sits in the middle-right with generous insets.
@@ -34,12 +32,13 @@ let lerpRaf = 0
 let reducedMotion = false
 
 const { surfaceOn: canvasSurface } = usePageCanvas()
+const homeCases = useHomeCases()
 const onCanvas = computed(() => canvasSurface.value)
 const route = useRoute()
 const activeCase = computed(() => {
   const id = typeof route.params.id === 'string' ? route.params.id : ''
   return route.path.startsWith('/projects/')
-    ? homeCases.find((caseItem) => caseItem.id === id)
+    ? homeCases.value.find((caseItem) => caseItem.id === id)
     : undefined
 })
 const inverseCaseTheme = computed(() => activeCase.value?.inverse === true)

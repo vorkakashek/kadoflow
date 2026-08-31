@@ -4,6 +4,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   desktopGrabSpeed: 1,
 })
+const { t } = useI18n()
 
 const viewportEl = ref<HTMLElement | null>(null)
 const contentEl = ref<HTMLElement | null>(null)
@@ -234,7 +235,7 @@ onUnmounted(() => {
       ref="viewportEl"
       class="case-horizontal-rail__viewport"
       tabindex="0"
-      aria-label="Горизонтальная галерея"
+      :aria-label="t('projects.detail.horizontalGallery')"
       @scroll="sync"
       @wheel.passive="onViewportWheel"
       @keydown="onKeydown"

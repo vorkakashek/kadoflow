@@ -1,5 +1,12 @@
 <script setup lang="ts">
 const enhancementsReady = ref(false)
+const { locale, t } = useI18n()
+
+useHead(() => ({ htmlAttrs: { lang: locale.value } }))
+useSeoMeta({
+  title: () => t('seo.defaultTitle'),
+  description: () => t('seo.defaultDescription'),
+})
 
 if (import.meta.client && 'scrollRestoration' in history) {
   history.scrollRestoration = 'manual'

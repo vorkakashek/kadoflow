@@ -1,0 +1,60 @@
+[
+  {
+    "id": "audience",
+    "year": "2026",
+    "projectUrl": "https://audience.moscow/",
+    "projectLabel": "audience.moscow",
+    "wash": "#0A0501",
+    "inverse": true,
+    "media": {
+      "src": "/home/cases/audience/audience-cover.png",
+      "webpSrcset": "/home/cases/audience/audience-cover-480.webp 480w, /home/cases/audience/audience-cover-960.webp 960w, /home/cases/audience/audience-cover-1440.webp 1440w, /home/cases/audience/audience-cover-1920.webp 1920w, /home/cases/audience/audience-cover-2560.webp 2560w, /home/cases/audience/audience-cover-3712.webp 3712w",
+      "avifSrcset": "/home/cases/audience/audience-cover-480.avif 480w, /home/cases/audience/audience-cover-960.avif 960w, /home/cases/audience/audience-cover-1440.avif 1440w, /home/cases/audience/audience-cover-1920.avif 1920w, /home/cases/audience/audience-cover-2560.avif 2560w, /home/cases/audience/audience-cover-3712.avif 3712w",
+      "width": 3712,
+      "height": 4608,
+      "orientation": "portrait"
+    }
+  },
+  {
+    "id": "keys-store",
+    "year": "2025",
+    "projectUrl": "https://keys-store.com/",
+    "projectLabel": "keys-store.com",
+    "wash": "#3f2b95",
+    "inverse": true,
+    "media": {
+      "src": "/home/cases/keys-store/keys-1.webp",
+      "width": 2079,
+      "height": 1296,
+      "orientation": "portrait"
+    }
+  },
+  {
+    "id": "baltika",
+    "year": "2025",
+    "collaboration": "BOSON GROUP",
+    "wash": "var(--palette-milk)",
+    "media": {
+      "src": "/home/cases/baltika/baltika-cover.png",
+      "webpSrcset": "/home/cases/baltika/baltika-cover-480.webp 480w, /home/cases/baltika/baltika-cover-960.webp 960w, /home/cases/baltika/baltika-cover-1440.webp 1440w",
+      "avifSrcset": "/home/cases/baltika/baltika-cover-480.avif 480w, /home/cases/baltika/baltika-cover-960.avif 960w, /home/cases/baltika/baltika-cover-1440.avif 1440w",
+      "width": 1696,
+      "height": 2528,
+      "orientation": "portrait"
+    }
+  },
+  {
+    "id": "schmidt",
+    "year": "2024",
+    "collaboration": "PAIR GROUP",
+    "projectUrl": "https://schmidtspirits.com/",
+    "projectLabel": "schmidtspirits.com",
+    "wash": "#fafafa",
+    "media": {
+      "src": "/home/cases/schmidt/schmidt.webp",
+      "width": 2559,
+      "height": 1437,
+      "orientation": "landscape"
+    }
+  }
+]

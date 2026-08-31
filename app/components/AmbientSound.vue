@@ -1,8 +1,12 @@
+<script setup lang="ts">
+const { t } = useI18n()
+</script>
+
 <template>
   <button
     type="button"
     class="ambient-sound"
-    aria-label="Звук пока не выбран"
+    :aria-label="t('accessibility.ambientSoundEmpty')"
     aria-disabled="true"
   >
     <span class="ambient-sound__meter" aria-hidden="true">

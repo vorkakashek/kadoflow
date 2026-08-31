@@ -1,10 +1,11 @@
 <script setup lang="ts">
+const { t } = useI18n()
 </script>
 
 <template>
   <PageStub
-    title="Услуги"
-    blurb="Один подход: выразительный сайт под ключ. Форматы — на одной странице."
+    :title="t('pages.services.title')"
+    :blurb="t('pages.services.blurb')"
     index="03"
   />
 </template>

@@ -5,6 +5,7 @@
 .nitro
 .cache
 dist
+/app/generated/locales/*
 
 # Node dependencies
 node_modules

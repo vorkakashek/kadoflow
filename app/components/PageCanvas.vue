@@ -17,6 +17,8 @@ import {
 import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
 import { setChipBgOrigin } from '~/utils/chipHoverBg'
 
+const { t } = useI18n()
+
 const {
   open,
   busy,
@@ -1244,7 +1246,7 @@ onUnmounted(() => {
       :inert="!open"
       role="dialog"
       aria-modal="true"
-      aria-label="Навигация по сайту"
+      :aria-label="t('navigation.canvasLabel')"
     >
       <div ref="maskEl" class="page-canvas__mask">
         <div class="page-canvas__veil" @click="closeCanvas" />
@@ -1318,7 +1320,7 @@ onUnmounted(() => {
         <div ref="deskEl" class="page-canvas__desk">
           <nav
             class="pc-links"
-            aria-label="Страницы"
+            :aria-label="t('navigation.pagesLabel')"
             @pointerleave="onLinkLeave"
           >
             <div
@@ -1350,7 +1352,7 @@ onUnmounted(() => {
                   <span class="chip-scale-bg__fill" />
                 </span>
                 <span class="pc-link__index">{{ frame.index }}</span>
-                <span class="pc-link__label">{{ frame.label }}</span>
+                <span class="pc-link__label">{{ t(frame.labelKey) }}</span>
               </button>
             </div>
           </nav>

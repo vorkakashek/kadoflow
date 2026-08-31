@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { isMobileChromeHeightOnlyResize, isThumbNav } from '~/utils/mobileViewport'
 import { headerLinks } from '~/utils/siteNav'
-import { homeCases } from '~/utils/homeCases'
 import { setChipBgOrigin } from '~/utils/chipHoverBg'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
 import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
@@ -16,6 +15,8 @@ const {
   pageIrisLive,
 } = usePageCanvas()
 const route = useRoute()
+const { t } = useI18n()
+const homeCases = useHomeCases()
 const links = headerLinks
 /** Optimistic “you are here” so the chip fill doesn’t wait for the iris hop. */
 const navHerePath = ref(route.path)
@@ -46,7 +47,7 @@ const caseInverse = useState('home-case-inverse', () => false)
 const { closeCaseDetail, active: caseDetailTransitionActive } = useCaseDetailTransition()
 const detailCase = computed(() => {
   const match = /^\/projects\/([^/]+)$/.exec(route.path)
-  return match ? homeCases.find((item) => item.id === match[1]) : undefined
+  return match ? homeCases.value.find((item) => item.id === match[1]) : undefined
 })
 const detailInverse = computed(() => !!detailCase.value?.inverse)
 
@@ -1010,7 +1011,7 @@ onUnmounted(() => {
           data-home-top
           class="header-logo-link pointer-events-auto row-start-1 col-span-12 col-start-1 justify-self-center md:col-span-3 md:justify-self-start"
           :class="{ 'header-logo-link--mobile-scrolled': mobileScrollMarkVisible }"
-          aria-label="Kadoflow — на главную"
+          :aria-label="t('accessibility.brandHome')"
           :tabindex="canvasSurface ? -1 : 0"
           @click="onLogoClick"
           @pointerenter="preloadHomeSceneAssets"
@@ -1046,7 +1047,7 @@ onUnmounted(() => {
             v-if="detailCase"
             type="button"
             class="case-header-back site-nav pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
-            aria-label="Назад на главную"
+            :aria-label="t('common.backHome')"
             @click="onCaseDetailBack"
           >
             <span class="case-header-back__frame" aria-hidden="true">
@@ -1055,7 +1056,7 @@ onUnmounted(() => {
                 <path d="m12 9-7 7 7 7" />
               </svg>
             </span>
-            <span class="case-header-back__label">назад</span>
+            <span class="case-header-back__label">{{ t('common.back') }}</span>
             <span class="case-header-back__frame case-header-back__frame--after" aria-hidden="true">
               <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M27 16H5" />
@@ -1069,7 +1070,7 @@ onUnmounted(() => {
           ref="navEl"
           class="header-nav header-chip site-nav pointer-events-auto col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
           :class="{ 'header-chip--scrolled': headerCollapsed }"
-          aria-label="Основная"
+          :aria-label="t('navigation.mainLabel')"
         >
           <NuxtLink
             v-for="(link, index) in links"
@@ -1086,7 +1087,7 @@ onUnmounted(() => {
             <span class="chip-scale-bg" aria-hidden="true">
               <span class="chip-scale-bg__fill" />
             </span>
-            <span class="nav-link__label">{{ link.label }}</span>
+            <span class="nav-link__label">{{ t(link.labelKey) }}</span>
             <span v-if="index < links.length - 1" class="nav-link__comma">,</span>
           </NuxtLink>
         </nav>
@@ -1096,7 +1097,7 @@ onUnmounted(() => {
           class="header-desk-menu menu-btn menu-btn-slot header-chip site-nav col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end pointer-events-none invisible md:flex"
           aria-hidden="true"
         >
-          <span class="menu-chip-word">меню</span>
+          <span class="menu-chip-word">{{ t('common.menu') }}</span>
           <span class="menu-dots">
             <span class="menu-dot" />
             <span class="menu-dot" />
@@ -1121,7 +1122,7 @@ onUnmounted(() => {
       }"
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
-      :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+      :aria-label="canvasOpen ? t('common.closeMenu') : t('common.openMenu')"
       @pointerenter="onMenuHoverEnter"
       @pointerleave="onMenuHoverLeave"
       @click="toggleCanvas"
@@ -1131,13 +1132,13 @@ onUnmounted(() => {
       </span>
       <span class="menu-chip-word">
         <span class="menu-chip-sizers" aria-hidden="true">
-          <span class="menu-sizer-menu">меню</span>
-          <span class="menu-sizer-back">закрыть</span>
+          <span class="menu-sizer-menu">{{ t('common.menu') }}</span>
+          <span class="menu-sizer-back">{{ t('common.close') }}</span>
         </span>
         <span class="menu-chip-window">
           <span class="menu-chip-track">
-            <span class="menu-chip-line">меню</span>
-            <span class="menu-chip-line">закрыть</span>
+            <span class="menu-chip-line">{{ t('common.menu') }}</span>
+            <span class="menu-chip-line">{{ t('common.close') }}</span>
           </span>
         </span>
       </span>
@@ -1157,7 +1158,7 @@ onUnmounted(() => {
         class="mobile-scroll-mark pointer-events-auto"
         :class="{ 'mobile-scroll-mark--inverted': mobileScrollMarkInverted }"
         :style="fabStyle"
-        aria-label="КАДОФЛОУ — на главную"
+        :aria-label="t('accessibility.brandHomeRu')"
         @pointerenter="preloadHomeSceneAssets"
       >
         <img src="/brand/kado-logo-ru-o.svg" alt="" width="32" height="32">
@@ -1169,7 +1170,7 @@ onUnmounted(() => {
       class="case-mobile-back site-nav pointer-events-auto"
       :class="{ 'case-mobile-back--transitioning': caseDetailTransitionActive }"
       :style="fabStyle"
-      aria-label="Назад на главную"
+      :aria-label="t('common.backHome')"
       @click="onCaseDetailBack"
     >
       <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1191,7 +1192,7 @@ onUnmounted(() => {
       :style="fabStyle"
       :aria-busy="menuBusy"
       :aria-expanded="canvasOpen"
-      :aria-label="canvasOpen ? 'Закрыть меню' : 'Открыть меню'"
+      :aria-label="canvasOpen ? t('common.closeMenu') : t('common.openMenu')"
       @pointerenter="onMenuHoverEnter"
       @pointerleave="onMenuHoverLeave"
       @click="toggleCanvas"
@@ -1201,13 +1202,13 @@ onUnmounted(() => {
       </span>
       <span class="menu-chip-word menu-fab-word" aria-hidden="true">
         <span class="menu-chip-sizers">
-          <span class="menu-sizer-menu">меню</span>
-          <span class="menu-sizer-back">закрыть</span>
+          <span class="menu-sizer-menu">{{ t('common.menu') }}</span>
+          <span class="menu-sizer-back">{{ t('common.close') }}</span>
         </span>
         <span class="menu-chip-window">
           <span class="menu-chip-track">
-            <span class="menu-chip-line">меню</span>
-            <span class="menu-chip-line">закрыть</span>
+            <span class="menu-chip-line">{{ t('common.menu') }}</span>
+            <span class="menu-chip-line">{{ t('common.close') }}</span>
           </span>
         </span>
       </span>

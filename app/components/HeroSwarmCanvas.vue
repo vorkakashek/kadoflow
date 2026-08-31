@@ -55,6 +55,8 @@ import {
 import { flowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { useBrandPreload } from '~/composables/useBrandPreload'
 
+const { t } = useI18n()
+
 /** Flip this to A/B studio looks (files in /public/env). */
 const HDRI_PRESETS = {
   studioSoft: '/env/studio_small_09_512.hdr',
@@ -260,8 +262,8 @@ const desktopMotionNotice = ref('')
 const desktopMotionNoticeVisible = ref(false)
 const motionIntroText = computed(() =>
   isAndroidClient.value
-    ? 'Тапните, чтобы включить гироскоп и вибрацию'
-    : 'Тапните, чтобы включить гироскоп',
+    ? t('accessibility.enableGyroscopeAndVibrationHint')
+    : t('accessibility.enableGyroscopeHint'),
 )
 let gyroUnlockFn: (() => void) | null = null
 let removeMotionControlScroll: (() => void) | null = null
@@ -400,7 +402,9 @@ function morphDesktopMotionIcon(sceneEnabled: boolean) {
 function onDesktopMotionControlTap() {
   desktopSceneEnabled.value = !desktopSceneEnabled.value
   morphDesktopMotionIcon(desktopSceneEnabled.value)
-  desktopMotionNotice.value = desktopSceneEnabled.value ? 'вкл' : 'выкл'
+  desktopMotionNotice.value = desktopSceneEnabled.value
+    ? t('accessibility.enabledShort')
+    : t('accessibility.disabledShort')
   desktopMotionNoticeVisible.value = true
   window.clearTimeout(desktopMotionNoticeTimer)
   desktopMotionNoticeTimer = window.setTimeout(() => {
@@ -1986,7 +1990,7 @@ async function bootScene() {
         'motion-control--scroll-hidden': !motionControlAtRest,
         'motion-control--haptic-leaving': androidHapticLeaving,
       }"
-      aria-label="Включить вибрацию"
+      :aria-label="t('accessibility.enableVibration')"
       @click="onHapticControlTap"
     >
       <span
@@ -2003,7 +2007,7 @@ async function bootScene() {
         'motion-control--active': motionControlActive,
         'motion-control--scroll-hidden': !motionControlAtRest,
       }"
-      :aria-label="motionControlActive ? 'Выключить гироскоп' : 'Включить гироскоп'"
+      :aria-label="motionControlActive ? t('accessibility.disableGyroscope') : t('accessibility.enableGyroscope')"
       :aria-pressed="motionControlActive"
       @click="onMotionControlTap"
     >
@@ -2039,7 +2043,7 @@ async function bootScene() {
         'motion-control--active': desktopSceneEnabled,
         'motion-control--scroll-hidden': !motionControlAtRest,
       }"
-      :aria-label="desktopSceneEnabled ? 'Выключить движение сцены' : 'Включить движение сцены'"
+      :aria-label="desktopSceneEnabled ? t('accessibility.disableSceneMotion') : t('accessibility.enableSceneMotion')"
       :aria-pressed="desktopSceneEnabled"
       @click="onDesktopMotionControlTap"
     >

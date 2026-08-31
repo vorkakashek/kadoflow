@@ -8,6 +8,12 @@ import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfac
 import { useBrandPreload } from '~/composables/useBrandPreload'
 import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
 
+const { locale, t, tm } = useI18n()
+const heroTitleLines = computed(() => {
+  locale.value
+  return tm('home.hero.titleLines') as string[]
+})
+
 /** Keep WebGL alive until morph opacity is nearly gone (both platforms). */
 const SCENE_LIVE_OPACITY = 0.08
 /** Morph-driven stage fade — keyed to min(h,v) arrive progress. */
@@ -752,11 +758,10 @@ onUnmounted(() => {
               :style="{ '--hero-title-blur-opacity': titleBlurOpacity }"
             >
               <h1 class="hero-title text-ink">
-                <span class="block">Авторская&nbsp;студия</span>
-                <span class="block">дизайна и&nbsp;разработки</span>
+                <span v-for="line in heroTitleLines" :key="line" class="block">{{ line }}</span>
               </h1>
               <p ref="descEl" class="hero-desc text-ash md:max-w-[36ch]">
-                Создаю выразительные сайты под&nbsp;ключ — от&nbsp;структуры до&nbsp;запуска.
+                {{ t('home.hero.description') }}
               </p>
             </div>
 
@@ -764,7 +769,7 @@ onUnmounted(() => {
               ref="sloganEl"
               class="hero-slogan text-ink order-1 md:order-2"
             >
-              Свобода&nbsp;формы. Порядок&nbsp;процесса.
+              {{ t('home.hero.slogan') }}
             </p>
           </div>
         </div>

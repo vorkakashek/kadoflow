@@ -6,6 +6,7 @@ const props = defineProps<{
 }>()
 
 const { openCanvas } = usePageCanvas()
+const { t } = useI18n()
 
 useSeoMeta({
   title: () => `${props.title} — Kadoflow`,
@@ -20,14 +21,14 @@ useSeoMeta({
       <h1 class="page-stub__title">{{ title }}</h1>
       <p class="page-stub__blurb">{{ blurb }}</p>
       <p class="page-stub__note">
-        Черновик страницы для навигации Page Canvas. Контент появится следом.
+        {{ t('pages.stubNote') }}
       </p>
       <div class="page-stub__actions">
         <NuxtLink class="page-stub__link" to="/">
-          На главную
+          {{ t('common.home') }}
         </NuxtLink>
         <button type="button" class="page-stub__link page-stub__link--btn" @click="openCanvas">
-          Открыть меню
+          {{ t('common.openMenu') }}
         </button>
       </div>
     </main>

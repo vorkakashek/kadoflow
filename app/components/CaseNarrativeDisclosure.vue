@@ -4,6 +4,7 @@ defineProps<{
   title: string
   paragraphs: string[]
 }>()
+const { t } = useI18n()
 
 const emit = defineEmits<{
   layoutChange: []
@@ -46,7 +47,7 @@ function handleTransition(event: TransitionEvent) {
     >
       <div class="case-disclosure__body-clip">
         <div class="case-disclosure__body-inner">
-          <p v-for="paragraph in paragraphs" :key="paragraph">{{ paragraph }}</p>
+          <p v-for="(paragraph, index) in paragraphs" :key="`${index}-${paragraph}`">{{ paragraph }}</p>
         </div>
       </div>
     </div>
@@ -55,7 +56,7 @@ function handleTransition(event: TransitionEvent) {
       aria-hidden="true"
     >
       <span class="case-disclosure__pill">
-        <span class="case-disclosure__pill-label">{{ open ? 'свернуть' : 'читать' }}</span>
+        <span class="case-disclosure__pill-label">{{ open ? t('projects.detail.disclosureCollapse') : t('projects.detail.disclosureRead') }}</span>
         <PhPlusMinus :minus="open" :size="18" />
       </span>
     </span>
@@ -183,11 +184,18 @@ function handleTransition(event: TransitionEvent) {
   font-weight: 300;
   letter-spacing: -0.04em;
   line-height: 1.17;
+  text-wrap: pretty;
 }
 
-.case-disclosure__body p:first-child { grid-column: 2 / span 4; }
-.case-disclosure__body p:last-child { grid-column: 8 / span 4; }
-.case-disclosure__body p:only-child { grid-column: 4 / span 6; }
+.case-disclosure__body p:first-child { grid-column: 2 / span 5; }
+.case-disclosure__body p:last-child { grid-column: 7 / span 5; }
+.case-disclosure__body p:only-child { grid-column: 3 / span 8; }
+
+@media (min-width: 1920px) {
+  .case-disclosure__body p:first-child { grid-column: 2 / span 4; }
+  .case-disclosure__body p:last-child { grid-column: 8 / span 4; }
+  .case-disclosure__body p:only-child { grid-column: 4 / span 6; }
+}
 
 @media (max-width: 767.98px) {
   .case-disclosure__title { font-size: clamp(1.875rem, 8vw, 2.25rem); }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PhArrowUp } from '@phosphor-icons/vue'
+const { t } = useI18n()
 
 function scrollToTop() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -8,7 +9,7 @@ function scrollToTop() {
 </script>
 
 <template>
-  <button type="button" class="case-scroll-top" aria-label="Наверх" @click="scrollToTop">
+  <button type="button" class="case-scroll-top" :aria-label="t('common.scrollTop')" @click="scrollToTop">
     <PhArrowUp :size="22" aria-hidden="true" />
   </button>
 </template>

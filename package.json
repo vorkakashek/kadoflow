@@ -3,20 +3,21 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "locales:build": "node scripts/build-locales.mjs",
     "tokens:fluid": "node scripts/generate-fluid.mjs",
     "images:build": "node scripts/optimize-images.mjs",
     "env:build": "node scripts/optimize-hdr.mjs",
     "perf:report": "node scripts/report-performance.mjs",
     "perf:check": "node scripts/report-performance.mjs --check",
-    "predev": "npm run tokens:fluid",
-    "pregenerate": "npm run tokens:fluid && npm run images:build && npm run env:build",
-    "build": "npm run tokens:fluid && npm run images:build && npm run env:build && nuxt build && npm run perf:check",
+    "predev": "npm run locales:build && npm run tokens:fluid",
+    "build": "npm run locales:build && npm run tokens:fluid && npm run images:build && npm run env:build && nuxt build && npm run perf:check",
     "dev": "nuxt dev --host",
     "preview:tunnel": "npx --yes localtunnel --port 3000",
+    "pregenerate": "npm run locales:build && npm run tokens:fluid && npm run images:build && npm run env:build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "previews": "node scripts/capture-previews.mjs",
-    "postinstall": "nuxt prepare"
+    "postinstall": "npm run locales:build && nuxt prepare"
   },
   "dependencies": {
     "@nuxt/fonts": "^0.14.0",

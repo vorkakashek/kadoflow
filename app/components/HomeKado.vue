@@ -7,8 +7,8 @@
  * (square hop starts when Kadoflow hits top 20%).
  */
 const BRAND = 'Kadoflow'
-const BODY_TEXT =
-  'Kadoflow переносит этот принцип в цифровую среду: создаёт для каждой задачи собственный визуальный язык и собирает его в работающую систему.'
+const { t } = useI18n()
+const bodyText = computed(() => t('home.kado.body'))
 /** Scroll lag for the whole fill timeline. */
 const FILL_SCRUB = 1.1
 /** Gap between line starts (= line duration so N+1 waits until N finishes). */
@@ -64,7 +64,7 @@ function buildLineFill(host: HTMLElement): HTMLElement[] {
   measure.style.whiteSpace = 'normal'
   host.appendChild(measure)
 
-  const parts = BODY_TEXT.split(/(\s+)/).filter((p) => p.length)
+  const parts = bodyText.value.split(/(\s+)/).filter((p) => p.length)
   const wordSpans: HTMLSpanElement[] = []
   for (const part of parts) {
     const span = document.createElement('span')
@@ -163,7 +163,7 @@ async function setupLineFill(force = false) {
   if (!host || !trigger) return
 
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    host.textContent = BODY_TEXT
+    host.textContent = bodyText.value
     host.style.color = 'var(--palette-ink)'
     kadoflowWord.value = null
     return
@@ -545,7 +545,7 @@ onUnmounted(() => {
           <img
             ref="stoneEl"
             src="/home/rock.webp"
-            alt="Камень"
+            :alt="t('home.kado.imageAlt')"
             class="kado-focus kado-stone relative z-10 mx-auto h-auto max-h-[70vh] w-auto max-w-full object-contain"
             width="854"
             height="1634"
@@ -579,14 +579,14 @@ onUnmounted(() => {
                 aria-hidden="true"
               />
               <h2 class="kado-title">
-                Кадо́ — путь цветов.
+                {{ t('home.kado.title') }}
               </h2>
               <p class="kado-phonetic">
                 [/ ka-dō]
               </p>
             </div>
             <p class="kado-deck col-span-6 md:col-span-4 md:col-start-2">
-              Японское искусство композиции, где свобода природной формы обретает точный порядок.
+              {{ t('home.kado.definition') }}
             </p>
           </div>
 

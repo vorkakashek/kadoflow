@@ -7,8 +7,8 @@ export interface SiteNavFrame {
   kind: SiteNavFrameKind
   /** Route for page frames. */
   to: string
-  label: string
-  blurb: string
+  labelKey: string
+  blurbKey: string
   /** Display index in canvas (01…). */
   index: string
   /** Preview motif class key for CSS miniature (fallback if shot missing). */
@@ -25,9 +25,9 @@ export interface SiteNavFrame {
 
 /** Header shortcuts (subset). */
 export const headerLinks = [
-  { label: 'кейсы', to: '/projects' },
-  { label: 'услуги', to: '/services' },
-  { label: 'контакт', to: '/contact' },
+  { labelKey: 'navigation.header.projects', to: '/projects' },
+  { labelKey: 'navigation.header.services', to: '/services' },
+  { labelKey: 'navigation.header.contact', to: '/contact' },
 ] as const
 
 /** Full Page Canvas — link list + hover preview. */
@@ -36,8 +36,8 @@ export const canvasFrames: SiteNavFrame[] = [
     id: 'home',
     kind: 'page',
     to: '/',
-    label: 'Главная',
-    blurb: 'Позиционирование и первый экран',
+    labelKey: 'navigation.frames.home.label',
+    blurbKey: 'navigation.frames.home.blurb',
     index: '01',
     motif: 'home',
     preview: '/previews/home.jpg',
@@ -49,8 +49,8 @@ export const canvasFrames: SiteNavFrame[] = [
     id: 'projects',
     kind: 'page',
     to: '/projects',
-    label: 'Проекты',
-    blurb: 'Каталог кейсов',
+    labelKey: 'navigation.frames.projects.label',
+    blurbKey: 'navigation.frames.projects.blurb',
     index: '02',
     motif: 'projects',
     preview: '/previews/projects.jpg',
@@ -62,8 +62,8 @@ export const canvasFrames: SiteNavFrame[] = [
     id: 'services',
     kind: 'page',
     to: '/services',
-    label: 'Услуги',
-    blurb: 'Форматы работы под ключ',
+    labelKey: 'navigation.frames.services.label',
+    blurbKey: 'navigation.frames.services.blurb',
     index: '03',
     motif: 'services',
     preview: '/previews/services.jpg',
@@ -75,8 +75,8 @@ export const canvasFrames: SiteNavFrame[] = [
     id: 'about',
     kind: 'page',
     to: '/about',
-    label: 'О Кадо',
-    blurb: 'Студия, подход, автор',
+    labelKey: 'navigation.frames.about.label',
+    blurbKey: 'navigation.frames.about.blurb',
     index: '04',
     motif: 'about',
     preview: '/previews/about.jpg',
@@ -88,8 +88,8 @@ export const canvasFrames: SiteNavFrame[] = [
     id: 'contact',
     kind: 'page',
     to: '/contact',
-    label: 'Контакты',
-    blurb: 'Обсудить проект',
+    labelKey: 'navigation.frames.contact.label',
+    blurbKey: 'navigation.frames.contact.blurb',
     index: '05',
     motif: 'contact',
     preview: '/previews/contact.jpg',

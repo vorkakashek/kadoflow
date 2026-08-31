@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { t } = useI18n()
 const HOT_SEL = [
   'a',
   'button',
@@ -132,7 +133,7 @@ onUnmounted(() => {
       aria-hidden="true"
     >
       <span class="site-cursor__dot">
-        <span class="site-cursor__label">открыть</span>
+        <span class="site-cursor__label">{{ t('common.open') }}</span>
       </span>
     </div>
   </Teleport>

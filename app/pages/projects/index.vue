@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { homeCaseDetailPath, homeCases, type HomeCase } from '~/utils/homeCases'
+import { homeCaseDetailPath, type HomeCase } from '~/utils/homeCases'
 import { warmCaseDetailRoute } from '~/utils/caseDetailRouteWarmup'
 
 const { openCaseDetail } = useCaseDetailTransition()
+const { t } = useI18n()
+const homeCases = useHomeCases()
 
 function warmCaseDetail(item: HomeCase) {
   void warmCaseDetailRoute(homeCaseDetailPath(item))
@@ -11,7 +13,7 @@ function warmCaseDetail(item: HomeCase) {
 onMounted(() => {
   // Reaching the project catalog is already a strong navigation signal. Warm
   // the shared detail route immediately; all cards resolve through [id].vue.
-  const firstCase = homeCases[0]
+  const firstCase = homeCases.value[0]
   if (firstCase) warmCaseDetail(firstCase)
 })
 
@@ -35,7 +37,7 @@ function openCase(item: HomeCase, event: MouseEvent) {
   <main class="projects-catalog">
     <div class="projects-catalog__inner">
       <header class="projects-catalog__header">
-        <p>02</p><h1>Проекты</h1><p>Каталог кейсов — задача, идея, система, результат.</p>
+        <p>02</p><h1>{{ t('projects.catalog.title') }}</h1><p>{{ t('projects.catalog.description') }}</p>
       </header>
       <ul class="projects-catalog__grid">
         <li v-for="(item, index) in homeCases" :key="item.id">

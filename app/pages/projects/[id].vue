@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { PhArrowUpRight } from '@phosphor-icons/vue'
-import { homeCases } from '~/utils/homeCases'
-import { projectCaseDetails } from '~/utils/projectCaseDetails'
+import { homeCaseDetailPath } from '~/utils/homeCases'
 import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
 
 const route = useRoute()
+const { t } = useI18n()
+const homeCases = useHomeCases()
+const projectCaseDetails = await useProjectCaseDetails()
 const item = computed(() =>
-  homeCases.find((caseItem) => caseItem.id === route.params.id),
+  homeCases.value.find((caseItem) => caseItem.id === route.params.id),
 )
 const {
   request: detailTransitionRequest,
@@ -23,10 +25,10 @@ const mediaParallaxEl = ref<HTMLElement | null>(null)
 const detailContentEl = ref<HTMLElement | null>(null)
 const nextProjectContentEl = ref<HTMLElement | null>(null)
 const nextItem = computed(() => {
-  const currentIndex = homeCases.findIndex((caseItem) => caseItem.id === item.value?.id)
-  return homeCases[(currentIndex + 1) % homeCases.length]
+  const currentIndex = homeCases.value.findIndex((caseItem) => caseItem.id === item.value?.id)
+  return homeCases.value[(currentIndex + 1) % homeCases.value.length]
 })
-const projectDetail = computed(() => item.value ? projectCaseDetails[item.value.id] : undefined)
+const projectDetail = computed(() => item.value ? projectCaseDetails.value[item.value.id] : undefined)
 const headerMedia = computed(() => projectDetail.value?.headerMedia ?? item.value?.media)
 
 let mediaParallaxCtx: { revert: () => void } | null = null
@@ -511,11 +513,11 @@ onBeforeUnmount(() => {
 })
 
 if (!item.value) {
-  throw createError({ statusCode: 404, statusMessage: 'Кейс не найден' })
+  throw createError({ statusCode: 404, statusMessage: t('projects.detail.notFound') })
 }
 
 useHead(() => ({
-  title: `${item.value?.title ?? 'Кейс'} — Kadoflow`,
+  title: t('seo.caseTitle', { title: item.value?.title ?? t('projects.detail.fallbackTitle') }),
 }))
 </script>
 
@@ -553,25 +555,25 @@ useHead(() => ({
           >
             <div class="case-detail__meta-motion">
               <div>
-                <p class="case-detail__eyebrow">клиент</p>
+                <p class="case-detail__eyebrow">{{ t('projects.detail.client') }}</p>
                 <p class="case-detail__tags">{{ item.client }}</p>
               </div>
               <div>
-                <p class="case-detail__eyebrow">год</p>
+                <p class="case-detail__eyebrow">{{ t('projects.detail.year') }}</p>
                 <p class="case-detail__tags">{{ item.year }}</p>
               </div>
               <div>
-                <p class="case-detail__eyebrow">участие</p>
+                <p class="case-detail__eyebrow">{{ t('projects.detail.contribution') }}</p>
                 <p class="case-detail__tags case-detail__role-tags">
                   <span v-for="tag in item.roleTags" :key="tag">{{ tag }}</span>
                 </p>
               </div>
               <div v-if="item.collaboration">
-                <p class="case-detail__eyebrow">в коллаборации</p>
+                <p class="case-detail__eyebrow">{{ t('projects.detail.collaboration') }}</p>
                 <p class="case-detail__tags">{{ item.collaboration }}</p>
               </div>
               <div v-if="item.projectUrl">
-                <p class="case-detail__eyebrow">ссылки</p>
+                <p class="case-detail__eyebrow">{{ t('projects.detail.links') }}</p>
                 <a
                   class="case-detail__project-link"
                   :href="item.projectUrl"
@@ -655,7 +657,7 @@ useHead(() => ({
     >
       <span ref="nextProjectContentEl" class="case-detail__next-content">
         <span class="case-detail__next-name">{{ nextItem.title }}</span>
-        <span class="case-detail__next-link">Следующий кейс <PhArrowRight :size="28" /></span>
+        <span class="case-detail__next-link">{{ t('projects.detail.next') }} <PhArrowRight :size="28" /></span>
       </span>
     </NuxtLink>
   </div>
@@ -816,7 +818,7 @@ useHead(() => ({
 h1 {
   width: 100%;
   margin: 0;
-  font-size: clamp(3rem, 8vw, 8rem);
+  font-size: var(--type-case-title);
   font-weight: 400;
   letter-spacing: -0.05em;
   line-height: 0.95;
@@ -848,10 +850,6 @@ h1 {
     min-height: 0;
     row-gap: var(--space-2);
     padding-block: calc(var(--layout-surface-top) + var(--space-2)) var(--space-5);
-  }
-
-  h1 {
-    font-size: calc(var(--type-hero) * 1.2);
   }
 
   .case-detail__content {
@@ -1014,12 +1012,6 @@ h1 {
 .case-detail__next:hover .case-detail__next-link svg,
 .case-detail__next:focus-visible .case-detail__next-link svg {
   transform: translateX(0.4rem);
-}
-
-@media (min-width: 768px) and (max-width: 1279.98px) {
-  .case-detail__hero h1 {
-    font-size: clamp(2.4rem, 6.4vw, 6.4rem);
-  }
 }
 
 :deep(.audience-fill__line) {

@@ -55,7 +55,7 @@ p { margin: 0; }
   grid-column: 6 / -2;
   grid-row: 2;
   grid-template-columns: 1fr;
-  row-gap: var(--space-4);
+  row-gap: var(--space-2);
   margin-top: var(--space-4);
   color: color-mix(in srgb, var(--palette-milk, #f5f1e8) 78%, #0a0501);
   font-size: var(--type-case-body-large);
@@ -93,7 +93,10 @@ p { margin: 0; }
 }
 
 @media (min-width: 768px) and (max-width: 1279.98px) {
-  .audience-case__copy { grid-column: 1 / span 6; }
+  h2,
+  .audience-case__copy {
+    grid-column: 2 / -2;
+  }
 }
 
 @media (max-width: 767.98px) {

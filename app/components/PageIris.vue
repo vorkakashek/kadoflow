@@ -19,7 +19,8 @@ import {
 } from '~/utils/irisClip'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
 import { isThumbNav } from '~/utils/mobileViewport'
-import { homeCases } from '~/utils/homeCases'
+
+const homeCases = useHomeCases()
 
 const {
   surfaceOn,
@@ -327,7 +328,7 @@ onMounted(() => {
       && !homeTopRequested
 
     if (isCaseReturn) {
-      const item = homeCases.find((caseItem) => caseItem.id === detailId)
+      const item = homeCases.value.find((caseItem) => caseItem.id === detailId)
       popNav = false
       if (item) {
         closeCaseDetail({
