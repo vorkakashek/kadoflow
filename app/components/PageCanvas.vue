@@ -42,6 +42,10 @@ function selectMotionMode(next: 'full' | 'minimal') {
   }, 1200)
 }
 
+function toggleMotionMode() {
+  selectMotionMode(motionMode.value === 'full' ? 'minimal' : 'full')
+}
+
 const {
   open,
   busy,
@@ -1330,34 +1334,32 @@ onUnmounted(() => {
             class="page-canvas__motion-label"
             aria-live="polite"
           >{{ motionStatusText }}</span>
-          <div
+          <button
+            type="button"
             class="page-canvas__motion-segments"
-            role="group"
-            :aria-label="t('navigation.motion.label')"
+            role="switch"
+            :tabindex="open ? 0 : -1"
+            :aria-label="t(
+              motionMode === 'full'
+                ? 'navigation.motion.minimalAction'
+                : 'navigation.motion.fullAction',
+            )"
+            :aria-checked="motionMode === 'full'"
+            @click="toggleMotionMode"
           >
-            <button
-              type="button"
+            <span
               class="page-canvas__motion-option"
               :class="{ 'is-active': motionMode === 'minimal' }"
-              :tabindex="open ? 0 : -1"
-              :aria-label="t('navigation.motion.minimalAction')"
-              :aria-pressed="motionMode === 'minimal'"
-              @click="selectMotionMode('minimal')"
             >
               <PhPersonSimpleWalk :size="20" weight="regular" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
+            </span>
+            <span
               class="page-canvas__motion-option"
               :class="{ 'is-active': motionMode === 'full' }"
-              :tabindex="open ? 0 : -1"
-              :aria-label="t('navigation.motion.fullAction')"
-              :aria-pressed="motionMode === 'full'"
-              @click="selectMotionMode('full')"
             >
               <PhPersonSimpleRun :size="20" weight="regular" aria-hidden="true" />
-            </button>
-          </div>
+            </span>
+          </button>
         </div>
         <div class="page-canvas__chrome-foot">
           <button
@@ -1591,14 +1593,14 @@ onUnmounted(() => {
 .page-canvas__motion {
   position: absolute;
   right: calc(var(--pc-inset-right) + 4.75rem);
-  bottom: var(--pc-inset-bottom);
+  bottom: calc(var(--pc-inset-bottom) + (var(--pc-close-h) - 2.125rem) / 2);
   z-index: 3;
   pointer-events: auto;
 }
 
 .page-canvas__motion-label {
   position: absolute;
-  top: calc(100% + 0.38rem);
+  bottom: calc(100% + 0.38rem);
   left: 50%;
   font-size: calc(var(--type-nav) * 0.58);
   font-weight: 400;
@@ -1618,8 +1620,11 @@ onUnmounted(() => {
   height: 2.125rem;
   padding: 0.125rem;
   box-sizing: border-box;
+  border: 0;
   border-radius: 9999px;
   background: color-mix(in srgb, var(--palette-ash) 14%, transparent);
+  cursor: pointer;
+  appearance: none;
 }
 
 .page-canvas__motion-segments::before {
@@ -1631,7 +1636,6 @@ onUnmounted(() => {
   height: 1.875rem;
   border-radius: 9999px;
   background: color-mix(in srgb, var(--palette-sand) 72%, var(--palette-moss));
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--palette-ink) 10%, transparent);
   transform: translate3d(0, 0, 0);
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1652,8 +1656,6 @@ onUnmounted(() => {
   border-radius: 9999px;
   color: color-mix(in srgb, var(--palette-ash) 68%, transparent);
   background: transparent;
-  cursor: pointer;
-  appearance: none;
   transition: color 0.22s ease;
 }
 
@@ -1661,7 +1663,7 @@ onUnmounted(() => {
   color: var(--palette-forest);
 }
 
-.page-canvas__motion-option:focus-visible {
+.page-canvas__motion-segments:focus-visible {
   outline: 1px solid var(--palette-forest);
   outline-offset: 2px;
 }
@@ -1714,6 +1716,13 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(8px);
 }
 
+.page-canvas:not(.page-canvas--thumb) .page-canvas__lang {
+  display: inline-flex;
+  box-sizing: border-box;
+  height: var(--pc-close-h);
+  align-items: center;
+}
+
 .page-canvas--thumb {
   --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
   --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
@@ -1743,6 +1752,11 @@ onUnmounted(() => {
 .page-canvas--thumb .page-canvas__motion {
   top: var(--pc-inset-top);
   right: var(--pc-inset-right);
+  bottom: auto;
+}
+
+.page-canvas--thumb .page-canvas__motion-label {
+  top: calc(100% + 0.38rem);
   bottom: auto;
 }
 
