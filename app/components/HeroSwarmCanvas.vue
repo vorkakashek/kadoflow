@@ -15,17 +15,14 @@ import {
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
-  NoColorSpace,
   PerspectiveCamera,
   Plane,
   PMREMGenerator,
   Quaternion,
   Raycaster,
-  RepeatWrapping,
   Scene,
   SphereGeometry,
   SRGBColorSpace,
-  TextureLoader,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -57,7 +54,7 @@ const { t } = useI18n()
 
 /** Flip this to A/B studio looks (files in /public/env). */
 const HDRI_PRESETS = {
-  studioSoft: '/env/studio_small_09_512.hdr',
+  studioSoft: '/env/studio_small_09_256.hdr',
   photoStudio: '/env/photo_studio_01_2k.hdr',
   studioWarm: '/env/studio_small_03_256.hdr',
 } as const
@@ -429,8 +426,6 @@ let removePointerListeners: (() => void) | null = null
 let removeScrollPause: (() => void) | null = null
 let sharedGeometry: BufferGeometry | null = null
 let envMap: Texture | null = null
-let microNormal: Texture | null = null
-let microRough: Texture | null = null
 let balls: Ball[] = []
 let loopRunning = false
 let lastFrame = 0
@@ -470,10 +465,6 @@ function disposeScene() {
   sharedGeometry = null
   envMap?.dispose()
   envMap = null
-  microNormal?.dispose()
-  microNormal = null
-  microRough?.dispose()
-  microRough = null
   for (const ball of balls) {
     const material = ball.mesh.material
     if (Array.isArray(material)) material.forEach((m) => m.dispose())
@@ -535,15 +526,6 @@ function readAppScreenPx(): number {
   const h = probe.getBoundingClientRect().height
   probe.remove()
   return h > 0 ? h : window.innerHeight
-}
-
-function prepDataMap(tex: Texture, repeat = 2.4) {
-  tex.wrapS = RepeatWrapping
-  tex.wrapT = RepeatWrapping
-  tex.repeat.set(repeat, repeat)
-  tex.colorSpace = NoColorSpace
-  tex.anisotropy = 4
-  return tex
 }
 
 onMounted(() => {
@@ -619,7 +601,7 @@ async function bootScene() {
   const isIOS = isAppleTouchDevice()
   /**
    * Mobile / coarse / iOS: budget for fill-rate — Standard mats, DPR 1, no MSAA,
-   * baked helix seats (no physics). Look comes from HDRI + lights, not transmission.
+   * baked helix seats (no physics). Stable direct lights replace runtime HDR/PMREM.
    */
   const lite = isMobile || isIOS || isCoarse
   const wide =
@@ -643,7 +625,7 @@ async function bootScene() {
   camera.position.set(0, 0.12, cameraZ)
 
   const gl = new WebGLRenderer({
-    antialias: true,
+    antialias: !lite,
     alpha: true,
     powerPreference: 'high-performance',
     // Page Canvas no longer snapshots this buffer. Keeping it discardable avoids
@@ -673,9 +655,10 @@ async function bootScene() {
     gl.domElement.style.touchAction = 'none'
   }
 
-  // HDRI — start immediately; don't block scene-ready / preloader exit on it.
-  const pmrem = new PMREMGenerator(gl)
-  pmrem.compileEquirectangularShader()
+  // Desktop HDRI is prepared completely under the stone cover. Lite keeps the
+  // direct-light look, avoiding a late lighting jump and PMREM hitch on phones.
+  const pmrem = lite ? null : new PMREMGenerator(gl)
+  pmrem?.compileEquirectangularShader()
 
   const manager = new LoadingManager()
   manager.onProgress = (_url, loaded, total) => {
@@ -684,13 +667,11 @@ async function bootScene() {
     preload.setSceneProgress(0.08 + ratio * 0.55)
   }
 
-  const texLoader = new TextureLoader(manager)
   // Downsampled HDR maps preserve the accepted lighting while keeping the
-  // first Hero environment below the network budget (desktop <500 KB).
-  const hdrUrl = wide
-    ? HDRI_PRESETS[ACTIVE_HDRI]
-    : HDRI_PRESETS.studioWarm
-  const environmentPromise = new HDRLoader(manager).loadAsync(hdrUrl)
+  // first Hero environment and PMREM preparation below the desktop budget.
+  const environmentPromise = lite
+    ? null
+    : new HDRLoader(manager).loadAsync(HDRI_PRESETS[ACTIVE_HDRI])
 
   renderer = gl
   host.appendChild(gl.domElement)
@@ -832,81 +813,48 @@ async function bootScene() {
   for (const material of materialPlan) material.dispose()
 
   let litEmitted = false
+  let envFallbackChosen = false
   const emitLit = () => {
     if (litEmitted || gen !== bootGen) return
     litEmitted = true
     emit('lit')
   }
 
-  const waitForReveal = async () => {
-    if (preload.revealed.value) return
-    await new Promise<void>((resolve) => {
-      let stop = () => {}
-      stop = watch(
-        () => preload.revealed.value,
-        (revealed) => {
-          if (!revealed) return
-          stop()
-          resolve()
-        },
-        { immediate: true },
-      )
-    })
-  }
+  const nextPaint = () => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
 
-  const applyMicroDetails = async () => {
-    const connection = (navigator as Navigator & {
-      connection?: { saveData?: boolean }
-      deviceMemory?: number
-    })
-    if (
-      !wide
-      || connection.connection?.saveData
-      || (connection.deviceMemory !== undefined && connection.deviceMemory < 8)
-    ) return
-
-    await waitForReveal()
-    await document.fonts?.ready
-    await new Promise<void>((resolve) => {
-      if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(() => resolve(), { timeout: 2200 })
-      } else {
-        window.setTimeout(resolve, 800)
-      }
-    })
-
-    let maps: Texture[]
+  /** Compile shaders and paint twice under the cover before making GL visible. */
+  const settleAndEmitLit = async () => {
+    if (gen !== bootGen || renderer !== gl) return
+    syncCamera({ force: true })
     try {
-      maps = await Promise.all([
-        texLoader.loadAsync('/textures/micro/plaster_nor.jpg'),
-        texLoader.loadAsync('/textures/micro/plaster_rough.jpg'),
-      ])
+      await gl.compileAsync(scene, camera)
     } catch {
-      return
+      gl.compile(scene, camera)
     }
-    if (gen !== bootGen || renderer !== gl) {
-      for (const map of maps) map.dispose()
-      return
-    }
-    microNormal = prepDataMap(maps[0], 2.6)
-    microRough = prepDataMap(maps[1], 2.6)
-    for (const ball of balls) {
-      const mat = ball.mesh.material as MeshPhysicalMaterial
-      if (mat.userData.swarmFinish !== 'matte') continue
-      mat.roughnessMap = microRough
-      mat.normalMap = microNormal
-      mat.normalScale = new Vector2(0.28, 0.28)
-      mat.needsUpdate = true
-    }
+    if (gen !== bootGen || renderer !== gl) return
+    gl.render(scene, camera)
+    await nextPaint()
+    if (gen !== bootGen || renderer !== gl) return
+    gl.render(scene, camera)
+    await nextPaint()
+    emitLit()
   }
 
   const applyEnvAssets = async () => {
+    if (!environmentPromise || !pmrem) return
     let hdrTex: DataTexture
     try {
       hdrTex = await environmentPromise
     } catch {
       pmrem.dispose()
-      emitLit()
+      await settleAndEmitLit()
+      return
+    }
+    if (envFallbackChosen) {
+      pmrem.dispose()
+      hdrTex.dispose()
       return
     }
     if (gen !== bootGen || renderer !== gl) {
@@ -920,16 +868,17 @@ async function bootScene() {
     hdrTex.dispose()
     pmrem.dispose()
     scene.environment = envMap
-    scene.environmentIntensity = lite ? 1.1 : 1.05
+    scene.environmentIntensity = 1.05
 
-    syncCamera({ force: true })
-    gl.render(scene, camera)
-    emitLit()
-    void applyMicroDetails()
+    await settleAndEmitLit()
   }
-  void applyEnvAssets()
-  // iOS: HDRI can hang on flaky nets — never leave the stone cover forever.
-  window.setTimeout(() => emitLit(), lite ? 1800 : 6000)
+  if (!lite) void applyEnvAssets()
+  // A failed desktop HDR request must not leave the stone cover forever.
+  window.setTimeout(() => {
+    if (litEmitted) return
+    envFallbackChosen = true
+    void settleAndEmitLit()
+  }, 6000)
 
   const anchor = new Vector3(1.55, 0.05, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */
@@ -1950,10 +1899,10 @@ async function bootScene() {
   runFrame = tick
   if (gen !== bootGen) return
 
-  // Lite: lights alone are enough — lift the stone cover without waiting on HDRI.
+  // Compile and paint the final lighting/material state before lifting the cover.
   syncCamera({ force: true })
   gl.render(scene, camera)
-  if (lite) emitLit()
+  if (lite) void settleAndEmitLit()
   scheduleGyroAttach()
 
   if (props.active) startLoop()

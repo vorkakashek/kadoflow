@@ -30,16 +30,12 @@ export function preloadHomeMotionBundles() {
   )
 }
 
-/** Cache the compact Hero environment while the iris covers the current page. */
+/** Cache the compact desktop Hero environment while the iris covers the page. */
 export function preloadHomeSceneAssets() {
   void preloadHomeMotionBundles()
   if (typeof window === 'undefined') return
-  const wide = window.innerWidth >= 1200
-  const hdr = wide
-    ? '/env/studio_small_09_512.hdr'
-    : '/env/studio_small_03_256.hdr'
-  const urls = [hdr]
-  for (const url of urls) {
-    void fetch(url, { credentials: 'same-origin' }).catch(() => undefined)
-  }
+  if (window.innerWidth < 1200) return
+  void fetch('/env/studio_small_09_256.hdr', {
+    credentials: 'same-origin',
+  }).catch(() => undefined)
 }

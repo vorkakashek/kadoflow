@@ -4,8 +4,8 @@ import { dirname, resolve } from 'node:path'
 const recipes = [
   {
     input: 'public/env/studio_small_09_2k.hdr',
-    output: 'public/env/studio_small_09_512.hdr',
-    width: 512,
+    output: 'public/env/studio_small_09_256.hdr',
+    width: 256,
   },
   {
     input: 'public/env/studio_small_03_1k.hdr',
