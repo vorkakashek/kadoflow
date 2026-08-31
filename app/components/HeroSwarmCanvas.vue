@@ -51,6 +51,7 @@ import { flowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { useBrandPreload } from '~/composables/useBrandPreload'
 
 const { t } = useI18n()
+const { minimal: minimalMotion } = useMotionPreference()
 
 /** Flip this to A/B studio looks (files in /public/env). */
 const HDRI_PRESETS = {
@@ -244,7 +245,7 @@ const motionIntroInHero = ref(false)
 const motionEnableRequested = ref(false)
 const gyroPermissionReady = ref(false)
 const motionControlVisible = computed(
-  () => isMobileMotionClient.value && !motionIntroVisible.value,
+  () => isMobileMotionClient.value && !motionIntroVisible.value && !minimalMotion.value,
 )
 const motionControlActive = computed(
   () => motionEnabled.value && gyroPermissionReady.value,
@@ -360,7 +361,7 @@ function onMotionControlTap() {
 
 function onHapticControlTap() {
   if (androidHapticLeaving.value || !swarmHapticConfirm()) return
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (minimalMotion.value) {
     androidHapticConfirmed.value = true
     return
   }
@@ -381,7 +382,7 @@ async function morphDesktopMotionIcon(sceneEnabled: boolean) {
     : DESKTOP_PLAY_ICON_PATH
   desktopIconMorph?.kill()
   desktopIconMorph = null
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (minimalMotion.value) {
     path.setAttribute('d', target)
     return
   }
@@ -488,7 +489,7 @@ function stopLoop() {
 }
 
 function startLoop() {
-  if (!runFrame || loopRunning || !renderer) return
+  if (!runFrame || loopRunning || !renderer || minimalMotion.value) return
   loopRunning = true
   lastFrame = performance.now()
   // Paint immediately — don't wait a rAF (blank composite = one-frame flash).
@@ -507,6 +508,15 @@ watch(
     }
   },
 )
+
+watch(minimalMotion, (minimal) => {
+  if (minimal) {
+    desktopMotionNoticeVisible.value = false
+    stopLoop()
+  } else if (props.active) {
+    startLoop()
+  }
+})
 
 function readLayoutSpan1Px(host: HTMLElement) {
   const probe = document.createElement('div')
@@ -596,7 +606,7 @@ async function bootScene() {
   const preload = useBrandPreload()
   if (!firstSceneReady) preload.setSceneProgress(0.06)
 
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const reduced = minimalMotion.value
   const isCoarse = isCoarsePointer()
   const isMobile = isNarrowViewport()
   const isIOS = isAppleTouchDevice()
@@ -1966,7 +1976,7 @@ async function bootScene() {
         :style="motionOverlayStyle"
       >
     <button
-      v-if="isAndroidClient && !motionIntroVisible && !androidHapticConfirmed"
+      v-if="isAndroidClient && !minimalMotion && !motionIntroVisible && !androidHapticConfirmed"
       type="button"
       class="motion-control motion-control--haptic"
       :class="{
@@ -2019,7 +2029,7 @@ async function bootScene() {
     </button>
 
     <button
-      v-else-if="isDesktopMotionClient"
+      v-else-if="isDesktopMotionClient && !minimalMotion"
       type="button"
       class="motion-control"
       :class="{
@@ -2051,7 +2061,7 @@ async function bootScene() {
     </button>
 
     <button
-      v-if="motionIntroVisible && motionIntroInHero"
+      v-if="motionIntroVisible && motionIntroInHero && !minimalMotion"
       type="button"
       class="motion-intro"
       @pointerup="onMotionIntroPointerUp"

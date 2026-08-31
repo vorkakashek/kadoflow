@@ -55,6 +55,7 @@ const props = defineProps<{
 
 const mask = useFlowSurfaceMask()
 const preload = useBrandPreload()
+const { minimal: minimalMotion } = useMotionPreference()
 const heroIntroSettled = useState('home-hero-intro-settled', () => false)
 /** Frame-local offset: keep stage glued to rest pose in the viewport. */
 const stageLeft = computed(() => props.restLeft - mask.left)
@@ -360,7 +361,7 @@ async function setupExitMotion(sectionEl: HTMLElement) {
   await nextTick()
 
   ctx = gsap.context(() => {
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduced = minimalMotion.value
     if (reduced) return
 
     ScrollTrigger.config({ ignoreMobileResize: true })
@@ -457,7 +458,7 @@ let stageUnmounted = false
 let swarmIntentPending = false
 
 function scheduleSwarmMount(fromNavigation: boolean) {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (minimalMotion.value) {
     heroWebglBooted.value = true
     preload.markSceneReady()
     return

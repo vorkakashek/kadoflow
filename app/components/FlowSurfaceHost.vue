@@ -729,7 +729,7 @@ function hideMobileCasePhoto(animate: boolean) {
     !animate
     || !showCaseFill.value
     || !gsapMod
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || isMinimalMotionPreferred()
   ) {
     caseFillOpacity.value = 0
     showCaseFill.value = false
@@ -771,7 +771,7 @@ function revealMobileCasePhoto() {
 
   if (
     !gsapMod
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || isMinimalMotionPreferred()
   ) {
     mobileCasePhotoRevealKeepsTone.value = false
     return
@@ -829,7 +829,7 @@ function settleMobileCaseFrame(
   caseSurfaceReady.value = false
   caseSettleTween = gsapMod.default.to(proxy, {
     t: 1,
-    duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    duration: isMinimalMotionPreferred()
       ? 0
       : duration,
     ease: MOBILE_CASE_HOP_EASE,
@@ -976,7 +976,7 @@ function leaveMobileCaseFrame() {
     const proxy = { t: 0 }
     caseSettleTween = gsapMod.default.to(proxy, {
       t: 1,
-      duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      duration: isMinimalMotionPreferred()
         ? 0
         : duration,
       ease: MOBILE_CASE_HOP_EASE,
@@ -1053,7 +1053,7 @@ function morphParkedCaseMedia(animate: boolean) {
   const from = liveBox ?? dest
   if (
     !animate
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || isMinimalMotionPreferred()
   ) {
     paintBox(dest, 1)
     if (caseFrameShouldBePinned()) pinCaseFrame()
@@ -1113,7 +1113,7 @@ function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
     !animate
     || !isVisibleInCases
     || !gsapMod
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || isMinimalMotionPreferred()
   ) {
     photoSwitchTl?.kill()
     photoSwitchTl = null
@@ -1462,7 +1462,7 @@ function tweenToHop(hop: MobileHop, animate: boolean) {
       liveBox = from
     }
     const from = liveBox ?? dest
-    if (!animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (!animate || isMinimalMotionPreferred()) {
       paintBox(dest, 1)
       settleHop(hop)
       return
@@ -1516,7 +1516,7 @@ function enterScrub(animate: boolean, fromOverride?: SurfaceBox | null) {
     if (
       !animate
       || !current
-      || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      || isMinimalMotionPreferred()
     ) {
       scrubLiveP = p
       paintScrubAt(p)
@@ -2106,7 +2106,7 @@ function buildMorph() {
     captureFailCount = 0
     if (gen !== morphGen) return
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduced = isMinimalMotionPreferred()
     if (reduced) {
       if (mobileActive) {
         const handoffY = mobileCaseHandoffBounds()?.forwardY
