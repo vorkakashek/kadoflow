@@ -54,6 +54,7 @@ const props = defineProps<{
 
 const mask = useFlowSurfaceMask()
 const preload = useBrandPreload()
+const heroIntroSettled = useState('home-hero-intro-settled', () => false)
 /** Frame-local offset: keep stage glued to rest pose in the viewport. */
 const stageLeft = computed(() => props.restLeft - mask.left)
 const stageTop = computed(() => props.restTop - mask.top)
@@ -446,6 +447,7 @@ let swarmIdleId: number | null = null
 let swarmFallbackTimer = 0
 let removeSwarmIntent: (() => void) | null = null
 let stageUnmounted = false
+let swarmIntentPending = false
 
 function scheduleSwarmMount(fromNavigation: boolean) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -486,16 +488,41 @@ function scheduleSwarmMount(fromNavigation: boolean) {
       || connection?.effectiveType === '3g',
     )
     const delay = constrained ? 9000 : mobileLite.value ? 6000 : 5000
-    const onIntent = () => mount()
+    let stopIntroGate: (() => void) | null = null
+    const onIntent = () => {
+      if (!heroIntroSettled.value) {
+        swarmIntentPending = true
+        return
+      }
+      mount()
+    }
     const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches
     if (finePointer) window.addEventListener('pointermove', onIntent, { once: true, passive: true })
     window.addEventListener('click', onIntent, { once: true, passive: true })
     window.addEventListener('keydown', onIntent, { once: true })
     removeSwarmIntent = () => {
+      stopIntroGate?.()
+      stopIntroGate = null
       if (finePointer) window.removeEventListener('pointermove', onIntent)
       window.removeEventListener('click', onIntent)
       window.removeEventListener('keydown', onIntent)
     }
+
+    stopIntroGate = watch(
+      heroIntroSettled,
+      (settled) => {
+        if (!settled || !swarmIntentPending) return
+        swarmIntentPending = false
+        requestAnimationFrame(() => {
+          if (stageUnmounted || swarmMount.value) return
+          if ('requestIdleCallback' in window) {
+            swarmIdleId = window.requestIdleCallback(mount, { timeout: 500 })
+          } else {
+            window.setTimeout(mount, 80)
+          }
+        })
+      },
+    )
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -569,6 +596,7 @@ onMounted(() => {
   const fromNav = skipHeroIntro.value
   if (fromNav) skipHeroIntro.value = false
 
+  heroIntroSettled.value = fromNav
   introPending.value = !fromNav
   swarmLoopReady.value = fromNav
   scheduleSwarmMount(fromNav)
@@ -627,7 +655,12 @@ onMounted(() => {
       if (gen !== introGen) return
 
       const mobile = mobileLite.value
-      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
+      const tl = gsap.timeline({
+        defaults: { ease: 'power3.out' },
+        onComplete: () => {
+          if (gen === introGen) heroIntroSettled.value = true
+        },
+      })
       introTl = tl
 
       const allowSwarmCoverLift = (at = 0) => {

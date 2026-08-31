@@ -193,7 +193,16 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
     })
   }
 
-  // Let pending GL/font work finish before the expand beat (mobile hitch).
+  // Start the expensive expand only from a quiet main-thread slot. The short
+  // bounded wait is preferable to dropping a frame halfway through the morph.
+  await new Promise<void>((resolve) => {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(() => resolve(), { timeout: 160 })
+    } else {
+      window.setTimeout(resolve, 48)
+    }
+  })
+  // Commit two quiet paints before the expand beat.
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
   })

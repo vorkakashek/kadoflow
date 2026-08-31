@@ -29,6 +29,7 @@ const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
 
 const { canvasMotionPaused, open: pageCanvasOpen, busy: pageCanvasBusy, surfaceOn, heroGlRevealBusy } = usePageCanvas()
+const heroIntroSettled = useState('home-hero-intro-settled', () => false)
 
 defineExpose({
   section,
@@ -54,6 +55,39 @@ let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let resizeObserver: ResizeObserver | null = null
 let rebuildTimer = 0
+let componentUnmounted = false
+
+async function waitForHeroIntro(maxMs = 4200) {
+  if (heroIntroSettled.value) return
+  await new Promise<void>((resolve) => {
+    let done = false
+    let stop = () => {}
+    const finish = () => {
+      if (done) return
+      done = true
+      stop()
+      window.clearTimeout(safety)
+      resolve()
+    }
+    stop = watch(heroIntroSettled, (settled) => {
+      if (settled) finish()
+    })
+    const safety = window.setTimeout(() => {
+      heroIntroSettled.value = true
+      finish()
+    }, maxMs)
+  })
+}
+
+async function waitForEnhancementIdle() {
+  await new Promise<void>((resolve) => {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(() => resolve(), { timeout: 900 })
+    } else {
+      window.setTimeout(resolve, 120)
+    }
+  })
+}
 
 /** Measure word tops → wrap each visual line (ash base + ink clip L→R). */
 function buildLineFill(host: HTMLElement): HTMLElement[] {
@@ -211,6 +245,7 @@ let lastHostWidth = 0
 let fillMountedAt = 0
 
 function scheduleRebuild() {
+  if (!heroIntroSettled.value) return
   if (canvasMotionPaused()) return
   // Skip RO rebuilds during the first quiet second after SPA mount.
   if (fillMountedAt && performance.now() - fillMountedAt < 1200) return
@@ -233,6 +268,7 @@ async function waitHeroGlReveal(maxMs = 2400) {
 
 async function ensureLineFill() {
   if (hostFillIntact()) return
+  await waitForHeroIntro()
   await waitHeroGlReveal()
   if (canvasMotionPaused()) return
   await setupLineFill(true)
@@ -386,7 +422,7 @@ async function setupSectionParallax() {
       }
       const termEndY = () => termEntryOffset() + termShift()
       const termRevealEndY = () => termEntryOffset() + termShift() * 0.1
-      const fillEntryOffset = () => {
+      const fillBaseEntryOffset = () => {
         const stoneBox = stoneColumn.getBoundingClientRect()
         const fillBox = bodyCopy.getBoundingClientRect()
         const stoneActiveY = Number(gsap.getProperty(stoneColumn, 'y')) || 0
@@ -396,7 +432,8 @@ async function setupSectionParallax() {
         const fillTopY = fillBox.top - fillParentY - fillActiveY
         return stoneThreeQuarterY - fillTopY - window.innerHeight * 0.2
       }
-      const fillEndY = () => fillEntryOffset() + fillShift()
+      const fillEntryOffset = () => fillBaseEntryOffset() * 1.5
+      const fillEndY = () => fillBaseEntryOffset() + fillShift()
 
       gsap.fromTo(
         stoneColumn,
@@ -487,10 +524,16 @@ watch(
 )
 
 onMounted(async () => {
+  componentUnmounted = false
   fillMountedAt = performance.now()
   await nextTick()
-  void setupSectionParallax()
+  await waitForHeroIntro()
+  await waitForEnhancementIdle()
+  if (componentUnmounted) return
+  await setupSectionParallax()
+  if (componentUnmounted) return
   await ensureLineFill()
+  if (componentUnmounted) return
   void setupStoneLevitation()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
   if (bodyFocusEl.value) {
@@ -505,6 +548,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  componentUnmounted = true
   if (rebuildTimer) window.clearTimeout(rebuildTimer)
   resizeObserver?.disconnect()
   fillCtx?.revert()
@@ -614,7 +658,7 @@ onUnmounted(() => {
               <p
                 ref="bodyEl"
                 class="kado-body relative w-full"
-              />
+              >{{ bodyText }}</p>
             </div>
           </div>
         </div>

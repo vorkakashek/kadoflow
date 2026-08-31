@@ -814,10 +814,16 @@ async function bootScene() {
 
   let litEmitted = false
   let envFallbackChosen = false
+  let pointerInteractionReady = false
   const emitLit = () => {
     if (litEmitted || gen !== bootGen) return
     litEmitted = true
     emit('lit')
+    // Let the cover finish fading before hover physics can touch the first
+    // visible frames. A cursor already over the swarm must not compete with it.
+    window.setTimeout(() => {
+      if (gen === bootGen && renderer === gl) pointerInteractionReady = true
+    }, 600)
   }
 
   const nextPaint = () => new Promise<void>((resolve) => {
@@ -1316,6 +1322,7 @@ async function bootScene() {
   }
 
   const onPointerMove = (event: PointerEvent) => {
+    if (!pointerInteractionReady) return
     if (event.pointerType !== 'mouse') return
     if (
       !desktopSceneEnabled.value
@@ -1352,6 +1359,7 @@ async function bootScene() {
   const onPointerDown = (event: PointerEvent) => {
     // Chrome: vibrate() needs sticky user activation — arm on any press.
     swarmHapticArm()
+    if (!pointerInteractionReady) return
     if (event.pointerType !== 'mouse') return
     if (
       !desktopSceneEnabled.value
