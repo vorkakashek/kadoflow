@@ -91,7 +91,19 @@ const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
 const caseMediaReady = useState('home-case-media-ready', () => false)
 const preload = useBrandPreload()
 const caseInverse = useState('home-case-inverse', () => !!homeCases.value[0]?.inverse)
-const { openCaseDetail } = useCaseDetailTransition()
+const {
+  request: caseDetailTransitionRequest,
+  active: caseDetailTransitionActive,
+  homeReturnMediaDocked,
+  openCaseDetail,
+} = useCaseDetailTransition()
+
+const hideCaseCopyDuringDetailReturn = computed(() => (
+  caseDetailTransitionActive.value
+  && caseDetailTransitionRequest.value?.direction === 'close'
+  && caseDetailTransitionRequest.value.to === '/#cases'
+  && !homeReturnMediaDocked.value
+))
 
 const activeCase = computed(
   () => homeCases.value.find((c) => c.id === activeId.value) ?? homeCases.value[0],
@@ -1364,6 +1376,7 @@ onBeforeUnmount(() => {
       <nav
         ref="railEl"
         class="cases-rail col-span-12 md:col-span-10 md:col-start-2 md:row-start-2"
+        :class="{ 'cases-rail--detail-return-pending': hideCaseCopyDuringDetailReturn }"
         :style="{ '--cases-wash': activeCase?.wash }"
         :aria-label="t('home.cases.navigationLabel')"
       >
@@ -1457,6 +1470,7 @@ onBeforeUnmount(() => {
           <p
             ref="blurbEl"
             class="cases-blurb"
+            :class="{ 'cases-blurb--detail-return-pending': hideCaseCopyDuringDetailReturn }"
           >{{ activeBlurb }}</p>
         </aside>
         <div ref="mobileTailEl" class="cases-stage__mobile-tail" aria-hidden="true" />
@@ -1598,6 +1612,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   min-height: 0;
+  transition: opacity 0.18s var(--motion-ease, ease);
+}
+
+.cases-rail--detail-return-pending,
+.cases-blurb--detail-return-pending {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .cases-rail__list {
@@ -1803,6 +1825,11 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .cases-rail,
+  .cases-blurb {
+    transition: none;
+  }
+
   .cases-rail__btn--flash .chip-scale-bg,
   .cases-rail__btn--flash .cases-rail__label,
   .cases-gesture-hint__hand {
@@ -2319,6 +2346,7 @@ onBeforeUnmount(() => {
   line-height: 1.35;
   text-align: left;
   text-wrap: pretty;
+  transition: opacity 0.18s var(--motion-ease, ease);
 }
 
 /* Editorial case poses. Navigation and media share one 12-column field. */

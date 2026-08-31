@@ -25,6 +25,8 @@ export function useCaseDetailTransition() {
   const origin = useState<CaseDetailOrigin>('case-detail-origin', () => 'home')
   /** Consumed by FlowSurface after a detail → home overlay has handed off. */
   const homeReturnPending = useState('case-detail-home-return-pending', () => false)
+  /** Lets the home case rail reveal only after the return proxy is docked. */
+  const homeReturnMediaDocked = useState('case-detail-home-return-media-docked', () => false)
   const homeCaseId = useState('home-active-case-id', () => 'audience')
   /** Detail content stays staged behind the fullscreen transition until it ends. */
   const detailContentVisible = useState('case-detail-content-visible', () => true)
@@ -32,6 +34,7 @@ export function useCaseDetailTransition() {
   function openCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction'> & { origin: CaseDetailOrigin }) {
     if (active.value) return
     homeReturnPending.value = false
+    homeReturnMediaDocked.value = false
     origin.value = next.origin
     if (next.origin === 'home') homeCaseId.value = next.to.split('/').at(-1) ?? homeCaseId.value
     detailContentVisible.value = false
@@ -42,6 +45,7 @@ export function useCaseDetailTransition() {
     if (active.value) return
     const returningHome = origin.value === 'home'
     homeReturnPending.value = returningHome
+    homeReturnMediaDocked.value = false
     request.value = {
       ...next,
       direction: 'close',
@@ -57,6 +61,7 @@ export function useCaseDetailTransition() {
     active,
     origin,
     homeReturnPending,
+    homeReturnMediaDocked,
     homeCaseId,
     detailContentVisible,
     openCaseDetail,
