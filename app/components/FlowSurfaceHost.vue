@@ -49,6 +49,12 @@ import {
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 
+/** The site's minimal mode keeps the core Surface choreography intact. */
+function systemReducedMotion() {
+  return import.meta.client
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 type MobileHop = 'term' | 'word'
 type MobileStage = 'scrub' | MobileHop
 
@@ -729,7 +735,7 @@ function hideMobileCasePhoto(animate: boolean) {
     !animate
     || !showCaseFill.value
     || !gsapMod
-    || isMinimalMotionPreferred()
+    || systemReducedMotion()
   ) {
     caseFillOpacity.value = 0
     showCaseFill.value = false
@@ -771,7 +777,7 @@ function revealMobileCasePhoto() {
 
   if (
     !gsapMod
-    || isMinimalMotionPreferred()
+    || systemReducedMotion()
   ) {
     mobileCasePhotoRevealKeepsTone.value = false
     return
@@ -829,7 +835,7 @@ function settleMobileCaseFrame(
   caseSurfaceReady.value = false
   caseSettleTween = gsapMod.default.to(proxy, {
     t: 1,
-    duration: isMinimalMotionPreferred()
+    duration: systemReducedMotion()
       ? 0
       : duration,
     ease: MOBILE_CASE_HOP_EASE,
@@ -976,7 +982,7 @@ function leaveMobileCaseFrame() {
     const proxy = { t: 0 }
     caseSettleTween = gsapMod.default.to(proxy, {
       t: 1,
-      duration: isMinimalMotionPreferred()
+      duration: systemReducedMotion()
         ? 0
         : duration,
       ease: MOBILE_CASE_HOP_EASE,
@@ -1053,7 +1059,7 @@ function morphParkedCaseMedia(animate: boolean) {
   const from = liveBox ?? dest
   if (
     !animate
-    || isMinimalMotionPreferred()
+    || systemReducedMotion()
   ) {
     paintBox(dest, 1)
     if (caseFrameShouldBePinned()) pinCaseFrame()
@@ -1113,7 +1119,7 @@ function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
     !animate
     || !isVisibleInCases
     || !gsapMod
-    || isMinimalMotionPreferred()
+    || systemReducedMotion()
   ) {
     photoSwitchTl?.kill()
     photoSwitchTl = null
@@ -1462,7 +1468,7 @@ function tweenToHop(hop: MobileHop, animate: boolean) {
       liveBox = from
     }
     const from = liveBox ?? dest
-    if (!animate || isMinimalMotionPreferred()) {
+    if (!animate || systemReducedMotion()) {
       paintBox(dest, 1)
       settleHop(hop)
       return
@@ -1516,7 +1522,7 @@ function enterScrub(animate: boolean, fromOverride?: SurfaceBox | null) {
     if (
       !animate
       || !current
-      || isMinimalMotionPreferred()
+      || systemReducedMotion()
     ) {
       scrubLiveP = p
       paintScrubAt(p)
@@ -2106,7 +2112,7 @@ function buildMorph() {
     captureFailCount = 0
     if (gen !== morphGen) return
 
-    const reduced = isMinimalMotionPreferred()
+    const reduced = systemReducedMotion()
     if (reduced) {
       if (mobileActive) {
         const handoffY = mobileCaseHandoffBounds()?.forwardY

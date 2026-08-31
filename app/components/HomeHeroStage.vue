@@ -458,11 +458,6 @@ let stageUnmounted = false
 let swarmIntentPending = false
 
 function scheduleSwarmMount(fromNavigation: boolean) {
-  if (minimalMotion.value) {
-    heroWebglBooted.value = true
-    preload.markSceneReady()
-    return
-  }
   const mount = () => {
     if (swarmIdleId !== null && 'cancelIdleCallback' in window) {
       window.cancelIdleCallback(swarmIdleId)
@@ -875,7 +870,7 @@ onUnmounted(() => {
             @lit="onSwarmLit"
           />
         </ClientOnly>
-        <!-- Neutral stone cover; lifted only after WebGL reports a stable frame. -->
+        <!-- Baked Hero frame stays visible until WebGL reports a stable frame. -->
         <div
           ref="swarmCoverEl"
           class="hero-swarm-cover"
@@ -884,7 +879,18 @@ onUnmounted(() => {
             'hero-swarm-cover--lock': glCoverLocked,
           }"
           aria-hidden="true"
-        />
+        >
+          <picture
+            class="hero-swarm-poster"
+            :style="{
+              top: `${sceneBleedY - props.restTop}px`,
+              left: `${sceneBleedX - props.restLeft}px`,
+            }"
+          >
+            <source media="(max-width: 767.98px)" srcset="/previews/home-m.jpg">
+            <img src="/previews/home.jpg" alt="" decoding="async" fetchpriority="high">
+          </picture>
+        </div>
         </div>
       </div>
 
@@ -956,9 +962,25 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   z-index: 2;
+  overflow: hidden;
   background: var(--palette-stone);
   pointer-events: none;
   transition: opacity 0.5s var(--motion-ease, ease), visibility 0.5s;
+}
+
+.hero-swarm-poster {
+  position: absolute;
+  display: block;
+  width: 100vw;
+  height: var(--app-screen);
+  pointer-events: none;
+}
+
+.hero-swarm-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
 }
 
 .hero-swarm-cover--up {
