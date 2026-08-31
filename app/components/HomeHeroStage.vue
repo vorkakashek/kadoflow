@@ -775,7 +775,7 @@ onUnmounted(() => {
             @lit="onSwarmLit"
           />
         </ClientOnly>
-        <!-- Hides the first GL compositor flash; lifted after a stable frame. -->
+        <!-- Neutral stone cover; lifted only after WebGL reports a stable frame. -->
         <div
           ref="swarmCoverEl"
           class="hero-swarm-cover"
@@ -784,9 +784,7 @@ onUnmounted(() => {
             'hero-swarm-cover--lock': glCoverLocked,
           }"
           aria-hidden="true"
-        >
-          <HeroSwarmCss :active="preload.revealed.value && sceneLive" />
-        </div>
+        />
         </div>
       </div>
 
