@@ -226,6 +226,7 @@ const motionOverlayStyle = computed<Record<string, string>>(() => ({
 }))
 
 const emit = defineEmits<{
+  booted: []
   lit: []
 }>()
 
@@ -678,6 +679,9 @@ async function bootScene() {
 
   renderer = gl
   host.appendChild(gl.domElement)
+  // WebGL context creation is the only measured >50 ms startup task. Tell the
+  // shell as soon as it is behind us; lighting may continue under the cover.
+  emit('booted')
 
   const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.34 : 0.22)
   scene.add(hemi)

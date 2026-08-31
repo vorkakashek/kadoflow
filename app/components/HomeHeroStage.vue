@@ -444,14 +444,21 @@ let introGen = 0
 
 const swarmMount = ref(false)
 const swarmLit = ref(false)
+const heroWebglPrebootRequested = useState<boolean>(
+  'home-hero-webgl-preboot-requested',
+  () => false,
+)
+const heroWebglBooted = useState<boolean>('home-hero-webgl-booted', () => false)
 let swarmIdleId: number | null = null
 let swarmFallbackTimer = 0
 let removeSwarmIntent: (() => void) | null = null
+let removeSwarmPreboot: (() => void) | null = null
 let stageUnmounted = false
 let swarmIntentPending = false
 
 function scheduleSwarmMount(fromNavigation: boolean) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    heroWebglBooted.value = true
     preload.markSceneReady()
     return
   }
@@ -477,6 +484,28 @@ function scheduleSwarmMount(fromNavigation: boolean) {
   // waits for Three.js, shader compilation or PMREM. The live scene upgrades it
   // after the reveal, or immediately when the visitor expresses intent.
   preload.markSceneReady()
+
+  // A warm desktop reload can create its WebGL context while the preloader is
+  // motionless at 99%. The preloader raises this flag only after its orbit has
+  // settled, so the measured context-creation task cannot hitch either motion.
+  const startPreboot = () => {
+    removeSwarmPreboot?.()
+    removeSwarmPreboot = null
+    if (stageUnmounted || swarmMount.value) return
+    void preloadThreeBundle()
+    requestAnimationFrame(mount)
+  }
+  if (!mobileLite.value) {
+    if (heroWebglPrebootRequested.value) startPreboot()
+    else {
+      removeSwarmPreboot = watch(
+        heroWebglPrebootRequested,
+        (requested) => {
+          if (requested) startPreboot()
+        },
+      )
+    }
+  }
 
   const scheduleUpgrade = () => {
     const connection = (navigator as Navigator & {
@@ -571,6 +600,10 @@ const swarmCoverUp = computed(
 
 function onSwarmLit() {
   swarmLit.value = true
+}
+
+function onSwarmBooted() {
+  heroWebglBooted.value = true
 }
 
 watch(
@@ -763,6 +796,8 @@ onUnmounted(() => {
   if (swarmFallbackTimer) window.clearTimeout(swarmFallbackTimer)
   removeSwarmIntent?.()
   removeSwarmIntent = null
+  removeSwarmPreboot?.()
+  removeSwarmPreboot = null
   introGen += 1
   introTl?.kill()
   introTl = null
@@ -819,6 +854,7 @@ onUnmounted(() => {
             :active="swarmActive"
             :overlay-inset-x="sceneBleedX"
             :overlay-inset-y="sceneBleedY"
+            @booted="onSwarmBooted"
             @lit="onSwarmLit"
           />
         </ClientOnly>

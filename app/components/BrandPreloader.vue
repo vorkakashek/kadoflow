@@ -5,7 +5,13 @@
  * Repeat / warm cache: skip the orbit — quick % + expand exit.
  */
 const preload = useBrandPreload()
+const route = useRoute()
 const { t } = useI18n()
+const heroWebglPrebootRequested = useState<boolean>(
+  'home-hero-webgl-preboot-requested',
+  () => false,
+)
+const heroWebglBooted = useState<boolean>('home-hero-webgl-booted', () => false)
 
 const rootEl = ref<HTMLElement | null>(null)
 const markEl = ref<HTMLElement | null>(null)
@@ -190,6 +196,33 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
           resolve()
         },
       })
+    })
+  }
+
+  // Repeat desktop loads already have the scene chunks cached. Pay the WebGL
+  // context-creation task while the mark is motionless, before the reveal and
+  // before the custom cursor becomes visible. Cold loads remain SSG/LCP-first.
+  const warmHomeDesktop =
+    route.path === '/'
+    && preload.repeatVisit.value
+    && !reduced.value
+    && window.innerWidth >= 900
+    && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  if (warmHomeDesktop && !heroWebglBooted.value) {
+    heroWebglPrebootRequested.value = true
+    await new Promise<void>((resolve) => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        stop()
+        window.clearTimeout(safety)
+        resolve()
+      }
+      const stop = watch(heroWebglBooted, (booted) => {
+        if (booted) finish()
+      }, { immediate: true })
+      const safety = window.setTimeout(finish, 700)
     })
   }
 
@@ -582,6 +615,10 @@ watch(
 )
 
 onMounted(async () => {
+  if (route.path === '/') {
+    heroWebglPrebootRequested.value = false
+    heroWebglBooted.value = false
+  }
   preload.begin()
   reduced.value =
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
