@@ -1602,11 +1602,12 @@ onUnmounted(() => {
   position: absolute;
   bottom: calc(100% + 0.38rem);
   left: 50%;
-  font-size: calc(var(--type-nav) * 0.58);
+  font-size: calc(var(--type-nav) * 0.72);
   font-weight: 400;
   line-height: 1;
   letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--palette-ash) 70%, transparent);
+  color: var(--palette-ash);
+  opacity: 0.75;
   text-transform: lowercase;
   transform: translateX(-50%);
   white-space: nowrap;
@@ -1666,6 +1667,24 @@ onUnmounted(() => {
 .page-canvas__motion-segments:focus-visible {
   outline: 1px solid var(--palette-forest);
   outline-offset: 2px;
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion {
+  bottom: var(--pc-inset-bottom);
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments {
+  height: var(--pc-close-h);
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments::before,
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-option {
+  height: calc(var(--pc-close-h) - 0.25rem);
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-option :deep(svg) {
+  width: 22px;
+  height: 22px;
 }
 
 .page-canvas__mail {
@@ -1758,6 +1777,11 @@ onUnmounted(() => {
 .page-canvas--thumb .page-canvas__motion-label {
   top: calc(100% + 0.38rem);
   bottom: auto;
+  width: 5.5rem;
+  font-size: calc(var(--type-nav) * 0.76);
+  line-height: 1.08;
+  text-align: center;
+  white-space: normal;
 }
 
 .page-canvas--thumb .page-canvas__mail {
