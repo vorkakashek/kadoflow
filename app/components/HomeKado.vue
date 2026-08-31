@@ -13,8 +13,9 @@ const BODY_TEXT =
 const FILL_SCRUB = 1.1
 /** Gap between line starts (= line duration so N+1 waits until N finishes). */
 const FILL_LINE_STAGGER = 1
-
 const section = ref<HTMLElement | null>(null)
+const stoneColumnEl = ref<HTMLElement | null>(null)
+const bodyParallaxEl = ref<HTMLElement | null>(null)
 /** Stone morph target (desktop end + mobile waypoint 1). */
 const surfaceTarget = ref<HTMLElement | null>(null)
 /** Rock image — scroll marker «top 10%». */
@@ -38,7 +39,7 @@ defineExpose({
   bodyFocusEl,
 })
 
-useViewportFocusRefs([stoneEl, topFocusEl], {
+useViewportFocusRefs([stoneEl], {
   blur: 16,
   delay: 0.14,
   duration: 0.75,
@@ -47,6 +48,8 @@ useViewportFocusRefs([stoneEl, topFocusEl], {
 
 let fillCtx: { revert: () => void } | null = null
 let levitateCtx: { revert: () => void } | null = null
+let levitationSetupBusy = false
+let parallaxMatchMedia: { revert: () => void } | null = null
 let gsapMod: typeof import('gsap').default | null = null
 let stMod: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -236,85 +239,239 @@ async function ensureLineFill() {
 }
 
 async function setupStoneLevitation() {
-  levitateCtx?.revert()
-  levitateCtx = null
+  // Menu close can call this again even though the existing infinite tweens
+  // never paused. Preserve their phase instead of restarting from frame zero.
+  if (levitateCtx || levitationSetupBusy) return
 
   if (typeof window === 'undefined') return
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const el = stoneEl.value
   if (!el) return
 
+  levitationSetupBusy = true
+  try {
+    const gsap = (await import('gsap')).default
+
+    levitateCtx = gsap.context(() => {
+      // Multi-harmonic buoyancy: each axis has its own phase & coprime period
+      // with smooth sine.inOut easing for physical, weightless floating.
+
+      // 1. Vertical float (main breathing bob)
+      gsap.fromTo(
+        el,
+        { y: 8 },
+        {
+          y: -14,
+          duration: 3.4,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        },
+      )
+
+      // 2. Horizontal drift (smooth lateral sway)
+      gsap.fromTo(
+        el,
+        { x: -7 },
+        {
+          x: 8,
+          duration: 4.7,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        },
+      )
+
+      // 3. Subtle 2D roll / tilt around center of gravity
+      gsap.fromTo(
+        el,
+        { rotation: -1.6 },
+        {
+          rotation: 2.2,
+          duration: 5.3,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        },
+      )
+
+      // 4. Subtle 3D pitch (tilt front/back)
+      gsap.fromTo(
+        el,
+        { rotationX: -2.5 },
+        {
+          rotationX: 3.2,
+          duration: 4.1,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        },
+      )
+
+      // 5. Subtle 3D yaw (gentle turn towards camera light)
+      gsap.fromTo(
+        el,
+        { rotationY: -3 },
+        {
+          rotationY: 3.5,
+          duration: 5.9,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        },
+      )
+    }, el)
+  } finally {
+    levitationSetupBusy = false
+  }
+}
+
+/**
+ * Desktop entry: stone, term and fill each own one scrubbed corridor, all keyed
+ * to the stone crossing the viewport. Copy fades are part of those timelines;
+ * there are no separate time-based reveal or slide-up tweens.
+ */
+async function setupSectionParallax() {
+  parallaxMatchMedia?.revert()
+  parallaxMatchMedia = null
+
+  const host = section.value
+  const stoneColumn = stoneColumnEl.value
+  const bodyParallax = bodyParallaxEl.value
+  const topCopy = topFocusEl.value
+  const bodyCopy = bodyFocusEl.value
+  if (!host || !stoneColumn || !bodyParallax || !topCopy || !bodyCopy) return
+
   const gsap = (await import('gsap')).default
+  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
+  gsap.registerPlugin(ScrollTrigger)
 
-  levitateCtx = gsap.context(() => {
-    // Multi-harmonic buoyancy: each axis has its own phase & coprime period
-    // with smooth sine.inOut easing for physical, weightless floating.
+  parallaxMatchMedia = gsap.matchMedia()
+  parallaxMatchMedia.add(
+    '(min-width: 768px) and (prefers-reduced-motion: no-preference)',
+    () => {
+      const corridorProgressAtSurfaceDock = (startY: number) => {
+        const viewportHeight = Math.max(1, window.innerHeight)
+        const scrollY = window.scrollY || 0
+        const hostBox = host.getBoundingClientRect()
+        const hostTopY = hostBox.top + scrollY
+        const endY = hostTopY + host.offsetHeight
+        const surfaceDockY = hostTopY + host.offsetHeight / 2 - viewportHeight / 2
+        const progress = (surfaceDockY - startY) / Math.max(1, endY - startY)
+        return Math.min(0.9, Math.max(0.1, progress))
+      }
 
-    // 1. Vertical float (main breathing bob)
-    gsap.fromTo(
-      el,
-      { y: 8 },
-      {
-        y: -14,
-        duration: 3.4,
-        ease: 'sine.inOut',
-        yoyo: true,
-        repeat: -1,
-      },
-    )
+      const shiftForSurfaceDock = (viewportShare: number, startY: number) => {
+        return -window.innerHeight * viewportShare / corridorProgressAtSurfaceDock(startY)
+      }
 
-    // 2. Horizontal drift (smooth lateral sway)
-    gsap.fromTo(
-      el,
-      { x: -7 },
-      {
-        x: 8,
-        duration: 4.7,
-        ease: 'sine.inOut',
-        yoyo: true,
-        repeat: -1,
-      },
-    )
+      const stoneStartY = (stoneFraction: number) => {
+        const box = stoneColumn.getBoundingClientRect()
+        const activeY = Number(gsap.getProperty(stoneColumn, 'y')) || 0
+        return box.top - activeY + (window.scrollY || 0)
+          + box.height * stoneFraction - window.innerHeight
+      }
 
-    // 3. Subtle 2D roll / tilt around center of gravity
-    gsap.fromTo(
-      el,
-      { rotation: -1.6 },
-      {
-        rotation: 2.2,
-        duration: 5.3,
-        ease: 'sine.inOut',
-        yoyo: true,
-        repeat: -1,
-      },
-    )
+      const stoneShift = () => shiftForSurfaceDock(0.12, stoneStartY(0.5))
+      const termShift = () => shiftForSurfaceDock(0.27, stoneStartY(0.25))
+      const fillShift = () => shiftForSurfaceDock(0.11, stoneStartY(0.75))
+      const termEntryOffset = () => {
+        const stoneBox = stoneColumn.getBoundingClientRect()
+        const termBox = topCopy.getBoundingClientRect()
+        const stoneActiveY = Number(gsap.getProperty(stoneColumn, 'y')) || 0
+        const termActiveY = Number(gsap.getProperty(topCopy, 'y')) || 0
+        const stoneQuarterY = stoneBox.top - stoneActiveY + stoneBox.height * 0.25
+        const termTopY = termBox.top - termActiveY
+        return Math.max(0, stoneQuarterY - termTopY)
+      }
+      const termEndY = () => termEntryOffset() + termShift()
+      const termRevealEndY = () => termEntryOffset() + termShift() * 0.1
+      const fillEntryOffset = () => {
+        const stoneBox = stoneColumn.getBoundingClientRect()
+        const fillBox = bodyCopy.getBoundingClientRect()
+        const stoneActiveY = Number(gsap.getProperty(stoneColumn, 'y')) || 0
+        const fillParentY = Number(gsap.getProperty(bodyParallax, 'y')) || 0
+        const fillActiveY = Number(gsap.getProperty(bodyCopy, 'y')) || 0
+        const stoneThreeQuarterY = stoneBox.top - stoneActiveY + stoneBox.height * 0.75
+        const fillTopY = fillBox.top - fillParentY - fillActiveY
+        return stoneThreeQuarterY - fillTopY - window.innerHeight * 0.2
+      }
+      const fillEndY = () => fillEntryOffset() + fillShift()
 
-    // 4. Subtle 3D pitch (tilt front/back)
-    gsap.fromTo(
-      el,
-      { rotationX: -2.5 },
-      {
-        rotationX: 3.2,
-        duration: 4.1,
-        ease: 'sine.inOut',
-        yoyo: true,
-        repeat: -1,
-      },
-    )
+      gsap.fromTo(
+        stoneColumn,
+        { y: 0 },
+        {
+          y: stoneShift,
+          ease: 'none',
+          scrollTrigger: {
+            trigger: stoneColumn,
+            start: 'center bottom',
+            endTrigger: host,
+            end: 'bottom top',
+            scrub: 0.24,
+            invalidateOnRefresh: true,
+          },
+        },
+      )
 
-    // 5. Subtle 3D yaw (gentle turn towards camera light)
-    gsap.fromTo(
-      el,
-      { rotationY: -3 },
-      {
-        rotationY: 3.5,
-        duration: 5.9,
-        ease: 'sine.inOut',
-        yoyo: true,
-        repeat: -1,
-      },
-    )
-  }, el)
+      const termTimeline = gsap.timeline({
+        scrollTrigger: {
+          trigger: stoneColumn,
+          start: '25% bottom',
+          endTrigger: host,
+          end: 'bottom top',
+          scrub: 0.14,
+          invalidateOnRefresh: true,
+        },
+      })
+
+      termTimeline
+        .fromTo(
+          topCopy,
+          { y: termEntryOffset },
+          { y: termRevealEndY, duration: 0.14, ease: 'none' },
+          0,
+        )
+        .to(
+          topCopy,
+          { y: termEndY, duration: 0.86, ease: 'none' },
+          0.14,
+        )
+        .fromTo(
+          topCopy,
+          { autoAlpha: 0 },
+          { autoAlpha: 1, duration: 0.14, ease: 'none' },
+          0,
+        )
+
+      const fillTimeline = gsap.timeline({
+        scrollTrigger: {
+          trigger: stoneColumn,
+          start: '75% bottom',
+          endTrigger: host,
+          end: 'bottom top',
+          scrub: 0.24,
+          invalidateOnRefresh: true,
+        },
+      })
+
+      fillTimeline
+        .fromTo(
+          bodyParallax,
+          { y: fillEntryOffset },
+          { y: fillEndY, duration: 1, ease: 'none' },
+          0,
+        )
+        .fromTo(
+          bodyCopy,
+          { autoAlpha: 0 },
+          { autoAlpha: 1, duration: 0.22, ease: 'none' },
+          0,
+        )
+
+    },
+  )
 }
 
 watch(
@@ -332,6 +489,7 @@ watch(
 onMounted(async () => {
   fillMountedAt = performance.now()
   await nextTick()
+  void setupSectionParallax()
   await ensureLineFill()
   void setupStoneLevitation()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
@@ -352,6 +510,8 @@ onUnmounted(() => {
   fillCtx?.revert()
   levitateCtx?.revert()
   levitateCtx = null
+  parallaxMatchMedia?.revert()
+  parallaxMatchMedia = null
 })
 </script>
 
@@ -361,12 +521,10 @@ onUnmounted(() => {
     class="kado pointer-events-auto relative z-10 w-full"
     :style="{
       paddingInline: 'var(--layout-margin-content)',
-      paddingTop: 'var(--space-section)',
-      paddingBottom: 'calc(var(--kado-bottom-space, var(--space-block)) * 2)',
     }"
   >
     <div
-      class="relative mx-auto grid w-full"
+      class="kado-layout relative mx-auto grid w-full"
       :style="{
         maxWidth: 'var(--layout-content-max)',
         gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
@@ -374,7 +532,10 @@ onUnmounted(() => {
         rowGap: 'var(--space-block)',
       }"
     >
-      <div class="relative col-span-12 flex justify-center md:col-span-5 md:col-start-2">
+      <div
+        ref="stoneColumnEl"
+        class="kado-stone-column relative col-span-12 flex justify-center md:col-span-5 md:col-start-2"
+      >
         <div class="kado-stone-wrap relative w-fit max-w-full">
           <div
             ref="surfaceTarget"
@@ -394,13 +555,15 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="relative col-span-12 md:col-span-5 md:col-start-7 md:self-stretch">
+      <div
+        class="kado-copy-column relative col-span-12 md:col-span-5 md:col-start-7 md:self-stretch"
+      >
         <div
-          class="kado-copy flex flex-col gap-[var(--space-block)] md:absolute md:inset-x-0 md:top-[10%] md:h-[80%] md:gap-0"
+          class="kado-copy flex flex-col gap-[var(--space-block)] md:absolute md:inset-x-0 md:top-[10%] md:h-[60%] md:gap-0"
         >
           <div
             ref="topFocusEl"
-            class="kado-focus grid w-full text-forest"
+            class="kado-text-reveal grid w-full text-forest"
             :style="{
               gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
               columnGap: 'var(--layout-gutter)',
@@ -428,13 +591,18 @@ onUnmounted(() => {
           </div>
 
           <div
-            ref="bodyFocusEl"
-            class="kado-body-wrap mt-auto w-full"
+            ref="bodyParallaxEl"
+            class="kado-body-parallax mt-auto w-full"
           >
-            <p
-              ref="bodyEl"
-              class="kado-body relative w-full"
-            />
+            <div
+              ref="bodyFocusEl"
+              class="kado-body-wrap kado-text-reveal w-full"
+            >
+              <p
+                ref="bodyEl"
+                class="kado-body relative w-full"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -443,9 +611,45 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.kado {
+  padding-top: var(--space-section);
+  padding-bottom: calc(var(--kado-bottom-space, var(--space-block)) * 2);
+}
+
 @media (max-width: 767.98px) {
   .kado {
     --kado-bottom-space: calc(var(--space-block) * 2);
+  }
+}
+
+@media (min-width: 768px) {
+  .kado {
+    --kado-flow-compensation: 8svh;
+
+    display: flex;
+    min-height: var(--app-screen);
+    align-items: center;
+    padding-block: clamp(var(--space-block), 10svh, var(--space-section));
+  }
+
+  .kado-layout {
+    flex: none;
+  }
+
+  .kado-stone-column,
+  .kado-body-parallax {
+    will-change: transform;
+  }
+
+  .kado-text-reveal {
+    will-change: transform, opacity;
+  }
+}
+
+@media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .kado {
+    /* The slower copy column owns the visual bottom edge of the section. */
+    margin-bottom: calc(-1 * var(--kado-flow-compensation));
   }
 }
 
