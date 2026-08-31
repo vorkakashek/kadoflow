@@ -441,32 +441,12 @@ let resizePaintTimer = 0
 let lastLayoutKey = ''
 let removeWindowResize: (() => void) | null = null
 let firstSceneReady = false
-let nativeCursorFallback = false
-let nativeCursorSafetyTimer = 0
-
-function showNativeCursorDuringGlBoot() {
-  if (nativeCursorFallback) return
-  nativeCursorFallback = true
-  document.documentElement.classList.add('site-cursor-native')
-  // Commit the native-cursor style before WebGL occupies the main thread.
-  void document.documentElement.offsetWidth
-  nativeCursorSafetyTimer = window.setTimeout(restoreSiteCursor, 2500)
-}
-
-function restoreSiteCursor() {
-  if (nativeCursorSafetyTimer) window.clearTimeout(nativeCursorSafetyTimer)
-  nativeCursorSafetyTimer = 0
-  if (!nativeCursorFallback) return
-  nativeCursorFallback = false
-  document.documentElement.classList.remove('site-cursor-native')
-}
 
 function layoutKey() {
   return `${window.innerWidth}|${window.innerHeight}`
 }
 
 function disposeScene() {
-  restoreSiteCursor()
   stopLoop()
   runFrame = null
   forceResize = null
@@ -634,13 +614,11 @@ async function bootScene() {
     : lite
       ? BALL_COUNT_MOBILE
       : BALL_COUNT_TABLET
-  const sphereSegments = wide && !isCoarse ? 48 : lite ? 20 : 32
-  const pixelRatioCap = wide && !isCoarse ? 2 : lite ? 1 : 1.25
+  const sphereSegments = wide && !isCoarse ? 40 : lite ? 20 : 32
+  const pixelRatioCap = wide && !isCoarse ? 1.35 : lite ? 1 : 1.25
   const cameraZ = layout.cameraZ
   const ballDiameterPx = layout.diameterPx
   const ringScale = layout.ringScale
-
-  if (!lite) showNativeCursorDuringGlBoot()
 
   const scene = new Scene()
   const camera = new PerspectiveCamera(40, 1, 0.1, 50)
@@ -656,6 +634,9 @@ async function bootScene() {
   })
   gl.setClearColor(0x000000, 0)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
+  // Frosted transmission does not need a full-resolution refraction buffer.
+  // Half resolution cuts that first GPU allocation/render to a quarter of pixels.
+  gl.transmissionResolutionScale = lite ? 1 : 0.5
   gl.outputColorSpace = SRGBColorSpace
   gl.toneMapping = ACESFilmicToneMapping
   gl.toneMappingExposure = 0.92
@@ -755,9 +736,9 @@ async function bootScene() {
           transmission: 0.88,
           thickness: 1.6,
           ior: 1.42,
-          // Transmission owns a dedicated renderer pass. Treating it as a
-          // second transparent pass made near-equal depths swap and flicker.
-          transparent: false,
+          // Keep DOM stone visible through empty parts of the alpha canvas.
+          // Depth writing below stabilizes overlapping transmissive spheres.
+          transparent: true,
           opacity: 1,
           attenuationColor: color.clone().lerp(new Color('#e4eef7'), 0.4),
           attenuationDistance: 1.6,
@@ -858,23 +839,18 @@ async function bootScene() {
   /** Compile shaders and paint twice under the cover before making GL visible. */
   const settleAndEmitLit = async () => {
     if (gen !== bootGen || renderer !== gl) return
-    if (!lite) showNativeCursorDuringGlBoot()
+    syncCamera({ force: true })
     try {
-      syncCamera({ force: true })
-      try {
-        await gl.compileAsync(scene, camera)
-      } catch {
-        gl.compile(scene, camera)
-      }
-      if (gen !== bootGen || renderer !== gl) return
-      gl.render(scene, camera)
-      await nextPaint()
-      if (gen !== bootGen || renderer !== gl) return
-      gl.render(scene, camera)
-      await nextPaint()
-    } finally {
-      if (!lite) restoreSiteCursor()
+      await gl.compileAsync(scene, camera)
+    } catch {
+      gl.compile(scene, camera)
     }
+    if (gen !== bootGen || renderer !== gl) return
+    gl.render(scene, camera)
+    await nextPaint()
+    if (gen !== bootGen || renderer !== gl) return
+    gl.render(scene, camera)
+    await nextPaint()
     emitLit()
   }
 
@@ -900,13 +876,11 @@ async function bootScene() {
     }
     if (!firstSceneReady) preload.setSceneProgress(0.9)
 
-    if (!lite) showNativeCursorDuringGlBoot()
     try {
       envMap = pmrem.fromEquirectangular(hdrTex).texture
     } catch {
       hdrTex.dispose()
       pmrem.dispose()
-      restoreSiteCursor()
       await settleAndEmitLit()
       return
     }
@@ -1949,7 +1923,6 @@ async function bootScene() {
   // Compile and paint the final lighting/material state before lifting the cover.
   syncCamera({ force: true })
   gl.render(scene, camera)
-  if (!lite) restoreSiteCursor()
   if (lite) void settleAndEmitLit()
   scheduleGyroAttach()
 
