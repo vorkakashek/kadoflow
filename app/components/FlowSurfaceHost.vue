@@ -2133,6 +2133,7 @@ function buildMorph() {
             if (dest) paintBox(dest, 1)
           }
         }
+        announceSurfaceReady()
         return
       }
       target.h = 1
@@ -2140,6 +2141,7 @@ function buildMorph() {
       live.h = 1
       live.v = 1
       paintDesktop()
+      announceSurfaceReady()
       return
     }
 
@@ -2160,6 +2162,7 @@ function buildMorph() {
         const dest = caseMediaPose()
         if (dest) dockMobileCaseFrameUnderDetailReturn(dest)
       }
+      announceSurfaceReady()
       lastFromEl = props.fromEl ?? null
       lastToEl = props.toEl ?? null
       lastPlan = props.plan ?? null
@@ -2210,6 +2213,7 @@ function buildMorph() {
     desktopTargetS = s
     desktopLiveS = s
     paintDesktop(s)
+    announceSurfaceReady()
     ensureTick()
 
     scheduleDeferredRefresh(ScrollTrigger, () => {

@@ -3,7 +3,7 @@ import gsap from 'gsap'
 import { warmCaseDetailRoute } from '~/utils/caseDetailRouteWarmup'
 
 const router = useRouter()
-const { request, active, detailContentVisible } = useCaseDetailTransition()
+const { request, active, homeReturnPending, detailContentVisible } = useCaseDetailTransition()
 const rootEl = ref<HTMLElement | null>(null)
 const backdropEl = ref<HTMLElement | null>(null)
 const imageEl = ref<HTMLImageElement | null>(null)
@@ -219,10 +219,10 @@ watch(request, async (next) => {
         ease: 'power3.inOut',
         overwrite: 'auto',
       }, 0)
-      // The wash prevents the route below from bleeding through while the
-      // image is still soft. Release it before the flight completes so the
-      // destination reveals as part of the same motion.
-      flight.to(backdrop, { opacity: 0, duration: 0.38, ease: 'power1.out' }, 0.16)
+      // Keep the destination covered until the proxy is almost docked. An
+      // earlier wash release exposed the already-mounted case photo beneath
+      // the still-large proxy, which read as a second copy of the same image.
+      flight.to(backdrop, { opacity: 0, duration: 0.18, ease: 'power1.out' }, 0.66)
       flight.to(image, { opacity: 0, duration: 0.18, ease: 'power1.out' }, 0.66)
       await flight
     } else {
@@ -239,6 +239,7 @@ watch(request, async (next) => {
     }
     gsap.set(root, { opacity: 0 })
   } finally {
+    if (next.direction === 'close') homeReturnPending.value = false
     visible.value = false
     request.value = null
     active.value = false
