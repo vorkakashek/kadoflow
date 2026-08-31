@@ -223,8 +223,15 @@ watch(request, async (next) => {
       // earlier wash release exposed the already-mounted case photo beneath
       // the still-large proxy, which read as a second copy of the same image.
       flight.to(backdrop, { opacity: 0, duration: 0.18, ease: 'power1.out' }, 0.66)
-      flight.to(image, { opacity: 0, duration: 0.18, ease: 'power1.out' }, 0.66)
       await flight
+
+      // Finish docking before handing the frame back to the live surface.
+      // A fractional opacity forces the browser to composite and paint the
+      // destination under the still-indistinguishable proxy first, avoiding
+      // a one-frame blank during the swap.
+      gsap.set(image, { opacity: 0.999 })
+      await nextPaint()
+      await gsap.to(image, { opacity: 0, duration: 0.14, ease: 'power1.out' })
     } else {
       await cover
       await gsap.to(image, {
