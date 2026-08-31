@@ -312,13 +312,12 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
   }
 
   if (cheapMorph) {
-    if (ringNode) ringNode.setAttribute('opacity', '0')
+    if (ringNode) ringNode.setAttribute('opacity', '1')
     if (discNode) {
-      discNode.setAttribute('opacity', '1')
+      discNode.setAttribute('opacity', '0')
       discNode.setAttribute('r', String(outer0))
     }
     paintDiscScale(1)
-    syncVueDisc(outer0)
   }
 
   const endR = Math.hypot(window.innerWidth, window.innerHeight) * 0.72
@@ -338,16 +337,20 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
     }
 
     if (cheapMorph) {
-      // GPU path: fixed `r`, animate scale — avoids SVG re-raster mid-expand.
-      const disc = { s: 1 }
+      // GPU-friendly mobile path: crossfade O → disc while scaling a fixed
+      // radius. This preserves the desktop story without SVG r re-rastering.
+      const disc = { s: 1, fill: 0 }
       tl.to(
         disc,
         {
           s: peakScale,
+          fill: 1,
           duration: EXPAND_S,
           ease: 'power2.out',
           onUpdate: () => {
             paintDiscScale(disc.s)
+            if (discNode) discNode.setAttribute('opacity', String(disc.fill))
+            if (ringNode) ringNode.setAttribute('opacity', String(1 - disc.fill))
             hideFlyerIfCovered(outer0 * disc.s)
           },
         },
@@ -384,6 +387,8 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         morph.sw = swallowR
         if (cheapMorph) {
           paintDiscScale(peakScale)
+          if (discNode) discNode.setAttribute('opacity', '1')
+          if (ringNode) ringNode.setAttribute('opacity', '0')
           hideFlyerIfCovered(swallowR)
         } else {
           paintMorph()
@@ -632,12 +637,10 @@ onMounted(async () => {
     || connection?.effectiveType === '2g'
     || connection?.effectiveType === '3g',
   )
-  const compact = window.innerWidth < 768 || window.matchMedia('(pointer: coarse)').matches
-
-  // Mobile and constrained connections keep the branded mark, but skip the
-  // GSAP orbit/iris. A short CSS reveal covers the Hero intro handoff without
-  // spending the first seconds on decorative JS and layout work.
-  if (compact || constrained || reduced.value) {
+  // Save-data / slow networks keep the branded mark but skip the full orbit
+  // and iris. Normal mobile devices use the same O → disc → iris story as
+  // desktop; settleAndExit already selects its cheaper transform-only morph.
+  if (constrained || reduced.value) {
     liteExit.value = true
     shownPct.value = 99
     updateArcFill(1)

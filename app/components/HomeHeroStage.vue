@@ -731,9 +731,9 @@ onMounted(() => {
       }
 
       if (mobile) {
-        // The compact preloader has already covered the handoff. Start useful
-        // Hero content immediately after it leaves instead of exposing the
-        // neutral stone while the longer desktop pacing runs.
+        // The full mobile iris reveals the Hero over 260 ms. Start useful
+        // content under that opening so the first elements are already moving
+        // roughly 200 ms before the veil is completely gone.
         if (mediaEl.value) {
           tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.65 }, 0)
         }
@@ -768,19 +768,19 @@ onMounted(() => {
 
       if (mobile) {
         if (sloganEl.value) {
-          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.1)
+          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0)
         }
         if (titleLines.length) {
           tl.to(
             titleLines,
             { autoAlpha: 1, y: 0, duration: 0.75, stagger: 0.12 },
-            0.28,
+            0.08,
           )
         } else if (titleEl.value) {
-          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 0.28)
+          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 0.08)
         }
         if (descEl.value) {
-          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.72)
+          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.4)
         }
       } else {
         if (titleLines.length) {

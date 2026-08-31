@@ -685,18 +685,18 @@ async function bootScene() {
   // shell as soon as it is behind us; lighting may continue under the cover.
   emit('booted')
 
-  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.5 : 0.22)
+  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.4 : 0.22)
   scene.add(hemi)
 
-  const key = new DirectionalLight(0xf5f8fc, lite ? 0.75 : 0.55)
+  const key = new DirectionalLight(0xf5f8fc, lite ? 0.6 : 0.55)
   key.position.set(3.8, 5.2, 4.5)
   scene.add(key)
 
-  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.36 : 0.22)
+  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.29 : 0.22)
   fill.position.set(-4.5, 1.2, 2.8)
   scene.add(fill)
 
-  const rim = new DirectionalLight(0xd0dcea, 0.32)
+  const rim = new DirectionalLight(0xd0dcea, lite ? 0.26 : 0.32)
   rim.position.set(-1.8, 2.8, -4.8)
   scene.add(rim)
 
@@ -890,7 +890,7 @@ async function bootScene() {
     hdrTex.dispose()
     pmrem.dispose()
     scene.environment = envMap
-    scene.environmentIntensity = lite ? 1.1 : 1.05
+    scene.environmentIntensity = lite ? 0.88 : 1.05
 
     await settleAndEmitLit()
   }
@@ -1547,7 +1547,9 @@ async function bootScene() {
       // Device gravity X arrives opposite to the visual lean on tested phones.
       const motionActive = motionEnabled.value && gyroPermissionReady.value
       const tipRight = motionActive ? -gyroRoll : 0
-      const tipUp = motionActive ? gyroPitch : 0
+      // Lowering the phone should pull the swarm toward the viewer / screen
+      // bottom. Sensor pitch arrives in the opposite visual direction.
+      const tipUp = motionActive ? -gyroPitch : 0
 
       if (!reduced) {
         const cameraArc = tipRight * GYRO_CAMERA_ARC
