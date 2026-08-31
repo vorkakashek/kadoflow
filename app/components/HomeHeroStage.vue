@@ -485,6 +485,29 @@ function scheduleSwarmMount(fromNavigation: boolean) {
   // after the reveal, or immediately when the visitor expresses intent.
   preload.markSceneReady()
 
+  const connection = (navigator as Navigator & {
+    connection?: { effectiveType?: string; saveData?: boolean }
+  }).connection
+  const constrained = Boolean(
+    connection?.saveData
+    || connection?.effectiveType === 'slow-2g'
+    || connection?.effectiveType === '2g'
+    || connection?.effectiveType === '3g',
+  )
+
+  // On a normal mobile connection, build the lightweight scene behind the
+  // opaque part of the compact preloader. Previously an intentional 1.8 s
+  // post-reveal delay made an already cached scene look much slower than it is.
+  if (mobileLite.value && !constrained) {
+    void preloadThreeBundle()
+    if ('requestIdleCallback' in window) {
+      swarmIdleId = window.requestIdleCallback(mount, { timeout: 180 })
+    } else {
+      swarmFallbackTimer = window.setTimeout(mount, 80)
+    }
+    return
+  }
+
   // A warm desktop reload can create its WebGL context while the preloader is
   // motionless at 99%. The preloader raises this flag only after its orbit has
   // settled, so the measured context-creation task cannot hitch either motion.
@@ -508,15 +531,6 @@ function scheduleSwarmMount(fromNavigation: boolean) {
   }
 
   const scheduleUpgrade = () => {
-    const connection = (navigator as Navigator & {
-      connection?: { effectiveType?: string; saveData?: boolean }
-    }).connection
-    const constrained = Boolean(
-      connection?.saveData
-      || connection?.effectiveType === 'slow-2g'
-      || connection?.effectiveType === '2g'
-      || connection?.effectiveType === '3g',
-    )
     // Warm the large Three module in a quiet slot, then mount automatically
     // shortly after the primary title/description entrance. Interaction stays
     // gated separately until the scene has faded in.
@@ -530,7 +544,7 @@ function scheduleSwarmMount(fromNavigation: boolean) {
         window.setTimeout(warmThree, 120)
       }
     }
-    const delay = constrained ? 5000 : mobileLite.value ? 1800 : 1100
+    const delay = constrained ? 5000 : 1100
     let stopIntroGate: (() => void) | null = null
     const onIntent = () => {
       if (!heroIntroSettled.value) {

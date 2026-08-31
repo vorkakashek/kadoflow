@@ -641,7 +641,7 @@ async function bootScene() {
   gl.transmissionResolutionScale = lite ? 1 : 0.5
   gl.outputColorSpace = SRGBColorSpace
   gl.toneMapping = ACESFilmicToneMapping
-  gl.toneMappingExposure = lite ? 1.02 : 0.92
+  gl.toneMappingExposure = lite ? 0.98 : 0.92
   /* Transparent frosted balls need depth sort — lite uses opaque Standard only. */
   gl.sortObjects = !lite
   // Avoid auto-clear gaps if a frame is skipped mid-composite.
@@ -660,10 +660,11 @@ async function bootScene() {
     gl.domElement.style.touchAction = 'none'
   }
 
-  // Desktop HDRI is prepared completely under the stone cover. Lite keeps the
-  // direct-light look, avoiding a late lighting jump and PMREM hitch on phones.
-  const pmrem = lite ? null : new PMREMGenerator(gl)
-  pmrem?.compileEquirectangularShader()
+  // The 256 px mobile HDR is small enough to prepare under the compact
+  // preloader. It restores broad studio reflections that direct lights alone
+  // cannot provide to smooth Standard materials.
+  const pmrem = new PMREMGenerator(gl)
+  pmrem.compileEquirectangularShader()
 
   const manager = new LoadingManager()
   manager.onProgress = (_url, loaded, total) => {
@@ -672,11 +673,11 @@ async function bootScene() {
     preload.setSceneProgress(0.08 + ratio * 0.55)
   }
 
-  // Downsampled HDR maps preserve the accepted lighting while keeping the
-  // first Hero environment and PMREM preparation below the desktop budget.
-  const environmentPromise = lite
-    ? null
-    : new HDRLoader(manager).loadAsync(HDRI_PRESETS[ACTIVE_HDRI])
+  // Downsampled HDR maps preserve the accepted lighting while keeping both
+  // mobile and desktop environments below the first-Hero resource budget.
+  const environmentPromise = new HDRLoader(manager).loadAsync(
+    lite ? HDRI_PRESETS.studioWarm : HDRI_PRESETS[ACTIVE_HDRI],
+  )
 
   renderer = gl
   host.appendChild(gl.domElement)
@@ -684,18 +685,18 @@ async function bootScene() {
   // shell as soon as it is behind us; lighting may continue under the cover.
   emit('booted')
 
-  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.72 : 0.22)
+  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.5 : 0.22)
   scene.add(hemi)
 
-  const key = new DirectionalLight(0xf5f8fc, lite ? 0.95 : 0.55)
+  const key = new DirectionalLight(0xf5f8fc, lite ? 0.75 : 0.55)
   key.position.set(3.8, 5.2, 4.5)
   scene.add(key)
 
-  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.5 : 0.22)
+  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.36 : 0.22)
   fill.position.set(-4.5, 1.2, 2.8)
   scene.add(fill)
 
-  const rim = new DirectionalLight(0xd0dcea, lite ? 0.42 : 0.32)
+  const rim = new DirectionalLight(0xd0dcea, 0.32)
   rim.position.set(-1.8, 2.8, -4.8)
   scene.add(rim)
 
@@ -858,7 +859,6 @@ async function bootScene() {
   }
 
   const applyEnvAssets = async () => {
-    if (!environmentPromise || !pmrem) return
     let hdrTex: DataTexture
     try {
       hdrTex = await environmentPromise
@@ -890,17 +890,17 @@ async function bootScene() {
     hdrTex.dispose()
     pmrem.dispose()
     scene.environment = envMap
-    scene.environmentIntensity = 1.05
+    scene.environmentIntensity = lite ? 1.1 : 1.05
 
     await settleAndEmitLit()
   }
-  if (!lite) void applyEnvAssets()
-  // A failed desktop HDR request must not leave the stone cover forever.
+  void applyEnvAssets()
+  // A failed HDR request must not leave the stone cover forever.
   window.setTimeout(() => {
     if (litEmitted) return
     envFallbackChosen = true
     void settleAndEmitLit()
-  }, 6000)
+  }, lite ? 1800 : 6000)
 
   const anchor = new Vector3(1.55, 0.05, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */
@@ -1926,7 +1926,6 @@ async function bootScene() {
   // Compile and paint the final lighting/material state before lifting the cover.
   syncCamera({ force: true })
   gl.render(scene, camera)
-  if (lite) void settleAndEmitLit()
   scheduleGyroAttach()
 
   if (props.active) startLoop()
