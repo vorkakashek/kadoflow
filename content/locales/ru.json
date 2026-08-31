@@ -19,13 +19,6 @@
     "mainLabel": "Основная",
     "canvasLabel": "Навигация по сайту",
     "pagesLabel": "Страницы",
-    "motion": {
-      "label": "движение",
-      "full": "полные анимации",
-      "minimal": "минимум анимаций",
-      "fullAction": "Включить полное движение",
-      "minimalAction": "Включить минимальное движение"
-    },
     "header": {
       "projects": "кейсы",
       "services": "услуги",

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { PhPersonSimpleRun, PhPersonSimpleWalk } from '@phosphor-icons/vue'
 import { canvasFrames, matchFramePath, type SiteNavFrame } from '~/utils/siteNav'
 import { isNarrowViewport, isThumbNav } from '~/utils/mobileViewport'
 import { preloadHomeSceneAssets } from '~/utils/preloadHomeMotion'
@@ -19,32 +18,6 @@ import { CHIP_FIT_EASE, CHIP_FIT_S } from '~/utils/chipFit'
 import { setChipBgOrigin } from '~/utils/chipHoverBg'
 
 const { t } = useI18n()
-const {
-  mode: motionMode,
-  minimal: reducedMotion,
-  setMode: setMotionMode,
-} = useMotionPreference()
-const motionFeedback = ref<'full' | 'minimal' | null>(null)
-let motionFeedbackTimer = 0
-const motionStatusText = computed(() =>
-  motionFeedback.value
-    ? t(`navigation.motion.${motionFeedback.value}`)
-    : '',
-)
-
-function selectMotionMode(next: 'full' | 'minimal') {
-  setMotionMode(next)
-  motionFeedback.value = next
-  if (motionFeedbackTimer) window.clearTimeout(motionFeedbackTimer)
-  motionFeedbackTimer = window.setTimeout(() => {
-    motionFeedback.value = null
-    motionFeedbackTimer = 0
-  }, 1200)
-}
-
-function toggleMotionMode() {
-  selectMotionMode(motionMode.value === 'full' ? 'minimal' : 'full')
-}
 
 const {
   open,
@@ -76,6 +49,7 @@ let savedScrollY = 0
 let navFromCanvas = false
 
 const shownCurrentId = ref(matchFramePath(route.path))
+const reducedMotion = ref(false)
 const isNarrow = ref(false)
 const isThumb = ref(false)
 if (import.meta.client) {
@@ -605,7 +579,7 @@ function plaqueEnterParts() {
     .filter((el): el is HTMLElement => !!el)
   const chrome = root
     ? Array.from(root.querySelectorAll<HTMLElement>(
-        '.page-canvas__eyebrow, .page-canvas__mail, .page-canvas__motion, .page-canvas__lang',
+        '.page-canvas__eyebrow, .page-canvas__mail, .page-canvas__lang',
       ))
     : []
   const preview = root?.querySelector<HTMLElement>('.pc-preview') ?? null
@@ -1229,6 +1203,7 @@ watch(
 )
 
 onMounted(() => {
+  reducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const syncChromeMode = () => {
     isNarrow.value = isNarrowViewport()
     isThumb.value = isThumbNav()
@@ -1246,7 +1221,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (motionFeedbackTimer) window.clearTimeout(motionFeedbackTimer)
   window.removeEventListener('keydown', onKeydown, true)
   window.removeEventListener('resize', syncFrameAspect)
   hideCanvasSurface()
@@ -1324,42 +1298,6 @@ onUnmounted(() => {
               </span>
             </a>
           </div>
-        </div>
-        <div
-          class="page-canvas__motion"
-          :data-mode="motionMode"
-        >
-          <span
-            id="page-canvas-motion-label"
-            class="page-canvas__motion-label"
-            aria-live="polite"
-          >{{ motionStatusText }}</span>
-          <button
-            type="button"
-            class="page-canvas__motion-segments"
-            role="switch"
-            :tabindex="open ? 0 : -1"
-            :aria-label="t(
-              motionMode === 'full'
-                ? 'navigation.motion.minimalAction'
-                : 'navigation.motion.fullAction',
-            )"
-            :aria-checked="motionMode === 'full'"
-            @click="toggleMotionMode"
-          >
-            <span
-              class="page-canvas__motion-option"
-              :class="{ 'is-active': motionMode === 'minimal' }"
-            >
-              <PhPersonSimpleWalk :size="20" weight="regular" aria-hidden="true" />
-            </span>
-            <span
-              class="page-canvas__motion-option"
-              :class="{ 'is-active': motionMode === 'full' }"
-            >
-              <PhPersonSimpleRun :size="20" weight="regular" aria-hidden="true" />
-            </span>
-          </button>
         </div>
         <div class="page-canvas__chrome-foot">
           <button
@@ -1590,117 +1528,6 @@ onUnmounted(() => {
   appearance: none;
 }
 
-.page-canvas__motion {
-  position: absolute;
-  right: calc(var(--pc-inset-right) + 4.75rem);
-  bottom: calc(var(--pc-inset-bottom) + (var(--pc-close-h) - 2.125rem) / 2);
-  z-index: 3;
-  pointer-events: auto;
-}
-
-.page-canvas__motion-label {
-  position: absolute;
-  bottom: calc(100% + 0.38rem);
-  left: 50%;
-  font-size: calc(var(--type-nav) * 0.72);
-  font-weight: 400;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  color: var(--palette-ash);
-  opacity: 0.75;
-  text-transform: lowercase;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
-.page-canvas__motion-segments {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, 2.125rem);
-  width: 4.5rem;
-  height: 2.125rem;
-  padding: 0.125rem;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--palette-ash) 14%, transparent);
-  cursor: pointer;
-  appearance: none;
-}
-
-.page-canvas__motion-segments::before {
-  content: '';
-  position: absolute;
-  top: 0.125rem;
-  left: 0.125rem;
-  width: 2.125rem;
-  height: 1.875rem;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--palette-sand) 72%, var(--palette-moss));
-  transform: translate3d(0, 0, 0);
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.page-canvas__motion[data-mode='full'] .page-canvas__motion-segments::before {
-  transform: translate3d(2.125rem, 0, 0);
-}
-
-.page-canvas__motion-option {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  width: 2.125rem;
-  height: 1.875rem;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  border-radius: 9999px;
-  color: color-mix(in srgb, var(--palette-ash) 68%, transparent);
-  background: transparent;
-  transition: color 0.22s ease;
-}
-
-.page-canvas__motion-option.is-active {
-  color: var(--palette-forest);
-}
-
-.page-canvas__motion-segments:focus-visible {
-  outline: 1px solid var(--palette-forest);
-  outline-offset: 2px;
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion {
-  bottom: var(--pc-inset-bottom);
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments {
-  grid-template-columns: repeat(2, 2.5rem);
-  width: 5.25rem;
-  height: var(--pc-close-h);
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments::before {
-  width: 2.5rem;
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion[data-mode='full'] .page-canvas__motion-segments::before {
-  transform: translate3d(2.5rem, 0, 0);
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-option {
-  width: 2.5rem;
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments::before,
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-option {
-  height: calc(var(--pc-close-h) - 0.25rem);
-}
-
-.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-option :deep(svg) {
-  width: 22px;
-  height: 22px;
-}
-
 .page-canvas__mail {
   padding: 0;
   pointer-events: auto;
@@ -1749,13 +1576,6 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(8px);
 }
 
-.page-canvas:not(.page-canvas--thumb) .page-canvas__lang {
-  display: inline-flex;
-  box-sizing: border-box;
-  height: var(--pc-close-h);
-  align-items: center;
-}
-
 .page-canvas--thumb {
   --pc-inset-right: calc(2 * var(--layout-margin) + var(--safe-right, 0px));
   --pc-inset-bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
@@ -1780,22 +1600,6 @@ onUnmounted(() => {
   font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.25;
-}
-
-.page-canvas--thumb .page-canvas__motion {
-  top: var(--pc-inset-top);
-  right: var(--pc-inset-right);
-  bottom: auto;
-}
-
-.page-canvas--thumb .page-canvas__motion-label {
-  top: calc(100% + 0.38rem);
-  bottom: auto;
-  width: 5.5rem;
-  font-size: calc(var(--type-nav) * 0.76);
-  line-height: 1.08;
-  text-align: center;
-  white-space: normal;
 }
 
 .page-canvas--thumb .page-canvas__mail {

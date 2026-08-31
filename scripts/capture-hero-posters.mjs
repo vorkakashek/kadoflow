@@ -34,7 +34,6 @@ for (const variant of variants) {
   const page = await context.newPage()
   await page.addInitScript(() => {
     localStorage.setItem('kf-preload-seen', '1')
-    localStorage.setItem('kadoflow-motion', 'full')
     document.cookie = 'kado_motion_intro=1; Path=/; SameSite=Lax'
   })
   await page.goto(`${base}/`, { waitUntil: 'load', timeout: 60_000 })

@@ -40,7 +40,6 @@ const props = withDefaults(
     paintFill: true,
   },
 )
-const { minimal: minimalMotion } = useMotionPreference()
 
 const root = ref<HTMLElement | null>(null)
 const clipEl = ref<HTMLElement | null>(null)
@@ -95,6 +94,7 @@ function skipOrganicClip() {
 let ro: ResizeObserver | null = null
 let raf = 0
 let grainTimer = 0
+let motionQuery: MediaQueryList | null = null
 let pointer: { x: number; y: number } | null = null
 let pendingPointer: { clientX: number; clientY: number } | null = null
 /** side: -1 inside (concave), +1 outside (convex) */
@@ -193,7 +193,7 @@ const smoothCornerR = { tl: 0, tr: 0, br: 0, bl: 0, primed: false }
 const pathSize = { w: 0, h: 0 }
 
 function liveEdgeHardOff() {
-  return isTouchUi() || minimalMotion.value || flowSurfaceMask.freezeSilhouette
+  return isTouchUi() || !!motionQuery?.matches || flowSurfaceMask.freezeSilhouette
 }
 
 function liveEdgeArmed() {
@@ -930,7 +930,7 @@ function syncGrainMotion() {
   }
   const el = grainEl.value
   if (!el) return
-  if (minimalMotion.value) {
+  if (motionQuery?.matches) {
     el.style.backgroundPosition = '0 0'
     if (raf) {
       cancelAnimationFrame(raf)
@@ -982,12 +982,10 @@ onMounted(async () => {
   syncGrainScale()
   window.addEventListener('resize', syncGrainScale, { passive: true })
 
+  motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
   await nextTick()
   syncGrainMotion()
-  watch(minimalMotion, () => {
-    syncGrainMotion()
-    ensureLoop()
-  })
+  motionQuery.addEventListener('change', syncGrainMotion)
 
   // Pause / resume grain flicker with morph corridor.
   watch(
@@ -1017,6 +1015,8 @@ onUnmounted(() => {
     window.clearInterval(grainTimer)
     grainTimer = 0
   }
+  motionQuery?.removeEventListener('change', syncGrainMotion)
+  motionQuery = null
   ro?.disconnect()
   window.removeEventListener('pointermove', onPointer)
   window.removeEventListener('pointerleave', onPointerLeave)

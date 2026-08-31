@@ -55,7 +55,6 @@ const props = defineProps<{
 
 const mask = useFlowSurfaceMask()
 const preload = useBrandPreload()
-const { minimal: minimalMotion } = useMotionPreference()
 const heroIntroSettled = useState('home-hero-intro-settled', () => false)
 /** Frame-local offset: keep stage glued to rest pose in the viewport. */
 const stageLeft = computed(() => props.restLeft - mask.left)
@@ -361,7 +360,7 @@ async function setupExitMotion(sectionEl: HTMLElement) {
   await nextTick()
 
   ctx = gsap.context(() => {
-    const reduced = minimalMotion.value
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reduced) return
 
     ScrollTrigger.config({ ignoreMobileResize: true })

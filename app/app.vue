@@ -2,7 +2,6 @@
 const enhancementsReady = ref(false)
 const route = useRoute()
 const { locale, t } = useI18n()
-const motionPreference = useMotionPreference()
 const brandPreloaderEnabled = useBrandPreloaderEnabled()
 const initialHomeDocument = route.path === '/'
 const heroWebglBooted = useState<boolean>('home-hero-webgl-booted', () => false)
@@ -26,7 +25,6 @@ useSeoMeta({
 if (import.meta.client && 'scrollRestoration' in history) {
   history.scrollRestoration = 'manual'
 }
-if (import.meta.client) motionPreference.hydrate()
 
 onMounted(() => {
   const mountEnhancements = () => {

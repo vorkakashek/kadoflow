@@ -313,7 +313,7 @@ function selectAdjacentCase(direction: 1 | -1) {
 function prefersReduce() {
   return (
     typeof window !== 'undefined'
-    && isMinimalMotionPreferred()
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   )
 }
 

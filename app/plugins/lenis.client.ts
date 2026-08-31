@@ -1,10 +1,5 @@
-import {
-  isMinimalMotionPreferred,
-  MOTION_PREFERENCE_CHANGE_EVENT,
-} from '~/composables/useMotionPreference'
-
 const SMOOTH_SCROLL_ENABLED =
-  '(hover: hover) and (pointer: fine)'
+  '(prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine)'
 
 const SCROLL_LOCKS = [
   'preload-lock',
@@ -81,19 +76,14 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
 
   async function create() {
-    if (lenis || !enabledQuery.matches || isMinimalMotionPreferred()) return
+    if (lenis || !enabledQuery.matches) return
     const generation = ++createGeneration
     const [lenisModule, gsapModule, scrollTriggerModule] = await Promise.all([
       import('lenis'),
       import('gsap'),
       import('gsap/ScrollTrigger'),
     ])
-    if (
-      generation !== createGeneration
-      || !enabledQuery.matches
-      || isMinimalMotionPreferred()
-      || lenis
-    ) return
+    if (generation !== createGeneration || !enabledQuery.matches || lenis) return
 
     const Lenis = lenisModule.default
     gsap = gsapModule.default
@@ -132,7 +122,7 @@ export default defineNuxtPlugin((nuxtApp) => {
 
   function syncInputMode() {
     destroy()
-    if (enabledQuery.matches && !isMinimalMotionPreferred()) void create()
+    if (enabledQuery.matches) void create()
   }
 
   nuxtApp.hook('app:mounted', () => {
@@ -148,7 +138,6 @@ export default defineNuxtPlugin((nuxtApp) => {
       window.addEventListener('wheel', activate, { once: true, passive: true })
     }
     enabledQuery.addEventListener('change', syncInputMode)
-    window.addEventListener(MOTION_PREFERENCE_CHANGE_EVENT, syncInputMode)
     document.addEventListener('visibilitychange', syncRunState)
   })
 
@@ -158,7 +147,6 @@ export default defineNuxtPlugin((nuxtApp) => {
         window.cancelIdleCallback(idleId)
       }
       enabledQuery.removeEventListener('change', syncInputMode)
-      window.removeEventListener(MOTION_PREFERENCE_CHANGE_EVENT, syncInputMode)
       document.removeEventListener('visibilitychange', syncRunState)
       destroy()
     })

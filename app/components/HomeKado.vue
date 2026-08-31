@@ -29,7 +29,6 @@ const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
 
 const { canvasMotionPaused, open: pageCanvasOpen, busy: pageCanvasBusy, surfaceOn, heroGlRevealBusy } = usePageCanvas()
-const { minimal: minimalMotion } = useMotionPreference()
 const heroIntroSettled = useState('home-hero-intro-settled', () => false)
 
 defineExpose({
@@ -197,7 +196,7 @@ async function setupLineFill(force = false) {
   const trigger = bodyFocusEl.value
   if (!host || !trigger) return
 
-  if (isMinimalMotionPreferred()) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     host.textContent = bodyText.value
     host.style.color = 'var(--palette-ink)'
     kadoflowWord.value = null
@@ -281,7 +280,7 @@ async function setupStoneLevitation() {
   if (levitateCtx || levitationSetupBusy) return
 
   if (typeof window === 'undefined') return
-  if (isMinimalMotionPreferred()) return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const el = stoneEl.value
   if (!el) return
 
@@ -385,9 +384,8 @@ async function setupSectionParallax() {
 
   parallaxMatchMedia = gsap.matchMedia()
   parallaxMatchMedia.add(
-    '(min-width: 768px)',
+    '(min-width: 768px) and (prefers-reduced-motion: no-preference)',
     () => {
-      if (minimalMotion.value) return
       const corridorProgressAtSurfaceDock = (startY: number) => {
         const viewportHeight = Math.max(1, window.innerHeight)
         const scrollY = window.scrollY || 0
@@ -524,10 +522,6 @@ watch(
     })
   },
 )
-
-watch(minimalMotion, () => {
-  if (!componentUnmounted) void setupSectionParallax()
-})
 
 onMounted(async () => {
   componentUnmounted = false

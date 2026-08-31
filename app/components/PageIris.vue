@@ -50,7 +50,7 @@ let stopAfter: (() => void) | null = null
 let stopError: (() => void) | null = null
 
 function reducedMotion() {
-  return isMinimalMotionPreferred()
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 function captureOrigin(e: Event) {

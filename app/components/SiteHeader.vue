@@ -346,7 +346,7 @@ async function animateDesktopLogo(compact: boolean, immediate = false) {
   const compactX = logoMarkExpandedX()
   const compactWidth = frame.offsetHeight
   const expandedWidth = frame.offsetHeight * 165 / 32
-  const reduce = isMinimalMotionPreferred()
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (immediate || reduce) {
     g.set(frame, { width: compact ? compactWidth : expandedWidth })
     g.set(letters, { autoAlpha: compact ? 0 : 1 })
@@ -511,7 +511,7 @@ async function morph(animate: boolean) {
   const width = m.collapseSides ? m.collapsed : m.expanded
   const reduce =
     typeof window !== 'undefined'
-    && isMinimalMotionPreferred()
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const snap = !animate || reduce || boxNear(
     bar,
     width,
@@ -683,7 +683,7 @@ async function fitFabLabel(on: boolean, instant = false) {
   const label = fab.querySelector('.menu-sizer-menu') as HTMLElement | null
   if (!word || !label) return
   const g = await gsap()
-  const reduced = isMinimalMotionPreferred()
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const labelW = Math.ceil(label.scrollWidth)
   document.documentElement.style.setProperty(
     '--menu-fab-expanded-width',

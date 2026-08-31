@@ -5,7 +5,6 @@
  * Repeat / warm cache: skip the orbit — quick % + expand exit.
  */
 const preload = useBrandPreload()
-const { minimal: minimalMotion } = useMotionPreference()
 const route = useRoute()
 const { t } = useI18n()
 const heroWebglPrebootRequested = useState<boolean>(
@@ -627,7 +626,8 @@ onMounted(async () => {
     heroWebglBooted.value = false
   }
   preload.begin()
-  reduced.value = minimalMotion.value
+  reduced.value =
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const connection = (navigator as Navigator & {
     connection?: { effectiveType?: string; saveData?: boolean }
