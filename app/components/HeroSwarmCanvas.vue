@@ -441,12 +441,32 @@ let resizePaintTimer = 0
 let lastLayoutKey = ''
 let removeWindowResize: (() => void) | null = null
 let firstSceneReady = false
+let nativeCursorFallback = false
+let nativeCursorSafetyTimer = 0
+
+function showNativeCursorDuringGlBoot() {
+  if (nativeCursorFallback) return
+  nativeCursorFallback = true
+  document.documentElement.classList.add('site-cursor-native')
+  // Commit the native-cursor style before WebGL occupies the main thread.
+  void document.documentElement.offsetWidth
+  nativeCursorSafetyTimer = window.setTimeout(restoreSiteCursor, 2500)
+}
+
+function restoreSiteCursor() {
+  if (nativeCursorSafetyTimer) window.clearTimeout(nativeCursorSafetyTimer)
+  nativeCursorSafetyTimer = 0
+  if (!nativeCursorFallback) return
+  nativeCursorFallback = false
+  document.documentElement.classList.remove('site-cursor-native')
+}
 
 function layoutKey() {
   return `${window.innerWidth}|${window.innerHeight}`
 }
 
 function disposeScene() {
+  restoreSiteCursor()
   stopLoop()
   runFrame = null
   forceResize = null
@@ -620,6 +640,8 @@ async function bootScene() {
   const ballDiameterPx = layout.diameterPx
   const ringScale = layout.ringScale
 
+  if (!lite) showNativeCursorDuringGlBoot()
+
   const scene = new Scene()
   const camera = new PerspectiveCamera(40, 1, 0.1, 50)
   camera.position.set(0, 0.12, cameraZ)
@@ -733,14 +755,16 @@ async function bootScene() {
           transmission: 0.88,
           thickness: 1.6,
           ior: 1.42,
-          transparent: true,
+          // Transmission owns a dedicated renderer pass. Treating it as a
+          // second transparent pass made near-equal depths swap and flicker.
+          transparent: false,
           opacity: 1,
           attenuationColor: color.clone().lerp(new Color('#e4eef7'), 0.4),
           attenuationDistance: 1.6,
           clearcoat: 0.4,
           clearcoatRoughness: 0.35,
           envMapIntensity: 1.15,
-          depthWrite: false,
+          depthWrite: true,
         })
 
   const glossy = (color: Color) =>
@@ -822,7 +846,8 @@ async function bootScene() {
     // Let the cover finish fading before hover physics can touch the first
     // visible frames. A cursor already over the swarm must not compete with it.
     window.setTimeout(() => {
-      if (gen === bootGen && renderer === gl) pointerInteractionReady = true
+      if (gen !== bootGen || renderer !== gl) return
+      pointerInteractionReady = true
     }, 600)
   }
 
@@ -833,18 +858,23 @@ async function bootScene() {
   /** Compile shaders and paint twice under the cover before making GL visible. */
   const settleAndEmitLit = async () => {
     if (gen !== bootGen || renderer !== gl) return
-    syncCamera({ force: true })
+    if (!lite) showNativeCursorDuringGlBoot()
     try {
-      await gl.compileAsync(scene, camera)
-    } catch {
-      gl.compile(scene, camera)
+      syncCamera({ force: true })
+      try {
+        await gl.compileAsync(scene, camera)
+      } catch {
+        gl.compile(scene, camera)
+      }
+      if (gen !== bootGen || renderer !== gl) return
+      gl.render(scene, camera)
+      await nextPaint()
+      if (gen !== bootGen || renderer !== gl) return
+      gl.render(scene, camera)
+      await nextPaint()
+    } finally {
+      if (!lite) restoreSiteCursor()
     }
-    if (gen !== bootGen || renderer !== gl) return
-    gl.render(scene, camera)
-    await nextPaint()
-    if (gen !== bootGen || renderer !== gl) return
-    gl.render(scene, camera)
-    await nextPaint()
     emitLit()
   }
 
@@ -870,7 +900,16 @@ async function bootScene() {
     }
     if (!firstSceneReady) preload.setSceneProgress(0.9)
 
-    envMap = pmrem.fromEquirectangular(hdrTex).texture
+    if (!lite) showNativeCursorDuringGlBoot()
+    try {
+      envMap = pmrem.fromEquirectangular(hdrTex).texture
+    } catch {
+      hdrTex.dispose()
+      pmrem.dispose()
+      restoreSiteCursor()
+      await settleAndEmitLit()
+      return
+    }
     hdrTex.dispose()
     pmrem.dispose()
     scene.environment = envMap
@@ -1910,6 +1949,7 @@ async function bootScene() {
   // Compile and paint the final lighting/material state before lifting the cover.
   syncCamera({ force: true })
   gl.render(scene, camera)
+  if (!lite) restoreSiteCursor()
   if (lite) void settleAndEmitLit()
   scheduleGyroAttach()
 

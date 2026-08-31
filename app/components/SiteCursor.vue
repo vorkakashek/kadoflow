@@ -215,6 +215,18 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+/* WebGL context/shader creation can briefly occupy the JS thread. During that
+   window the OS cursor stays responsive while the custom cursor is hidden. */
+html.has-site-cursor.site-cursor-native,
+html.has-site-cursor.site-cursor-native * {
+  cursor: auto !important;
+}
+
+html.site-cursor-native .site-cursor {
+  opacity: 0;
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .site-cursor {
     transition: none;
