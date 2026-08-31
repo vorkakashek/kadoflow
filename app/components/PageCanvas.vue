@@ -1674,7 +1674,21 @@ onUnmounted(() => {
 }
 
 .page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments {
+  grid-template-columns: repeat(2, 2.5rem);
+  width: 5.25rem;
   height: var(--pc-close-h);
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments::before {
+  width: 2.5rem;
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion[data-mode='full'] .page-canvas__motion-segments::before {
+  transform: translate3d(2.5rem, 0, 0);
+}
+
+.page-canvas:not(.page-canvas--thumb) .page-canvas__motion-option {
+  width: 2.5rem;
 }
 
 .page-canvas:not(.page-canvas--thumb) .page-canvas__motion-segments::before,
