@@ -485,11 +485,21 @@ function scheduleSwarmMount(fromNavigation: boolean) {
   const connection = (navigator as Navigator & {
     connection?: { effectiveType?: string; saveData?: boolean }
   }).connection
+  // `effectiveType` is a rolling latency/downlink estimate and can briefly
+  // report 3g on a desktop connection. Treating that estimate as authoritative
+  // made a fast PC show the baked scene poster and postpone WebGL for 5 seconds.
+  // Honour explicit Save-Data everywhere; use the noisy network estimate only
+  // for the lightweight mobile/coarse-pointer path it was intended to protect.
   const constrained = Boolean(
     connection?.saveData
-    || connection?.effectiveType === 'slow-2g'
-    || connection?.effectiveType === '2g'
-    || connection?.effectiveType === '3g',
+    || (
+      mobileLite.value
+      && (
+        connection?.effectiveType === 'slow-2g'
+        || connection?.effectiveType === '2g'
+        || connection?.effectiveType === '3g'
+      )
+    ),
   )
   connectionConstrained.value = constrained
 
@@ -873,7 +883,7 @@ onUnmounted(() => {
             @lit="onSwarmLit"
           />
         </ClientOnly>
-        <!-- Slow links get a scene-only poster; fast links keep the neutral lid. -->
+        <!-- Constrained mobile links get a scene-only poster; other clients keep the neutral lid. -->
         <div
           ref="swarmCoverEl"
           class="hero-swarm-cover"

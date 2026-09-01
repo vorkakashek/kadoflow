@@ -3,13 +3,19 @@ defineProps<{
   title: string
   paragraphs: string[]
 }>()
+
+function allowNaturalLineBreaks(text: string) {
+  // The locale build binds short service words with NBSP. In narrow body copy
+  // that makes the following word an unbreakable unit and blocks hyphenation.
+  return text.replaceAll('\u00a0', ' ')
+}
 </script>
 
 <template>
   <div class="case-section-intro-copy">
     <h2 v-html="title" />
     <div class="case-section-intro-copy__body">
-      <p v-for="paragraph in paragraphs" :key="paragraph">{{ paragraph }}</p>
+      <p v-for="paragraph in paragraphs" :key="paragraph">{{ allowNaturalLineBreaks(paragraph) }}</p>
     </div>
   </div>
 </template>
@@ -68,6 +74,8 @@ p {
 
   .case-section-intro-copy__body p {
     font-size: var(--type-case-body);
+    hyphens: auto;
+    hyphenate-limit-chars: 6 3 3;
   }
 }
 </style>

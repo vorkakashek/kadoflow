@@ -46,13 +46,15 @@ let audienceTextResizeObserver: ResizeObserver | null = null
 let caseMediaPreloadObserver: IntersectionObserver | null = null
 let caseMediaDecodeObserver: IntersectionObserver | null = null
 let waveLayerMediaQuery: MediaQueryList | null = null
+let waveLayerDelay = 0
 let waveLayerIdle = 0
 let audienceTextRebuildTimer = 0
 const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
 let directRevealReadyTimer = 0
 let detailPageUnmounted = false
-let detailEnhancementIdle = 0
+const detailEnhancementTimers: number[] = []
+const detailEnhancementIdles: number[] = []
 let stopDetailEnhancementWatch: (() => void) | null = null
 const waveLayerReady = ref(false)
 const mediaDecodeQueue: HTMLImageElement[] = []
@@ -185,9 +187,11 @@ function setupCaseMediaPreload() {
 }
 
 function cancelWaveLayerWarmup() {
-  if (!waveLayerIdle) return
-  if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(waveLayerIdle)
-  else globalThis.clearTimeout(waveLayerIdle)
+  if (waveLayerDelay) globalThis.clearTimeout(waveLayerDelay)
+  waveLayerDelay = 0
+  if (waveLayerIdle && typeof window.cancelIdleCallback === 'function') {
+    window.cancelIdleCallback(waveLayerIdle)
+  }
   waveLayerIdle = 0
 }
 
@@ -198,18 +202,25 @@ function syncWaveLayerMount() {
     waveLayerReady.value = false
     return
   }
-  if (waveLayerReady.value || waveLayerIdle) return
+  if (waveLayerReady.value || waveLayerDelay || waveLayerIdle) return
   const mount = () => {
     waveLayerIdle = 0
     if (waveLayerMediaQuery?.matches && detailMotionActive.value) {
       waveLayerReady.value = true
     }
   }
-  // The effect is desktop-only. Warm it shortly after critical paint so the
-  // first deliberate hover is ready without adding OGL to mobile case startup.
-  waveLayerIdle = typeof window.requestIdleCallback === 'function'
-    ? window.requestIdleCallback(mount, { timeout: 900 })
-    : globalThis.setTimeout(mount, 300)
+  // Loading the lazy component and compiling its shaders in the first frame
+  // after entry caused a visible main-thread stall. Preserve a quiet reading
+  // window, then warm the decorative desktop effect only when the browser is idle.
+  waveLayerDelay = globalThis.setTimeout(() => {
+    waveLayerDelay = 0
+    if (!waveLayerMediaQuery?.matches || !detailMotionActive.value) return
+    if (typeof window.requestIdleCallback === 'function') {
+      waveLayerIdle = window.requestIdleCallback(mount, { timeout: 1600 })
+    } else {
+      mount()
+    }
+  }, 2200)
 }
 
 async function refreshAudienceScrollPositions() {
@@ -605,25 +616,53 @@ function disposeContext(context: KillableGsapContext | null) {
 function cancelDeferredDetailEnhancements() {
   stopDetailEnhancementWatch?.()
   stopDetailEnhancementWatch = null
-  if (!detailEnhancementIdle) return
-  if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(detailEnhancementIdle)
-  else globalThis.clearTimeout(detailEnhancementIdle)
-  detailEnhancementIdle = 0
+  for (const timer of detailEnhancementTimers.splice(0)) {
+    globalThis.clearTimeout(timer)
+  }
+  if (typeof window.cancelIdleCallback === 'function') {
+    for (const idle of detailEnhancementIdles.splice(0)) {
+      window.cancelIdleCallback(idle)
+    }
+  } else {
+    detailEnhancementIdles.length = 0
+  }
+}
+
+function removeScheduledId(collection: number[], id: number) {
+  const index = collection.indexOf(id)
+  if (index >= 0) collection.splice(index, 1)
+}
+
+function scheduleDetailEnhancement(delay: number, task: () => void | Promise<void>) {
+  const timer = globalThis.setTimeout(() => {
+    removeScheduledId(detailEnhancementTimers, timer)
+    if (detailPageUnmounted || !detailMotionActive.value) return
+
+    let idle = 0
+    const run = () => {
+      if (idle) removeScheduledId(detailEnhancementIdles, idle)
+      if (detailPageUnmounted || !detailMotionActive.value) return
+      void task()
+    }
+    if (typeof window.requestIdleCallback === 'function') {
+      idle = window.requestIdleCallback(run, { timeout: 1400 })
+      detailEnhancementIdles.push(idle)
+    } else {
+      run()
+    }
+  }, delay)
+  detailEnhancementTimers.push(timer)
 }
 
 function scheduleDeferredDetailEnhancements() {
-  if (detailPageUnmounted || detailEnhancementIdle) return
-  const run = () => {
-    detailEnhancementIdle = 0
-    if (detailPageUnmounted) return
-    setupCaseMediaPreload()
-    void setupDetailReveals()
-    void setupAudienceTextFill()
-    void setupNextProjectParallax()
-  }
-  detailEnhancementIdle = typeof window.requestIdleCallback === 'function'
-    ? window.requestIdleCallback(run, { timeout: 900 })
-    : globalThis.setTimeout(run, 96)
+  if (detailPageUnmounted || detailEnhancementTimers.length || detailEnhancementIdles.length) return
+
+  // Keep the first interactive frames empty, then spread layout-sensitive
+  // setup across separate idle slices instead of releasing every feature at once.
+  scheduleDetailEnhancement(700, setupCaseMediaPreload)
+  scheduleDetailEnhancement(1000, setupDetailReveals)
+  scheduleDetailEnhancement(1350, setupNextProjectParallax)
+  scheduleDetailEnhancement(1750, setupAudienceTextFill)
 }
 
 function deferBelowFoldSetupUntilEntryEnds() {
@@ -960,7 +999,7 @@ useHead(() => ({
   }
 
   .case-detail--baltika .case-detail__media {
-    grid-column: 4 / span 6;
+    grid-column: 1 / -1;
   }
 
 }

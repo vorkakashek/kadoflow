@@ -1,9 +1,8 @@
 <script setup lang="ts">
 /**
  * Fixed Flow Surface — one clipped window.
- * Desktop: hero → stone scrub, then kado → case-photo scrub (same lag, both
- * directions via ScrollTrigger onUpdate — no one-shot hop between 2↔3).
- * Case photo paints inside the surface while parked.
+ * Desktop: hero → stone scrub, then kado → the gray case frame (same lag, both
+ * directions via ScrollTrigger onUpdate). Media wipes in over the final 10%.
  * Mobile: scrub hero→stone with a light lag (not 1:1), box+morph on one live P
  * so stage glue / copy / GL stay in phase; then hop to term/word and continue
  * directly from Kadoflow into Cases with one reversible timed transition.
@@ -96,10 +95,10 @@ const MOBILE_CASE_HOP_MIN_DURATION = 0.08
 const MOBILE_CASE_DIRECTION_REVERSAL_PX = 10
 const MOBILE_CASE_PHOTO_FADE_OUT_DURATION = 0.14
 const MOBILE_CASE_PHOTO_REVEAL_DURATION = 0.75
+/** Desktop media begins its wipe during the final 10% of the case approach. */
+const CASE_PHOTO_REVEAL_P = 0.9
 /** Pin only at the true endpoint; pinning at 96% caused a visible 4% jump. */
 const CASE_PIN_P = 0.999
-/** Surface tone → case photo crossfade starts later in the case corridor. */
-const CASE_FILL_FADE_START = 0.25
 /** Ignore reverse hop triggers right after a forward hop (scroll bounce). */
 const STAGE_FORWARD_LOCK_MS = HOP_DURATION * 1000 + 120
 /** Mobile hero→stone scrub keeps only a tiny smoothing tail. */
@@ -153,6 +152,7 @@ const {
   caseMediaPrepareRevision,
   routePhase,
   homeReturnPending: caseDetailHomeReturnPending,
+  homeReturnMediaDocked,
   setSurfaceDocked,
   setSurfaceReady,
   setSurfaceReturning,
@@ -170,6 +170,11 @@ const BLANK_IMAGE =
 
 /** Template: hide hero stage / show case fill. */
 const showCaseFill = ref(false)
+/** The fullscreen return proxy owns the only visible case raster until docking. */
+const hideCaseFillUnderHomeReturn = computed(() => (
+  routePhase.value === 'returning-home'
+  && !homeReturnMediaDocked.value
+))
 const fillFrontEl = ref<HTMLElement | null>(null)
 const fillBackEl = ref<HTMLElement | null>(null)
 const fillFrontSrc = ref(BLANK_IMAGE)
@@ -195,14 +200,16 @@ function setFillLayer(layer: 0 | 1, media: CaseSurfaceMedia) {
 }
 let activeFillLayer = 0
 let photoSwitchTl: { kill: () => void } | null = null
-let mobileCaseFillTween: { kill: () => void } | null = null
-let mobileCasePhotoRevealTl: { kill: () => void } | null = null
+let casePhotoFadeTween: { kill: () => void } | null = null
+let casePhotoRevealTl: { kill: () => void } | null = null
 let lastSwitchedSrc = ''
+/** Edge-triggered desktop reveal state for the final part of the approach. */
+let desktopCasePhotoRevealStarted = false
 
 const caseFillOpacity = ref(0)
-const mobileCasePhotoRevealKeepsTone = ref(false)
+const casePhotoRevealKeepsTone = ref(false)
 const surfaceToneOpacity = computed(() => {
-  if (mobileCasePhotoRevealKeepsTone.value) return 1
+  if (casePhotoRevealKeepsTone.value) return 1
   if (!showCaseFill.value) return 1
   return Math.max(0, Math.min(1, 1 - caseFillOpacity.value))
 })
@@ -622,6 +629,10 @@ function paintCaseMedia() {
 
 function paintHeroToKadoSegment(t: number) {
   if (showCaseFill.value || caseSurfaceDocked.value || caseMediaActive) {
+    desktopCasePhotoRevealStarted = false
+    casePhotoFadeTween?.kill()
+    casePhotoFadeTween = null
+    stopCasePhotoReveal()
     showCaseFill.value = false
     caseFillOpacity.value = 0
     caseMediaActive = false
@@ -662,11 +673,6 @@ function paintKadoToCasesSegment(t: number) {
     caseMediaActive = docked
     setSurfaceDocked(docked)
   }
-  // Soft fade in for photo + desaturation of surface tone
-  const fadeT = Math.min(1, Math.max(0, (t - CASE_FILL_FADE_START) / (1 - CASE_FILL_FADE_START)))
-  showCaseFill.value = t > 0.005
-  caseFillOpacity.value = fadeT
-
   const from = kadoLivePose()
   const to = caseMediaPose()
   if (!from && !to) return
@@ -677,6 +683,17 @@ function paintKadoToCasesSegment(t: number) {
   if (!from) {
     paintBox(to, 1)
     return
+  }
+  if (t >= CASE_PHOTO_REVEAL_P) {
+    if (!desktopCasePhotoRevealStarted) {
+      desktopCasePhotoRevealStarted = true
+      void nextTick(() => {
+        if (desktopCasePhotoRevealStarted && !mobileActive) revealCasePhoto()
+      })
+    }
+  } else if (desktopCasePhotoRevealStarted) {
+    desktopCasePhotoRevealStarted = false
+    hideCasePhoto(true)
   }
   if (t >= CASE_PIN_P) {
     // Desktop remains in the fixed host. Teleporting the fully arrived frame
@@ -692,9 +709,9 @@ function paintKadoToCasesSegment(t: number) {
   paintBox(lerpBox(from, to, t), 1)
 }
 
-function stopMobileCasePhotoReveal(complete = false) {
-  mobileCasePhotoRevealTl?.kill()
-  mobileCasePhotoRevealTl = null
+function stopCasePhotoReveal(complete = false) {
+  casePhotoRevealTl?.kill()
+  casePhotoRevealTl = null
   if (complete && gsapMod) {
     const el = activeFillLayer === 0 ? fillFrontEl.value : fillBackEl.value
     if (el) {
@@ -704,13 +721,13 @@ function stopMobileCasePhotoReveal(complete = false) {
       })
     }
   }
-  mobileCasePhotoRevealKeepsTone.value = false
+  casePhotoRevealKeepsTone.value = false
 }
 
-function hideMobileCasePhoto(animate: boolean) {
-  stopMobileCasePhotoReveal()
-  mobileCaseFillTween?.kill()
-  mobileCaseFillTween = null
+function hideCasePhoto(animate: boolean) {
+  stopCasePhotoReveal()
+  casePhotoFadeTween?.kill()
+  casePhotoFadeTween = null
 
   if (
     !animate
@@ -720,14 +737,14 @@ function hideMobileCasePhoto(animate: boolean) {
   ) {
     caseFillOpacity.value = 0
     showCaseFill.value = false
-    mobileCasePhotoRevealKeepsTone.value = false
+    casePhotoRevealKeepsTone.value = false
     return
   }
 
   // Keep the gray surface under the image while the raster quickly dissolves.
-  mobileCasePhotoRevealKeepsTone.value = true
+  casePhotoRevealKeepsTone.value = true
   const proxy = { opacity: caseFillOpacity.value }
-  mobileCaseFillTween = gsapMod.default.to(proxy, {
+  casePhotoFadeTween = gsapMod.default.to(proxy, {
     opacity: 0,
     duration: MOBILE_CASE_PHOTO_FADE_OUT_DURATION,
     ease: 'power1.inOut',
@@ -735,22 +752,22 @@ function hideMobileCasePhoto(animate: boolean) {
       caseFillOpacity.value = proxy.opacity
     },
     onComplete: () => {
-      mobileCaseFillTween = null
+      casePhotoFadeTween = null
       caseFillOpacity.value = 0
       showCaseFill.value = false
-      mobileCasePhotoRevealKeepsTone.value = false
+      casePhotoRevealKeepsTone.value = false
     },
   })
 }
 
-/** Same left-to-right reveal used for the incoming layer on a case switch. */
-function revealMobileCasePhoto() {
+/** Reveal the photo left-to-right only after the gray surface has settled. */
+function revealCasePhoto() {
   const media = caseSurfaceMedia.value
   if (!media) return
 
-  mobileCaseFillTween?.kill()
-  mobileCaseFillTween = null
-  stopMobileCasePhotoReveal()
+  casePhotoFadeTween?.kill()
+  casePhotoFadeTween = null
+  stopCasePhotoReveal()
   setFillLayer(activeFillLayer, media)
   lastSwitchedSrc = media.src
   showCaseFill.value = true
@@ -760,7 +777,7 @@ function revealMobileCasePhoto() {
     !gsapMod
     || systemReducedMotion()
   ) {
-    mobileCasePhotoRevealKeepsTone.value = false
+    casePhotoRevealKeepsTone.value = false
     return
   }
 
@@ -768,11 +785,11 @@ function revealMobileCasePhoto() {
   const revealEl = activeFillLayer === 0 ? fillFrontEl.value : fillBackEl.value
   const otherEl = activeFillLayer === 0 ? fillBackEl.value : fillFrontEl.value
   if (!revealEl) {
-    mobileCasePhotoRevealKeepsTone.value = false
+    casePhotoRevealKeepsTone.value = false
     return
   }
 
-  mobileCasePhotoRevealKeepsTone.value = true
+  casePhotoRevealKeepsTone.value = true
   gsap.set(revealEl, {
     clipPath: 'inset(0 100% 0 0)',
     autoAlpha: 1,
@@ -784,13 +801,13 @@ function revealMobileCasePhoto() {
     })
   }
 
-  mobileCasePhotoRevealTl = gsap.to(revealEl, {
+  casePhotoRevealTl = gsap.to(revealEl, {
     clipPath: 'inset(0 0% 0 0)',
     duration: MOBILE_CASE_PHOTO_REVEAL_DURATION,
     ease: 'power2.out',
     onComplete: () => {
-      mobileCasePhotoRevealTl = null
-      mobileCasePhotoRevealKeepsTone.value = false
+      casePhotoRevealTl = null
+      casePhotoRevealKeepsTone.value = false
     },
   })
 }
@@ -812,7 +829,7 @@ function settleMobileCaseFrame(
     lastSwitchedSrc = media.src
   }
   // The case raster stays hidden for the whole geometry flight.
-  hideMobileCasePhoto(caseFillOpacity.value > 0)
+  hideCasePhoto(caseFillOpacity.value > 0)
   setSurfaceReady(false)
   caseSettleTween = gsapMod.default.to(proxy, {
     t: 1,
@@ -845,7 +862,7 @@ function settleMobileCaseFrame(
       pinCaseFrame()
       void nextTick(() => {
         if (mobileCaseArrived && caseFramePinned()) {
-          revealMobileCasePhoto()
+          revealCasePhoto()
         }
       })
     },
@@ -862,9 +879,9 @@ function dockMobileCaseFrameUnderDetailReturn(dest: SurfaceBox) {
   caseHopGen += 1
   killHopTween()
   killCaseSettleTween()
-  mobileCaseFillTween?.kill()
-  mobileCaseFillTween = null
-  stopMobileCasePhotoReveal(true)
+  casePhotoFadeTween?.kill()
+  casePhotoFadeTween = null
+  stopCasePhotoReveal(true)
   unpinFrame()
 
   caseHopDirection = null
@@ -955,7 +972,7 @@ function leaveMobileCaseFrame() {
   mobileCaseArrived = false
   mobileCaseProgress = Math.max(startProgress, SURFACE_MORPH_EPSILON)
   setSurfaceReady(false)
-  hideMobileCasePhoto(true)
+  hideCasePhoto(true)
 
   const startReverse = () => {
     if (gen !== caseHopGen) return
@@ -980,7 +997,7 @@ function leaveMobileCaseFrame() {
         mobileCaseProgress = 0
         caseMediaActive = false
         setSurfaceDocked(false)
-        hideMobileCasePhoto(false)
+        hideCasePhoto(false)
         const dest = wordPose()
         if (dest) paintBox(dest, 1)
         mobileStage = 'word'
@@ -1086,7 +1103,7 @@ function morphParkedCaseMedia(animate: boolean) {
  * 3. After a short empty beat, the new photo expands left-to-right.
  */
 function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
-  stopMobileCasePhotoReveal(true)
+  stopCasePhotoReveal(true)
   if (lastSwitchedSrc === media.src) {
     // A second nonce is emitted after the case DOM/image has committed.
     // The source is unchanged, but the figure's intrinsic height may not be.
@@ -1105,6 +1122,7 @@ function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
   ) {
     photoSwitchTl?.kill()
     photoSwitchTl = null
+    casePhotoRevealKeepsTone.value = false
     if (activeFillLayer === 0) {
       setFillLayer(0, media)
       if (fillFrontEl.value && gsapMod) {
@@ -1146,10 +1164,14 @@ function switchCasePhoto(media: CaseSurfaceMedia, animate: boolean) {
     onComplete: () => {
       activeFillLayer = activeFillLayer === 0 ? 1 : 0
       gsap.set(curEl, { clipPath: 'inset(0 100% 0 0)', autoAlpha: 0 })
+      casePhotoRevealKeepsTone.value = false
       photoSwitchTl = null
     },
   })
   photoSwitchTl = tl
+  // Keep the gray surface visible through the empty and incoming wipe phases.
+  // The image covers it completely before the tone is removed.
+  casePhotoRevealKeepsTone.value = true
 
   // Step 1: settle the surface geometry before touching either photo.
   tl.call(() => {
@@ -1894,10 +1916,14 @@ function killMorph() {
   lastCaseSectionTop = null
   mobileScrubBridge = null
   caseMediaActive = false
+  desktopCasePhotoRevealStarted = false
   setSurfaceReturning(false)
-  mobileCaseFillTween?.kill()
-  mobileCaseFillTween = null
-  stopMobileCasePhotoReveal()
+  casePhotoFadeTween?.kill()
+  casePhotoFadeTween = null
+  stopCasePhotoReveal()
+  photoSwitchTl?.kill()
+  photoSwitchTl = null
+  casePhotoRevealKeepsTone.value = false
   setCaseSurfaceDocked(false)
   setSurfaceReady(false)
   for (const t of mobileTriggers) t.kill()
@@ -2147,8 +2173,12 @@ function buildMorph() {
           mobileCaseArrived = true
           caseMediaActive = true
           setCaseSurfaceDocked(true)
+          hideCasePhoto(false)
           paintBox(dest, 1)
-          requestAnimationFrame(() => pinCaseFrame())
+          requestAnimationFrame(() => {
+            pinCaseFrame()
+            void nextTick(revealCasePhoto)
+          })
         }
       }
       // A detail → home return already has its own fullscreen image flight.
@@ -2456,10 +2486,10 @@ watch(
       lastSwitchedSrc = media.src
     }
     if (mobileActive && !mobileCaseArrived) {
-      if (!mobileCaseFillTween) hideMobileCasePhoto(false)
+      if (!casePhotoFadeTween) hideCasePhoto(false)
     } else if (
       (caseMediaActive || showCaseFill.value)
-      && !mobileCaseFillTween
+      && !casePhotoFadeTween
     ) {
       caseFillOpacity.value = 1
     }
@@ -2513,7 +2543,7 @@ watch(
             class="case-surface-fill"
             :class="{
               'case-surface-fill--on': showCaseFill,
-              'case-surface-fill--direct-entry': initialCasesHashEntry,
+              'case-surface-fill--return-hidden': hideCaseFillUnderHomeReturn,
             }"
             :aria-hidden="(!showCaseFill).toString()"
           >
@@ -2623,7 +2653,10 @@ watch(
 <style>
 .case-surface-fill {
   position: absolute;
-  inset: 0;
+  /* Bleed beneath the outer Surface mask. The moving SVG mask and this
+     composited wipe round subpixels independently; a small overlap prevents
+     the gray tone from leaking through as a 1px seam during the final 10%. */
+  inset: -2px;
   z-index: 2;
   overflow: hidden;
   pointer-events: none;
@@ -2632,6 +2665,11 @@ watch(
 
 .case-surface-fill--on {
   opacity: 1;
+}
+
+.case-surface-fill--return-hidden {
+  visibility: hidden;
+  opacity: 0;
 }
 
 .case-surface-fill__media {
@@ -2648,15 +2686,6 @@ watch(
   display: block;
 }
 
-.case-surface-fill--direct-entry.case-surface-fill--on .case-surface-fill__picture {
-  animation: case-surface-direct-media-in 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes case-surface-direct-media-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 .case-surface-fill__asset {
   position: absolute;
   inset: 0;
@@ -2669,12 +2698,6 @@ watch(
 
 .case-surface-fill__asset--behind-video {
   opacity: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .case-surface-fill--direct-entry.case-surface-fill--on .case-surface-fill__picture {
-    animation: none;
-  }
 }
 
 </style>

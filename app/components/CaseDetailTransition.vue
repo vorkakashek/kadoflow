@@ -29,6 +29,10 @@ function nextPaint() {
   })
 }
 
+function waitForTransitionDelay(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
 /** Keep a newly assigned transition src hidden until its raster can paint. */
 async function waitForImageDecode(image: HTMLImageElement, rasterAlreadyPainted = false) {
   // Opening from a visible case card gives us its exact currentSrc. The
@@ -197,9 +201,9 @@ watch(request, async (next) => {
   const hashPinSession: { stop?: () => void } = {}
   try {
     if (next.direction === 'open' && next.rect) {
-      // Keep route mounting out of the scale-up. The proxy reaches fullscreen
-      // smoothly first; any remaining warmup/mount work runs under its static
-      // opaque frame instead of competing with the geometry tween.
+      // Mount the route under the moving proxy once the backdrop is opaque.
+      // Detail enhancements stay phase-gated, so route work can overlap the
+      // geometry tween without introducing a static fullscreen hold.
       const flight = gsap.timeline()
       flight.to(backdrop, { opacity: 1, duration: 0.18, ease: 'power1.out' }, 0)
       flight.to(
@@ -209,55 +213,51 @@ watch(request, async (next) => {
           left: 0,
           width: viewport.width,
           height: viewport.height,
-          duration: 0.76,
+          duration: 0.72,
           ease: 'power3.inOut',
         },
         0,
       )
-      await flight
-      await routeWarmup
-      await router.push(next.to)
-      await nextPaint()
+      const routeTask = (async () => {
+        await Promise.all([routeWarmup, waitForTransitionDelay(160)])
+        await router.push(next.to)
+        await nextPaint()
+        revealDetailContent()
+        await nextPaint()
+      })()
 
-      // Start the detail entrance while it is still covered. Two painted
-      // frames let CSS transitions leave their hidden pose before the proxy
-      // and wash reveal the new scene together.
-      revealDetailContent()
-      await nextPaint()
-
-      // Fade the already-composited proxy + wash as one layer. Independent
-      // image/backdrop fades produced a short luminance dip before the live
-      // header media (which used to have its own delay) became visible.
+      // Begin revealing near the end of the geometry motion. If the route is
+      // cold, readiness remains the only wait; a warm route has no dead frame.
+      await Promise.all([routeTask, waitForTransitionDelay(500)])
       const reveal = gsap.to(root, {
         opacity: 0,
-        duration: 0.42,
+        duration: 0.34,
         ease: 'power2.out',
       })
-      await reveal
+      await Promise.all([flight, reveal])
       return
     }
 
-    // First let the case media smoothly take over the whole viewport. Only
-    // then mount the destination under the fully opaque transition layer, so
-    // neither route can flash through while the image is resolving.
+    // The destination begins mounting as soon as the overlay can safely cover
+    // the route swap. Its target geometry resolves while the proxy is still
+    // entering, so the following dock continues the same movement.
     gsap.set(root, { opacity: 1 })
     const detail = document.querySelector<HTMLElement>('.case-detail__inner')
     const cover = gsap.timeline()
     if (detail) {
-      cover.to(detail, { opacity: 0, duration: 0.52, ease: 'power2.inOut' }, 0)
+      cover.to(detail, { opacity: 0, duration: 0.34, ease: 'power2.inOut' }, 0)
     }
-    cover.to(backdrop, { opacity: 1, duration: 0.42, ease: 'power2.inOut' }, 0)
+    cover.to(backdrop, { opacity: 1, duration: 0.30, ease: 'power2.inOut' }, 0)
     cover.to(image, {
       opacity: 1,
       scale: 1.04,
       rotate: -0.75,
-      duration: 0.58,
+      duration: 0.44,
       ease: 'power2.inOut',
     }, 0)
 
-    await cover
-
     const targetTask = (async () => {
+      await waitForTransitionDelay(140)
       if (next.historyBack) await returnThroughHistory(next.to)
       else await router.push(next.to)
       await nextPaint()
@@ -281,14 +281,14 @@ watch(request, async (next) => {
         scale: 1,
         rotate: 0,
         clipPath: 'inset(0px)',
-        duration: 0.60,
+        duration: 0.66,
         ease: 'power3.inOut',
         overwrite: 'auto',
       }, 0)
       // Keep the destination covered until the proxy is almost docked. An
       // earlier wash release exposed the already-mounted case photo beneath
       // the still-large proxy, which read as a second copy of the same image.
-      flight.to(backdrop, { opacity: 0, duration: 0.16, ease: 'power1.out' }, 0.44)
+      flight.to(backdrop, { opacity: 0, duration: 0.16, ease: 'power1.out' }, 0.50)
       await flight
       markHomeReturnMediaDocked()
 

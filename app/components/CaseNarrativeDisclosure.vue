@@ -87,6 +87,7 @@ function handleTransition(event: TransitionEvent) {
 
 .case-disclosure__title {
   display: block;
+  max-width: 16ch;
   font-size: clamp(2.75rem, 6.5vw, 7.5rem);
   font-weight: 400;
   letter-spacing: -0.01em;
@@ -198,7 +199,10 @@ function handleTransition(event: TransitionEvent) {
 }
 
 @media (max-width: 767.98px) {
-  .case-disclosure__title { font-size: clamp(1.875rem, 8vw, 2.25rem); }
+  .case-disclosure__title {
+    max-width: none;
+    font-size: clamp(1.875rem, 8vw, 2.25rem);
+  }
   .case-disclosure__body-inner {
     grid-template-columns: 1fr;
     row-gap: var(--space-3);

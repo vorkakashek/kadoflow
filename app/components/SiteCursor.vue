@@ -39,7 +39,9 @@ const caseOpen = ref(false)
 const away = ref(true)
 const textOver = ref(false)
 const chipFade = ref(false)
+const caseDetailSettling = ref(false)
 let moveRaf = 0
+let caseDetailSettleTimer = 0
 let pointerX = 0
 let pointerY = 0
 let pointerSeen = false
@@ -79,7 +81,10 @@ function probe(x: number, y: number) {
 }
 
 watch(caseDetailTransitionActive, (active) => {
+  if (caseDetailSettleTimer) window.clearTimeout(caseDetailSettleTimer)
+  caseDetailSettleTimer = 0
   if (active) {
+    caseDetailSettling.value = false
     if (moveRaf) {
       cancelAnimationFrame(moveRaf)
       moveRaf = 0
@@ -94,7 +99,15 @@ watch(caseDetailTransitionActive, (active) => {
     }
     return
   }
-  requestAnimationFrame(() => probe(pointerX, pointerY))
+  // Route mount and transition cleanup invalidate a large part of the case
+  // layout. Keep cursor movement compositor-only while that work settles;
+  // probing immediately here forced synchronous hit-testing on the new page.
+  caseDetailSettling.value = true
+  caseDetailSettleTimer = window.setTimeout(() => {
+    caseDetailSettleTimer = 0
+    caseDetailSettling.value = false
+    requestAnimationFrame(() => probe(pointerX, pointerY))
+  }, 600)
 })
 
 function flushMove() {
@@ -103,7 +116,9 @@ function flushMove() {
   applyPos(pointerX, pointerY)
   // The case overlay owns the whole viewport. Hit-testing the animated page
   // below it would force style/layout work on every cursor frame.
-  if (!caseDetailTransitionActive.value) probe(pointerX, pointerY)
+  if (!caseDetailTransitionActive.value && !caseDetailSettling.value) {
+    probe(pointerX, pointerY)
+  }
 }
 
 function onMove(e: PointerEvent) {
@@ -111,7 +126,7 @@ function onMove(e: PointerEvent) {
   pointerX = e.clientX
   pointerY = e.clientY
   pointerSeen = true
-  if (caseDetailTransitionActive.value) {
+  if (caseDetailTransitionActive.value || caseDetailSettling.value) {
     // Keep the dot independent from the shared animation RAF and avoid a DOM
     // hit-test while the fullscreen transition proxy is changing geometry.
     away.value = false
@@ -144,6 +159,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (moveRaf) cancelAnimationFrame(moveRaf)
+  if (caseDetailSettleTimer) window.clearTimeout(caseDetailSettleTimer)
   window.removeEventListener('pointermove', onMove)
   document.documentElement.removeEventListener('pointerleave', onDocLeave)
   document.documentElement.classList.remove('has-site-cursor', 'has-site-cursor-text')
@@ -159,7 +175,7 @@ onUnmounted(() => {
       :class="{
         'site-cursor--hot': hot,
         'site-cursor--case-open': caseOpen,
-        'site-cursor--case-transition': caseDetailTransitionActive,
+        'site-cursor--case-transition': caseDetailTransitionActive || caseDetailSettling,
         'site-cursor--hide': suppressed || away || textOver || chipFade,
       }"
       aria-hidden="true"
