@@ -43,7 +43,7 @@ type RetiringWave = {
 
 const canvasEl = ref<HTMLCanvasElement | null>(null)
 const { motionActive } = useCaseDetailExperience()
-const { scrollRevision, resizeRevision } = useMotionRuntime()
+const { scrollDelta, scrollRevision, resizeRevision } = useMotionRuntime()
 
 const vertexShader = /* glsl */ `
   attribute vec2 uv;
@@ -75,6 +75,7 @@ const fragmentShader = /* glsl */ `
   uniform vec4 uVisibleUv;
   uniform vec2 uRippleTexel;
   uniform float uEffectMix;
+  uniform float uOverlayOnly;
   uniform vec3 uSecondaryEffectMix;
 
   varying vec2 vUv;
@@ -117,6 +118,10 @@ const fragmentShader = /* glsl */ `
       waterGradient += vec2(secondaryLeft - secondaryRight, secondaryDown - secondaryUp) * uSecondaryEffectMix.z;
     }
     float rippleEnergy = smoothstep(0.0008, 0.055, length(waterGradient));
+    // Regular DOM images remain visible below this canvas. Outside the actual
+    // wake, skip the expensive full-resolution image lookup entirely instead
+    // of repainting the complete media rectangle for every active tail.
+    if (uOverlayOnly > 0.5 && rippleEnergy < 0.001) discard;
 
     vec2 displacedUv = vMediaUv;
     // The texture is displaced by the slope of the simulated water surface.
@@ -137,6 +142,9 @@ const fragmentShader = /* glsl */ `
       );
       float chromaMix = rippleEnergy * 0.32;
       baseColor.rgb = mix(baseColor.rgb, splitColor, chromaMix);
+    }
+    if (uOverlayOnly > 0.5) {
+      baseColor.a *= smoothstep(0.0, 0.22, rippleEnergy);
     }
 
     gl_FragColor = baseColor;
@@ -254,9 +262,9 @@ const decodedMediaAwaitingRenderer = new Set<WaveMedia>()
 const motionStateCache = new WeakMap<WaveMedia, { checkedAt: number, stable: boolean }>()
 let clipAncestorCache = new WeakMap<WaveMedia, ClipAncestor[]>()
 const textureCache = new Map<string | WaveMedia, { texture: Texture, lastUsed: number }>()
-const MAX_CACHED_TEXTURES = 4
-const HIGH_RIPPLE_SIZE = 256
-const MEDIUM_RIPPLE_SIZE = 192
+let maxCachedTextures = 4
+const HIGH_RIPPLE_SIZE = 192
+const MEDIUM_RIPPLE_SIZE = 160
 const LOW_RIPPLE_SIZE = 128
 const RIPPLE_STEP_MS = 1000 / 60
 const MIN_EFFECT_RADIUS_PX = 28
@@ -264,7 +272,11 @@ const MAX_EFFECT_RADIUS_PX = 180
 const EFFECT_RADIUS_SCALE = 1.25
 const EFFECT_FADE_DURATION_MS = 520
 const MAX_SIMULTANEOUS_WAVES = 4
-const SCROLL_HOVER_RESUME_DELAY_MS = 820
+/** Texture uploads resume only after meaningful page motion has settled. Hover
+ * rendering itself stays live on the shared canvas throughout the scroll. */
+const SCROLL_WARMUP_RESUME_DELAY_MS = 180
+/** Ignore Lenis' subpixel inertial tail for the texture-upload pause. */
+const SCROLL_ACTIVITY_MIN_DELTA_PX = 0.6
 let rippleSize = HIGH_RIPPLE_SIZE
 
 function preferredRippleSize() {
@@ -278,6 +290,16 @@ function preferredRippleSize() {
   if ((memory !== undefined && memory <= 4) || cores <= 4) return LOW_RIPPLE_SIZE
   if ((memory !== undefined && memory <= 8) || cores <= 6) return MEDIUM_RIPPLE_SIZE
   return HIGH_RIPPLE_SIZE
+}
+
+function preferredTextureCacheSize() {
+  const device = navigator as Navigator & { deviceMemory?: number }
+  const memory = device.deviceMemory ?? 4
+  const cores = navigator.hardwareConcurrency || 4
+  // The effect only mounts for fine desktop pointers. Keep a wider forward
+  // runway on capable machines so normal reading does not churn the fourth
+  // texture back out of GPU memory; conservative devices retain the old cap.
+  return memory >= 8 && cores >= 8 ? 8 : 4
 }
 
 function motionStrengthForSpeed(pixelsPerSecond: number) {
@@ -403,7 +425,7 @@ function collectClipAncestors(media: WaveMedia) {
 
 function trimTextureCache(protectedKey: string | WaveMedia) {
   if (!gl) return
-  while (textureCache.size > MAX_CACHED_TEXTURES) {
+  while (textureCache.size > maxCachedTextures) {
     const eviction = [...textureCache.entries()]
       .filter(([candidateKey, entry]) =>
         candidateKey !== protectedKey
@@ -424,9 +446,8 @@ function selectMediaTexture(media: WaveMedia) {
   if (!entry) {
     entry = { texture: textureFactory(media), lastUsed: performance.now() }
     textureCache.set(key, entry)
-  } else {
-    entry.lastUsed = performance.now()
   }
+  entry.lastUsed = performance.now()
 
   mediaTexture = entry.texture
   mediaProgram.uniforms.tImage!.value = entry.texture
@@ -465,16 +486,24 @@ function drainTextureWarmupQueue() {
     : window.setTimeout(upload, 32)
 }
 
-function enqueueTextureWarmup(media: WaveMedia) {
+function enqueueTextureWarmup(media: WaveMedia, priority = false) {
   const key = textureKey(media)
+  const queuedIndex = textureWarmupQueue.findIndex(candidate => textureKey(candidate) === key)
+  if (queuedIndex >= 0) {
+    if (priority && queuedIndex > 0) {
+      const [candidate] = textureWarmupQueue.splice(queuedIndex, 1)
+      if (candidate) textureWarmupQueue.unshift(candidate)
+    }
+    return
+  }
   if (
     !textureFactory
     || queuedTextureWarmups.has(media)
     || textureCache.has(key)
-    || textureWarmupQueue.some(candidate => textureKey(candidate) === key)
   ) return
   queuedTextureWarmups.add(media)
-  textureWarmupQueue.push(media)
+  if (priority) textureWarmupQueue.unshift(media)
+  else textureWarmupQueue.push(media)
   drainTextureWarmupQueue()
 }
 
@@ -490,7 +519,7 @@ function scheduleNearbyTextureWarmup(media: WaveMedia) {
       return Math.abs(images.indexOf(a) - activeIndex) - Math.abs(images.indexOf(b) - activeIndex)
     })
 
-  for (const candidate of candidates.slice(0, Math.max(0, MAX_CACHED_TEXTURES - textureCache.size))) {
+  for (const candidate of candidates.slice(0, Math.max(0, maxCachedTextures - textureCache.size))) {
     enqueueTextureWarmup(candidate)
   }
 }
@@ -654,6 +683,7 @@ function drawMedia(
   mediaProgram.uniforms.tImage!.value = texture
   mediaProgram.uniforms.tRipple!.value = simulation.read.texture
   mediaProgram.uniforms.uRippleTexel!.value = simulation.texel
+  mediaProgram.uniforms.uOverlayOnly!.value = mediaBlendMode(media) === 'normal' ? 1 : 0
   const secondaryA = secondaryWaves[0]
   const secondaryB = secondaryWaves[1]
   const secondaryC = secondaryWaves[2]
@@ -703,6 +733,51 @@ function releaseRetiringWave(index = 0) {
 
 function releaseRetiringWaves() {
   while (retiringWaves.length) releaseRetiringWave(0)
+}
+
+function reactivateRetiringWave(media: WaveMedia) {
+  if (!activeMedia || !rippleSimulation || !mediaTexture) return null
+  if (mediaBlendMode(activeMedia) !== 'normal') return null
+
+  // A quick A → B → A gesture should continue A's existing height field,
+  // rather than allocate another lane for the same media and eventually evict
+  // a still-visible tail from the bounded simulation pool.
+  let returningIndex = -1
+  for (let index = retiringWaves.length - 1; index >= 0; index--) {
+    if (retiringWaves[index]?.media === media) {
+      returningIndex = index
+      break
+    }
+  }
+  if (returningIndex < 0) return null
+
+  const returningWave = retiringWaves[returningIndex]!
+  retiringWaves.splice(returningIndex, 1)
+
+  const outgoingMedia = activeMedia
+  const outgoingSimulation = rippleSimulation
+  const outgoingTexture = mediaTexture
+  if (effectMix > 0.004) {
+    retiringWaves.push({
+      media: outgoingMedia,
+      clipAncestors: activeClipAncestors,
+      simulation: outgoingSimulation,
+      texture: outgoingTexture,
+      energy: trailEnergy,
+      mix: effectMix,
+    })
+  }
+  else {
+    outgoingMedia.classList.remove('case-wave-media-active')
+    clearTrail(outgoingSimulation)
+    spareRippleSimulations.push(outgoingSimulation)
+  }
+
+  rippleSimulation = returningWave.simulation
+  pointer = rippleSimulation.mouse
+  activeMedia = null
+  activePointerBounds = null
+  return returningWave
 }
 
 function retireActiveWave() {
@@ -771,11 +846,16 @@ function render(time: number) {
   effectMix = approachEffectMix(effectMix, effectMixTarget, elapsed)
   if (effectMixUniform) effectMixUniform.value = effectMix
 
+  // Keep the active wake at display cadence even while scrolling. The smaller
+  // field keeps that affordable; old trails fade without extra simulation work
+  // until the page settles.
   simulationAccumulator = Math.min(RIPPLE_STEP_MS * 2, simulationAccumulator + elapsed)
   const simulationSteps = Math.floor(simulationAccumulator / RIPPLE_STEP_MS)
   for (let step = 0; step < simulationSteps; step++) {
     updateRippleSimulation(rippleSimulation, step === 0 ? motionTarget : 0)
-    for (const retiringWave of retiringWaves) updateRippleSimulation(retiringWave.simulation, 0)
+    if (!scrolling) {
+      for (const retiringWave of retiringWaves) updateRippleSimulation(retiringWave.simulation, 0)
+    }
     rippleSimulation.previousMouse.set(pointer.x, pointer.y)
     simulationAccumulator -= RIPPLE_STEP_MS
   }
@@ -840,6 +920,7 @@ async function setupRenderer() {
     const nextGl = nextRenderer.gl
     nextGl.clearColor(0, 0, 0, 0)
     rippleSize = preferredRippleSize()
+    maxCachedTextures = preferredTextureCacheSize()
 
     const nextTexture = new OglTexture(nextGl, {
       generateMipmaps: false,
@@ -927,6 +1008,7 @@ async function setupRenderer() {
         uVisibleUv: { value: nextVisibleUv },
         uRippleTexel: { value: nextRippleSimulation.texel },
         uEffectMix: nextEffectMixUniform,
+        uOverlayOnly: { value: 1 },
         uSecondaryEffectMix: { value: nextSecondaryEffectMix },
       },
       depthTest: false,
@@ -963,6 +1045,16 @@ async function setupRenderer() {
     resizeRenderer()
     clearTrail()
     for (const simulation of spareRippleSimulations) clearTrail(simulation)
+    // Program construction does not guarantee that the browser driver has
+    // finished compiling both pipelines. Exercise one offscreen ripple pass
+    // and one cleared media pass now, then wait for the GPU while this work is
+    // still inside the idle warmup rather than the first pointer frame.
+    updateRippleSimulation(nextRippleSimulation, 0)
+    nextProgram.uniforms.tImage!.value = nextRippleSimulation.read.texture
+    nextRenderer.render({ scene: nextMesh, clear: false })
+    nextGl.finish()
+    nextProgram.uniforms.tImage!.value = nextTexture
+    clearTrail()
     clearCanvas()
     for (const media of decodedMediaAwaitingRenderer) enqueueTextureWarmup(media)
     decodedMediaAwaitingRenderer.clear()
@@ -1048,6 +1140,7 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
 
   if (activeMedia !== media) {
     const blendMode = mediaBlendMode(media)
+    let returningWave: RetiringWave | null = null
     // The shared canvas has one CSS blend mode. A multiplied video cannot
     // safely share it with normal retiring images, so keep multi-tail overlap
     // for the regular case media and switch blended media cleanly.
@@ -1056,7 +1149,7 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
       releaseActiveMedia(false)
       clearTrail()
     }
-    else if (!retireActiveWave()) {
+    else if (!(returningWave = reactivateRetiringWave(media)) && !retireActiveWave()) {
       releaseActiveMedia(false)
       clearTrail()
     }
@@ -1072,9 +1165,9 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
     pointer.set(targetPointerX, targetPointerY)
     rippleSimulation?.previousMouse.set(targetPointerX, targetPointerY)
     if (rippleSimulation) rippleSimulation.impulse.value = 0
-    trailEnergy = 0
-    effectMix = 1
-    if (effectMixUniform) effectMixUniform.value = 1
+    trailEnergy = returningWave?.energy ?? 0
+    effectMix = returningWave?.mix ?? 1
+    if (effectMixUniform) effectMixUniform.value = effectMix
     simulationAccumulator = 0
     // A normal image can stay visible below the opaque shader output. Avoiding
     // an opacity toggle is important for the 222%-tall Audience parallax image:
@@ -1091,7 +1184,7 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
 }
 
 function activateMedia(media: WaveMedia, event: PointerEvent) {
-  if (scrolling || !isMediaMotionStable(media)) return
+  if (!isMediaMotionStable(media)) return
   const resumesDormantHover = hoveredMedia === media && activeMedia !== media
   const reentersFadingField = activeMedia === media && hoveredMedia !== media
   const startsFreshGesture = resumesDormantHover || reentersFadingField
@@ -1136,13 +1229,13 @@ function activateMedia(media: WaveMedia, event: PointerEvent) {
 }
 
 function handlePointerOver(event: PointerEvent) {
-  if (scrolling || !mediaQuery?.matches || event.pointerType === 'touch') return
+  if (!mediaQuery?.matches || event.pointerType === 'touch') return
   const media = findMedia(event.target)
   if (media && media !== hoveredMedia) activateMedia(media, event)
 }
 
 function handlePointerMove(event: PointerEvent) {
-  if (scrolling || !mediaQuery?.matches || event.pointerType === 'touch') return
+  if (!mediaQuery?.matches || event.pointerType === 'touch') return
   const media = findMedia(event.target)
   if (!media) return
   if (media !== hoveredMedia || activeMedia !== media) {
@@ -1174,34 +1267,20 @@ function handleResize() {
   requestRender()
 }
 
-function handleScroll() {
-  // Lenis keeps emitting native scroll events throughout its inertial tail.
-  // Suspend the shader for that corridor plus the longest GSAP scrub catch-up:
-  // otherwise wave frames compete with reveals and read moving geometry.
-  if (!scrolling) {
-    if (animationFrame) cancelAnimationFrame(animationFrame)
-    animationFrame = 0
-    activationId++
-    hoveredMedia = null
-    hoveredClipAncestors = []
-    releaseRetiringWaves()
-    releaseActiveMedia()
-    clearTrail()
-    trailEnergy = 0
-    effectMix = 1
-    simulationAccumulator = 0
-    lastFrameTime = 0
-    lastPointerInputTime = 0
-    lastPointerEventTime = 0
-    inputMotionStrength = 0
-  }
+function handleScroll(delta: number) {
+  // The shared canvas follows active media through getBoundingClientRect() in
+  // drawMedia(), so scrolling no longer clears the wave or blocks pointer
+  // intent. Real movement switches the ripple to its lighter simulation mode
+  // and pauses background texture uploads until the page settles.
+  if (Math.abs(delta) < SCROLL_ACTIVITY_MIN_DELTA_PX) return
   scrolling = true
+  requestRender()
   if (scrollIdleTimer) window.clearTimeout(scrollIdleTimer)
   scrollIdleTimer = window.setTimeout(() => {
     scrollIdleTimer = 0
     scrolling = false
     drainTextureWarmupQueue()
-  }, SCROLL_HOVER_RESUME_DELAY_MS)
+  }, SCROLL_WARMUP_RESUME_DELAY_MS)
 }
 
 function handleMediaPreferenceChange() {
@@ -1298,6 +1377,12 @@ onMounted(() => {
     // Compile OGL and both shaders away from the first hover/scroll frame.
     const warmRenderer = () => {
       rendererWarmupIdle = 0
+      if (scrolling) {
+        rendererWarmupIdle = window.requestIdleCallback
+          ? window.requestIdleCallback(warmRenderer)
+          : window.setTimeout(warmRenderer, 180)
+        return
+      }
       void setupRenderer()
     }
     rendererWarmupIdle = window.requestIdleCallback
@@ -1328,7 +1413,7 @@ onMounted(() => {
   stopRuntimeWatch = watch(
     [scrollRevision, resizeRevision],
     ([nextScroll, nextResize], [previousScroll, previousResize]) => {
-      if (nextScroll !== previousScroll) handleScroll()
+      if (nextScroll !== previousScroll) handleScroll(scrollDelta.value)
       if (nextResize !== previousResize) handleResize()
     },
   )

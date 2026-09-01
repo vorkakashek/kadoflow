@@ -23,6 +23,11 @@ export default defineNuxtPlugin((nuxtApp) => {
   let tickerAttached = false
   let createGeneration = 0
   let idleId: number | null = null
+  let runtimePromise: Promise<[
+    typeof import('lenis'),
+    typeof import('gsap'),
+    typeof import('gsap/ScrollTrigger'),
+  ]> | null = null
 
   const enabledQuery = window.matchMedia(SMOOTH_SCROLL_ENABLED)
 
@@ -75,14 +80,19 @@ export default defineNuxtPlugin((nuxtApp) => {
     lenis = null
   }
 
-  async function create() {
-    if (lenis || !enabledQuery.matches) return
-    const generation = ++createGeneration
-    const [lenisModule, gsapModule, scrollTriggerModule] = await Promise.all([
+  function loadRuntime() {
+    runtimePromise ??= Promise.all([
       import('lenis'),
       import('gsap'),
       import('gsap/ScrollTrigger'),
     ])
+    return runtimePromise
+  }
+
+  async function create() {
+    if (lenis || !enabledQuery.matches) return
+    const generation = ++createGeneration
+    const [lenisModule, gsapModule, scrollTriggerModule] = await loadRuntime()
     if (generation !== createGeneration || !enabledQuery.matches || lenis) return
 
     const Lenis = lenisModule.default
@@ -128,6 +138,10 @@ export default defineNuxtPlugin((nuxtApp) => {
   nuxtApp.hook('app:mounted', () => {
     const activate = () => void create()
     if (enabledQuery.matches) {
+      // Fetch and evaluate the small smooth-scroll runtime immediately after
+      // the first paint. If the user wheels before the idle constructor runs,
+      // that gesture no longer pays for three cold dynamic imports.
+      requestAnimationFrame(() => void loadRuntime())
       // Hydration and the first visual response keep priority. A short timeout
       // still makes wheel smoothing ready before normal desktop interaction.
       if ('requestIdleCallback' in window) {

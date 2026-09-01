@@ -5,6 +5,7 @@ import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
 
 const route = useRoute()
 const { t } = useI18n()
+const { scrollRevision } = useMotionRuntime()
 const homeCases = useHomeCases()
 const projectCaseDetails = await useProjectCaseDetails()
 const item = computed(() =>
@@ -53,6 +54,7 @@ const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
 let directRevealReadyTimer = 0
 let detailPageUnmounted = false
+let lastDetailScrollAt = 0
 const detailEnhancementTimers: number[] = []
 const detailEnhancementIdles: number[] = []
 let stopDetailEnhancementWatch: (() => void) | null = null
@@ -196,7 +198,7 @@ function cancelWaveLayerWarmup() {
 }
 
 function syncWaveLayerMount() {
-  const eligible = Boolean(waveLayerMediaQuery?.matches && detailMotionActive.value)
+  const eligible = Boolean(waveLayerMediaQuery?.matches)
   if (!eligible) {
     cancelWaveLayerWarmup()
     waveLayerReady.value = false
@@ -205,22 +207,18 @@ function syncWaveLayerMount() {
   if (waveLayerReady.value || waveLayerDelay || waveLayerIdle) return
   const mount = () => {
     waveLayerIdle = 0
-    if (waveLayerMediaQuery?.matches && detailMotionActive.value) {
+    if (waveLayerMediaQuery?.matches) {
       waveLayerReady.value = true
     }
   }
-  // Loading the lazy component and compiling its shaders in the first frame
-  // after entry caused a visible main-thread stall. Preserve a quiet reading
-  // window, then warm the decorative desktop effect only when the browser is idle.
+  // Mount the lightweight Vue shell early, including beneath the route cover.
+  // Its OGL runtime still compiles in an idle slice, while pointer listeners
+  // are guaranteed to exist as soon as the page becomes interactive.
   waveLayerDelay = globalThis.setTimeout(() => {
     waveLayerDelay = 0
-    if (!waveLayerMediaQuery?.matches || !detailMotionActive.value) return
-    if (typeof window.requestIdleCallback === 'function') {
-      waveLayerIdle = window.requestIdleCallback(mount, { timeout: 1600 })
-    } else {
-      mount()
-    }
-  }, 2200)
+    if (!waveLayerMediaQuery?.matches) return
+    mount()
+  }, 120)
 }
 
 async function refreshAudienceScrollPositions() {
@@ -642,6 +640,11 @@ function scheduleDetailEnhancement(delay: number, task: () => void | Promise<voi
     const run = () => {
       if (idle) removeScheduledId(detailEnhancementIdles, idle)
       if (detailPageUnmounted || !detailMotionActive.value) return
+      const quietFor = performance.now() - lastDetailScrollAt
+      if (lastDetailScrollAt && quietFor < 240) {
+        scheduleDetailEnhancement(Math.ceil(240 - quietFor), task)
+        return
+      }
       void task()
     }
     if (typeof window.requestIdleCallback === 'function') {
@@ -663,6 +666,7 @@ function scheduleDeferredDetailEnhancements() {
   scheduleDetailEnhancement(1000, setupDetailReveals)
   scheduleDetailEnhancement(1350, setupNextProjectParallax)
   scheduleDetailEnhancement(1750, setupAudienceTextFill)
+  scheduleDetailEnhancement(2400, () => preloadRouteComponents('/'))
 }
 
 function deferBelowFoldSetupUntilEntryEnds() {
@@ -680,15 +684,14 @@ function deferBelowFoldSetupUntilEntryEnds() {
 
 onMounted(() => {
   mountCaseDetailPage(String(route.params.id))
-  // Direct entries have not visited the home route yet. Warm its component
-  // while the user reads the case so the return transition can mount it under
-  // the fullscreen cover without a route-chunk pause.
-  void preloadRouteComponents('/')
+  watch(scrollRevision, () => {
+    lastDetailScrollAt = performance.now()
+  })
   waveLayerMediaQuery = window.matchMedia(
     '(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
   )
   waveLayerMediaQuery.addEventListener('change', syncWaveLayerMount)
-  watch(detailMotionActive, syncWaveLayerMount, { immediate: true })
+  syncWaveLayerMount()
   void nextTick(async () => {
     const firstScreenMotionReady = Promise.all([
       setupHeaderScroll(),
