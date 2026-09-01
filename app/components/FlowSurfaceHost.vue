@@ -295,6 +295,8 @@ let motionBootTimer = 0
 let motionIdleId: number | null = null
 let removeMotionIntent: (() => void) | null = null
 let hostUnmounted = false
+let keepAliveActive = true
+const initialCasesHashEntry = ref(false)
 
 async function bootMotionEngine() {
   if (motionBootPromise) return motionBootPromise
@@ -1819,6 +1821,7 @@ function reconcileFromScroll() {
 
 function tick(now: number) {
   raf = 0
+  if (!keepAliveActive) return
   if (!lastTs) lastTs = now
   const dt = Math.min(0.064, Math.max(0, (now - lastTs) / 1000))
   lastTs = now
@@ -1893,6 +1896,7 @@ function tick(now: number) {
 }
 
 function ensureTick() {
+  if (!keepAliveActive) return
   if (!raf) {
     lastTs = 0
     raf = requestAnimationFrame(tick)
@@ -1953,7 +1957,7 @@ let morphQuietUntil = 0
 let refreshDepth = 0
 
 function stageChangesAllowed() {
-  if (morphBooting || suppressStageCallbacks) return false
+  if (!keepAliveActive || morphBooting || suppressStageCallbacks) return false
   if (typeof performance !== 'undefined' && performance.now() < morphQuietUntil) {
     return false
   }
@@ -2158,6 +2162,19 @@ function buildMorph() {
 
     if (mobileActive) {
       buildMobileMorph(gsap, ScrollTrigger)
+      // A cold /#cases load has no preceding Hero → Kado journey. Place the
+      // surface at its actual initial viewport target before the first paint.
+      if (initialCasesHashEntry.value) {
+        const dest = caseMediaPose()
+        if (dest) {
+          mobileCaseProgress = 1
+          mobileCaseArrived = true
+          caseMediaActive = true
+          setCaseSurfaceDocked(true)
+          paintBox(dest, 1)
+          requestAnimationFrame(() => pinCaseFrame())
+        }
+      }
       // A detail → home return already has its own fullscreen image flight.
       // Dock the real surface immediately after the mobile corridor has painted
       // its initial rest pose, while that overlay is still fully covering it.
@@ -2242,6 +2259,7 @@ function buildMorph() {
 }
 
 function onResize() {
+  if (!keepAliveActive) return
   if (isMobileChromeHeightOnlyResize()) return
   capturePoses()
   if (mobileActive) {
@@ -2269,6 +2287,7 @@ function onResize() {
 }
 
 function onCaseMediaScroll() {
+  if (!keepAliveActive) return
   if (mobileActive) {
     if (stageChangesAllowed()) reconcileFromScroll()
     if (caseFramePinned()) syncPinnedMask()
@@ -2285,7 +2304,12 @@ function onCaseMediaScroll() {
 onMounted(async () => {
   resetFlowSurfaceMaskSession()
   hostUnmounted = false
-  const coldDirectEntry = !preload.revealed.value && !returningHomeFromCaseDetail()
+  initialCasesHashEntry.value = window.location.hash === '#cases'
+    && !preload.revealed.value
+    && !returningHomeFromCaseDetail()
+  const coldDirectEntry = !preload.revealed.value
+    && !returningHomeFromCaseDetail()
+    && !initialCasesHashEntry.value
   await nextTick()
   // Let the route/page DOM settle before ST — avoids refresh↔pin softlock on SPA entry.
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
@@ -2329,6 +2353,24 @@ onUnmounted(() => {
   killMorph()
   window.removeEventListener('resize', onResize)
   window.removeEventListener('scroll', onCaseMediaScroll)
+})
+
+onDeactivated(() => {
+  keepAliveActive = false
+  if (raf) cancelAnimationFrame(raf)
+  raf = 0
+})
+
+onActivated(() => {
+  keepAliveActive = true
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      if (!keepAliveActive || hostUnmounted) return
+      capturePoses()
+      onResize()
+      ensureTick()
+    })
+  })
 })
 
 watch(clipPathEl, (el) => {
@@ -2493,7 +2535,10 @@ watch(
           />
           <div
             class="case-surface-fill"
-            :class="{ 'case-surface-fill--on': showCaseFill }"
+            :class="{
+              'case-surface-fill--on': showCaseFill,
+              'case-surface-fill--direct-entry': initialCasesHashEntry,
+            }"
             :aria-hidden="(!showCaseFill).toString()"
           >
             <div
@@ -2622,7 +2667,18 @@ watch(
 }
 
 .case-surface-fill__picture {
-  display: contents;
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.case-surface-fill--direct-entry.case-surface-fill--on .case-surface-fill__picture {
+  animation: case-surface-direct-media-in 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes case-surface-direct-media-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .case-surface-fill__asset {
@@ -2637,6 +2693,12 @@ watch(
 
 .case-surface-fill__asset--behind-video {
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .case-surface-fill--direct-entry.case-surface-fill--on .case-surface-fill__picture {
+    animation: none;
+  }
 }
 
 </style>

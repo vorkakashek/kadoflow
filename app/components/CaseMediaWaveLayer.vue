@@ -262,6 +262,7 @@ const MAX_EFFECT_RADIUS_PX = 180
 const EFFECT_RADIUS_SCALE = 1.25
 const EFFECT_FADE_DURATION_MS = 520
 const MAX_SIMULTANEOUS_WAVES = 4
+const SCROLL_HOVER_RESUME_DELAY_MS = 820
 let rippleSize = HIGH_RIPPLE_SIZE
 
 function preferredRippleSize() {
@@ -1088,7 +1089,7 @@ function commitMediaActivation(media: WaveMedia, currentActivation: number) {
 }
 
 function activateMedia(media: WaveMedia, event: PointerEvent) {
-  if (!isMediaMotionStable(media)) return
+  if (scrolling || !isMediaMotionStable(media)) return
   const resumesDormantHover = hoveredMedia === media && activeMedia !== media
   const reentersFadingField = activeMedia === media && hoveredMedia !== media
   const startsFreshGesture = resumesDormantHover || reentersFadingField
@@ -1133,13 +1134,13 @@ function activateMedia(media: WaveMedia, event: PointerEvent) {
 }
 
 function handlePointerOver(event: PointerEvent) {
-  if (!mediaQuery?.matches || event.pointerType === 'touch') return
+  if (scrolling || !mediaQuery?.matches || event.pointerType === 'touch') return
   const media = findMedia(event.target)
   if (media && media !== hoveredMedia) activateMedia(media, event)
 }
 
 function handlePointerMove(event: PointerEvent) {
-  if (!mediaQuery?.matches || event.pointerType === 'touch') return
+  if (scrolling || !mediaQuery?.matches || event.pointerType === 'touch') return
   const media = findMedia(event.target)
   if (!media) return
   if (media !== hoveredMedia || activeMedia !== media) {
@@ -1172,16 +1173,33 @@ function handleResize() {
 }
 
 function handleScroll() {
-  // Geometry is refreshed by the next animation frame. Never call setSize()
-  // here: resizing the WebGL drawing buffer on every scroll event stalls GPU.
+  // Lenis keeps emitting native scroll events throughout its inertial tail.
+  // Suspend the shader for that corridor plus the longest GSAP scrub catch-up:
+  // otherwise wave frames compete with reveals and read moving geometry.
+  if (!scrolling) {
+    if (animationFrame) cancelAnimationFrame(animationFrame)
+    animationFrame = 0
+    activationId++
+    hoveredMedia = null
+    hoveredClipAncestors = []
+    releaseRetiringWaves()
+    releaseActiveMedia()
+    clearTrail()
+    trailEnergy = 0
+    effectMix = 1
+    simulationAccumulator = 0
+    lastFrameTime = 0
+    lastPointerInputTime = 0
+    lastPointerEventTime = 0
+    inputMotionStrength = 0
+  }
   scrolling = true
   if (scrollIdleTimer) window.clearTimeout(scrollIdleTimer)
   scrollIdleTimer = window.setTimeout(() => {
     scrollIdleTimer = 0
     scrolling = false
     drainTextureWarmupQueue()
-  }, 140)
-  requestRender()
+  }, SCROLL_HOVER_RESUME_DELAY_MS)
 }
 
 function handleMediaPreferenceChange() {

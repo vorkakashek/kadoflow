@@ -32,12 +32,14 @@ const props = withDefaults(
     toneClass?: string
     toneOpacity?: number
     paintFill?: boolean
+    active?: boolean
   }>(),
   {
     mode: 'panel',
     toneClass: 'bg-stone',
     toneOpacity: 1,
     paintFill: true,
+    active: true,
   },
 )
 
@@ -97,6 +99,7 @@ let grainTimer = 0
 let motionQuery: MediaQueryList | null = null
 let pointer: { x: number; y: number } | null = null
 let pendingPointer: { clientX: number; clientY: number } | null = null
+let keepAliveActive = true
 /** side: -1 inside (concave), +1 outside (convex) */
 let softPointer: { x: number; y: number; str: number; side: number } = {
   x: 0,
@@ -733,6 +736,7 @@ function publish(box?: { top: number; left: number; width: number; height: numbe
 }
 
 function edgeLiveNeeded() {
+  if (!props.active || !keepAliveActive) return false
   if (liveEdgeHardOff()) return false
   if (flowSurfaceMask.roamActive) return true
   if (flowSurfaceMask.pointerInteractive) {
@@ -930,6 +934,7 @@ function syncGrainMotion() {
   }
   const el = grainEl.value
   if (!el) return
+  if (!props.active || !keepAliveActive) return
   if (motionQuery?.matches) {
     el.style.backgroundPosition = '0 0'
     if (raf) {
@@ -967,11 +972,13 @@ onMounted(async () => {
   watch(
     () =>
       [
+        props.active,
         flowSurfaceMask.pointerInteractive,
         flowSurfaceMask.roamActive,
         flowSurfaceMask.freezeSilhouette,
       ] as const,
     () => {
+      syncGrainMotion()
       ensureLoop()
     },
   )
@@ -1023,6 +1030,21 @@ onUnmounted(() => {
   window.removeEventListener('blur', onWindowBlur)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   document.removeEventListener('mouseout', onDocumentMouseOut)
+})
+
+onDeactivated(() => {
+  keepAliveActive = false
+  clearPointerHover()
+  if (raf) cancelAnimationFrame(raf)
+  raf = 0
+  syncGrainMotion()
+})
+
+onActivated(() => {
+  keepAliveActive = true
+  measure()
+  syncGrainMotion()
+  ensureLoop()
 })
 const overscanPx = computed(() => (skipOrganicClip() ? 0 : EDGE_OVERSCAN))
 const overscanBoxStyle = computed(() => {

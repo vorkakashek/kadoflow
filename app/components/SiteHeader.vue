@@ -44,7 +44,16 @@ const mobileScrollMarkOn = ref(false)
 /** Desktop keeps the compact mark while the reader moves down on any page. */
 const desktopScrollMarkOn = ref(false)
 const caseInverse = useState('home-case-inverse', () => false)
-const { closeCaseDetail, active: caseDetailTransitionActive } = useCaseDetailTransition()
+const {
+  closeCaseDetail,
+  active: caseDetailTransitionActive,
+  request: caseDetailTransitionRequest,
+} = useCaseDetailTransition()
+const returningToHomeCases = computed(() => (
+  caseDetailTransitionActive.value
+  && caseDetailTransitionRequest.value?.direction === 'close'
+  && caseDetailTransitionRequest.value.to === '/#cases'
+))
 const detailCase = computed(() => {
   const match = /^\/projects\/([^/]+)$/.exec(route.path)
   return match ? homeCases.value.find((item) => item.id === match[1]) : undefined
@@ -79,6 +88,8 @@ const mobileScrollMarkInverted = computed(
 const navEl = ref<HTMLElement | null>(null)
 const menuBtnEl = ref<HTMLElement | null>(null)
 const menuSlotEl = ref<HTMLElement | null>(null)
+const caseBackEl = ref<HTMLElement | null>(null)
+const caseMobileBackEl = ref<HTMLElement | null>(null)
 /** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
 const fabBottomExtra = ref(0)
 const thumbNav = ref(false)
@@ -570,6 +581,19 @@ function onScroll() {
   syncFabLabel()
   syncDesktopScrollMark()
   syncMobileScrollMark()
+  // Detail → home owns the destination scroll until the media has docked.
+  // Never let its temporary scrollY=0 frame expand the header in between.
+  if (returningToHomeCases.value) {
+    if (collapseTimer) {
+      window.clearTimeout(collapseTimer)
+      collapseTimer = 0
+    }
+    if (canCollapseHeader() && !scrolled.value) {
+      scrolled.value = true
+      void morph(true)
+    }
+    return
+  }
   if (canvasLocksScroll()) return
 
   const past = window.scrollY > 8
@@ -611,6 +635,12 @@ function syncDesktopScrollMark() {
     return
   }
   if (canvasLocksScroll()) return
+
+  if (returningToHomeCases.value) {
+    desktopScrollMarkOn.value = true
+    lastDesktopLogoScrollY = Math.max(0, window.scrollY || 0)
+    return
+  }
 
   const y = Math.max(0, window.scrollY || 0)
   if (y <= 8) {
@@ -862,6 +892,20 @@ onMounted(() => {
     () => route.path,
     () => {
       void setupLogoCasesTrigger()
+      if (returningToHomeCases.value) {
+        if (collapseTimer) {
+          window.clearTimeout(collapseTimer)
+          collapseTimer = 0
+        }
+        pendingExpand = false
+        const wasCollapsed = scrolled.value && canCollapseHeader()
+        scrolled.value = canCollapseHeader()
+        lastFabScrollY = window.scrollY
+        lastDesktopLogoScrollY = window.scrollY
+        if (!mobileHeader.value) desktopScrollMarkOn.value = true
+        void morph(!wasCollapsed)
+        return
+      }
       if (canvasForced.value) {
         pendingExpand = false
         scrolled.value = false
@@ -901,7 +945,10 @@ onMounted(() => {
   })
 
   const preload = useBrandPreload()
-  introPending.value = !preload.revealed.value
+  // Keep the SSR-hidden shell covered even when a direct case route bypassed
+  // the brand preloader before this component mounted. The immediate watcher
+  // still has to load GSAP and stage every child; uncovering here produced a
+  // visible → hidden → animated sequence during that async gap.
 
   watch(
     () => preload.revealed.value,
@@ -919,30 +966,45 @@ onMounted(() => {
       const logo = domOf(logoEl.value)
       const menuBtn = domOf(menuBtnEl.value)
       const fab = domOf(fabEl.value)
+      const caseBack = domOf(caseBackEl.value)
+      const caseMobileBack = domOf(caseMobileBackEl.value)
       const navLinks = navEl.value
         ? Array.from(navEl.value.querySelectorAll('.nav-link'))
         : []
 
       if (logo) g.set(logo, { autoAlpha: 0, y: -12 })
-      if (navLinks.length) g.set(navLinks, { autoAlpha: 0, y: -10 })
+      if (caseBack) g.set(caseBack, { autoAlpha: 0, y: -10 })
+      if (navEl.value) g.set(navEl.value, { autoAlpha: 0, y: -10 })
+      if (navLinks.length) g.set(navLinks, { autoAlpha: 0, y: -5 })
       if (menuBtn) g.set(menuBtn, { autoAlpha: 0, y: -10 })
-      if (fab) g.set(fab, { clearProps: 'opacity,visibility,transform' })
+      if (caseMobileBack) g.set(caseMobileBack, { autoAlpha: 0, y: 10 })
+      if (fab) g.set(fab, { autoAlpha: 0, y: 10 })
       if (shellEl.value) g.set(shellEl.value, { autoAlpha: 1 })
 
       introPending.value = false
       await nextTick()
 
       const tl = g.timeline({ defaults: { ease: 'power3.out' } })
-      // Stagger after iris — logo → links → desktop menu.
+      // The pill itself participates in the reveal. Previously the shell was
+      // uncovered before its children were staged, so the nav background and
+      // case-back control flashed in raw while the links animated afterward.
       if (logo) tl.to(logo, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.35)
+      if (caseBack) tl.to(caseBack, { autoAlpha: 1, y: 0, duration: 0.58 }, 0.47)
+      if (navEl.value) {
+        tl.to(navEl.value, { autoAlpha: 1, y: 0, duration: 0.58 }, 0.52)
+      }
       if (navLinks.length) {
         tl.to(
           navLinks,
-          { autoAlpha: 1, y: 0, duration: 0.6, stagger: 0.1 },
-          0.55,
+          { autoAlpha: 1, y: 0, duration: 0.48, stagger: 0.07 },
+          0.62,
         )
       }
       if (menuBtn) tl.to(menuBtn, { autoAlpha: 1, y: 0, duration: 0.6 }, 0.95)
+      if (caseMobileBack) {
+        tl.to(caseMobileBack, { autoAlpha: 1, y: 0, duration: 0.55 }, 0.48)
+      }
+      if (fab) tl.to(fab, { autoAlpha: 1, y: 0, duration: 0.6 }, 0.68)
     },
     { immediate: true },
   )
@@ -1045,6 +1107,7 @@ onUnmounted(() => {
         <Transition name="case-header-back">
           <button
             v-if="detailCase"
+            ref="caseBackEl"
             type="button"
             class="case-header-back site-nav pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
             :aria-label="t('common.backHome')"
@@ -1166,9 +1229,13 @@ onUnmounted(() => {
     </Transition>
     <button
       v-if="detailCase && !canvasSurface"
+      ref="caseMobileBackEl"
       type="button"
       class="case-mobile-back site-nav pointer-events-auto"
-      :class="{ 'case-mobile-back--transitioning': caseDetailTransitionActive }"
+      :class="{
+        'header-intro-hide': introPending,
+        'case-mobile-back--transitioning': caseDetailTransitionActive,
+      }"
       :style="fabStyle"
       :aria-label="t('common.backHome')"
       @click="onCaseDetailBack"
@@ -1183,6 +1250,7 @@ onUnmounted(() => {
       type="button"
       class="menu-fab site-nav chip-scale-host pointer-events-auto flex items-center text-ink"
       :class="{
+        'header-intro-hide': introPending,
         'menu-fab--compact': !fabLabelOn,
         'menu-chip-busy': menuBusy,
         'menu-fab--case': detailCase,

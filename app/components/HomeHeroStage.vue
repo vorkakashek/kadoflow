@@ -450,6 +450,7 @@ const heroWebglPrebootRequested = useState<boolean>(
   () => false,
 )
 const heroWebglBooted = useState<boolean>('home-hero-webgl-booted', () => false)
+const heroWebglLit = useState<boolean>('home-hero-webgl-lit', () => false)
 let swarmIdleId: number | null = null
 let swarmFallbackTimer = 0
 let removeSwarmIntent: (() => void) | null = null
@@ -611,6 +612,7 @@ const swarmCoverUp = computed(
 
 function onSwarmLit() {
   swarmLit.value = true
+  heroWebglLit.value = true
 }
 
 function onSwarmBooted() {

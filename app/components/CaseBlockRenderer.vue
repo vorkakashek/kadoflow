@@ -36,11 +36,6 @@ const emit = defineEmits<{
     :block="block"
     :class="{ 'case-block--first': props.first }"
   />
-  <CaseMotionFeatureBlock
-    v-else-if="block.type === 'motion-feature'"
-    :block="block"
-    :class="{ 'case-block--first': props.first }"
-  />
   <CaseTextMediaRailBlock
     v-else-if="block.type === 'text-media-rail'"
     :block="block"
@@ -55,9 +50,7 @@ const emit = defineEmits<{
 </template>
 
 <style>
-@media (max-width: 767.98px) {
-  .case-block--first {
-    margin-top: 0 !important;
-  }
+.case-block--first {
+  margin-top: 0 !important;
 }
 </style>

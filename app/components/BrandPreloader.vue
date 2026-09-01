@@ -12,6 +12,7 @@ const heroWebglPrebootRequested = useState<boolean>(
   () => false,
 )
 const heroWebglBooted = useState<boolean>('home-hero-webgl-booted', () => false)
+const heroWebglLit = useState<boolean>('home-hero-webgl-lit', () => false)
 
 const rootEl = ref<HTMLElement | null>(null)
 const markEl = ref<HTMLElement | null>(null)
@@ -200,16 +201,15 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
     })
   }
 
-  // Repeat desktop loads already have the scene chunks cached. Pay the WebGL
-  // context-creation task while the mark is motionless, before the reveal and
-  // before the custom cursor becomes visible. Cold loads remain SSG/LCP-first.
-  const warmHomeDesktop =
+  // Desktop pays the complete first-scene cost while the mark is motionless at
+  // 99%: Three import, WebGL context, HDR/PMREM, shader compile and hidden paints.
+  // A bounded wait keeps a cold network from turning the brand beat into a wall.
+  const homeDesktop =
     route.path === '/'
-    && preload.repeatVisit.value
     && !reduced.value
     && window.innerWidth >= 900
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
-  if (warmHomeDesktop && !heroWebglBooted.value) {
+  if (homeDesktop && !heroWebglLit.value) {
     heroWebglPrebootRequested.value = true
     await new Promise<void>((resolve) => {
       let done = false
@@ -220,10 +220,13 @@ async function settleAndExit(opts?: { skipSpin?: boolean }) {
         window.clearTimeout(safety)
         resolve()
       }
-      const stop = watch(heroWebglBooted, (booted) => {
-        if (booted) finish()
+      const stop = watch(heroWebglLit, (lit) => {
+        if (lit) finish()
       }, { immediate: true })
-      const safety = window.setTimeout(finish, 700)
+      const safety = window.setTimeout(
+        finish,
+        preload.repeatVisit.value ? 700 : 1100,
+      )
     })
   }
 
@@ -624,6 +627,7 @@ onMounted(async () => {
   if (route.path === '/') {
     heroWebglPrebootRequested.value = false
     heroWebglBooted.value = false
+    heroWebglLit.value = false
   }
   preload.begin()
   reduced.value =

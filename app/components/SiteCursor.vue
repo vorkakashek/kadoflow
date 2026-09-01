@@ -31,6 +31,7 @@ const TEXT_SEL = [
 ].join(',')
 
 const { suppressed } = useSiteCursor()
+const { active: caseDetailTransitionActive } = useCaseDetailTransition()
 const rootEl = ref<HTMLElement | null>(null)
 const enabled = ref(false)
 const hot = ref(false)
@@ -41,6 +42,7 @@ const chipFade = ref(false)
 let moveRaf = 0
 let pointerX = 0
 let pointerY = 0
+let pointerSeen = false
 
 function canUse() {
   return window.matchMedia('(hover: hover) and (pointer: fine)').matches
@@ -72,21 +74,50 @@ function probe(x: number, y: number) {
   const overChip = !!node.closest(CHIP_FADE_SEL)
   const overCaseMedia = !!node.closest('.cases-case-link, .case-detail__next')
   chipFade.value = overChip
-  caseOpen.value = !overText && overCaseMedia
+  caseOpen.value = !caseDetailTransitionActive.value && !overText && overCaseMedia
   hot.value = !overText && !overChip && !overCaseMedia && !!node.closest(HOT_SEL)
 }
+
+watch(caseDetailTransitionActive, (active) => {
+  if (active) {
+    if (moveRaf) {
+      cancelAnimationFrame(moveRaf)
+      moveRaf = 0
+    }
+    caseOpen.value = false
+    hot.value = false
+    chipFade.value = false
+    setTextOver(false)
+    if (pointerSeen) {
+      away.value = false
+      applyPos(pointerX, pointerY)
+    }
+    return
+  }
+  requestAnimationFrame(() => probe(pointerX, pointerY))
+})
 
 function flushMove() {
   moveRaf = 0
   away.value = false
   applyPos(pointerX, pointerY)
-  probe(pointerX, pointerY)
+  // The case overlay owns the whole viewport. Hit-testing the animated page
+  // below it would force style/layout work on every cursor frame.
+  if (!caseDetailTransitionActive.value) probe(pointerX, pointerY)
 }
 
 function onMove(e: PointerEvent) {
   if (e.pointerType === 'touch') return
   pointerX = e.clientX
   pointerY = e.clientY
+  pointerSeen = true
+  if (caseDetailTransitionActive.value) {
+    // Keep the dot independent from the shared animation RAF and avoid a DOM
+    // hit-test while the fullscreen transition proxy is changing geometry.
+    away.value = false
+    applyPos(pointerX, pointerY)
+    return
+  }
   if (!moveRaf) moveRaf = requestAnimationFrame(flushMove)
 }
 
@@ -128,6 +159,7 @@ onUnmounted(() => {
       :class="{
         'site-cursor--hot': hot,
         'site-cursor--case-open': caseOpen,
+        'site-cursor--case-transition': caseDetailTransitionActive,
         'site-cursor--hide': suppressed || away || textOver || chipFade,
       }"
       aria-hidden="true"
@@ -148,6 +180,7 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   pointer-events: none;
+  contain: layout style paint;
   mix-blend-mode: difference;
   will-change: transform, opacity, width, height;
   opacity: 1;
@@ -155,6 +188,19 @@ onUnmounted(() => {
     width 0.24s var(--motion-ease, ease),
     height 0.24s var(--motion-ease, ease),
     opacity 0.28s var(--motion-ease, ease);
+}
+
+.site-cursor--case-transition {
+  /* Difference blending ties the cursor repaint to every changing pixel of
+     the fullscreen proxy. Normal blending keeps this tiny layer independent. */
+  isolation: isolate;
+  mix-blend-mode: normal;
+}
+
+.site-cursor--case-transition .site-cursor__dot {
+  border: 1px solid rgb(0 0 0 / 28%);
+  background: var(--palette-milk, #f5f1e8);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 24%);
 }
 
 .site-cursor__dot {

@@ -73,14 +73,6 @@ export type ProjectCaseContentMosaicBlock = {
   rows: ProjectCaseMosaicRow[]
 }
 
-export type ProjectCaseMotionFeatureBlock = {
-  type: 'motion-feature'
-  id: string
-  title: string
-  fillText: string
-  media: ProjectCaseMedia & { type: 'video' }
-}
-
 export type ProjectCaseTextMediaRailBlock = {
   type: 'text-media-rail'
   id: string
@@ -102,7 +94,6 @@ export type ProjectCaseBlock =
   | ProjectCaseIntroRailBlock
   | ProjectCaseDisclosureMediaBlock
   | ProjectCaseContentMosaicBlock
-  | ProjectCaseMotionFeatureBlock
   | ProjectCaseTextMediaRailBlock
   | ProjectCaseFinalBlock
 
@@ -115,6 +106,11 @@ export type ProjectCaseDetail = {
     height: number
     webpSrcset?: string
     avifSrcset?: string
+    mobileSrc?: string
+    mobileWidth?: number
+    mobileHeight?: number
+    mobileWebpSrcset?: string
+    mobileAvifSrcset?: string
   }
   blocks: ProjectCaseBlock[]
   closing: ProjectCaseMedia

@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { heroToKadoPlan } from '~/utils/flowSurfaceMorph'
 
+// The home route owns the expensive WebGL and ScrollTrigger scene. Preserve it
+// across case-detail hops so route replacement only moves the existing subtree
+// instead of disposing and rebuilding the whole experience on the main thread.
+definePageMeta({ keepalive: true })
+
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
 const cases = useTemplateRef('cases')

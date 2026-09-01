@@ -378,8 +378,13 @@ async function setupSectionParallax() {
   const bodyCopy = bodyFocusEl.value
   if (!host || !stoneColumn || !bodyParallax || !topCopy || !bodyCopy) return
 
-  const gsap = (await import('gsap')).default
-  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
+  if (!gsapMod || !stMod) {
+    gsapMod = (await import('gsap')).default
+    const st = await import('gsap/ScrollTrigger')
+    stMod = st.ScrollTrigger
+  }
+  const gsap = gsapMod
+  const ScrollTrigger = stMod
   gsap.registerPlugin(ScrollTrigger)
 
   parallaxMatchMedia = gsap.matchMedia()
@@ -509,6 +514,10 @@ async function setupSectionParallax() {
 
     },
   )
+
+  // If scroll restoration or a fast wheel step already moved the document,
+  // commit the correct scrub poses in this same setup turn.
+  ScrollTrigger.update()
 }
 
 watch(
@@ -527,10 +536,13 @@ onMounted(async () => {
   componentUnmounted = false
   fillMountedAt = performance.now()
   await nextTick()
+  // Critical layout motion must exist before the preloader unlocks scrolling.
+  // Waiting for Hero intro + idle here let fast visitors cross Kado first and
+  // made ScrollTrigger apply its current pose as a visible late jump.
+  await setupSectionParallax()
+  if (componentUnmounted) return
   await waitForHeroIntro()
   await waitForEnhancementIdle()
-  if (componentUnmounted) return
-  await setupSectionParallax()
   if (componentUnmounted) return
   await ensureLineFill()
   if (componentUnmounted) return

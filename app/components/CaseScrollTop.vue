@@ -1,6 +1,35 @@
 <script setup lang="ts">
 import { PhArrowUp } from '@phosphor-icons/vue'
 const { t } = useI18n()
+const visible = ref(false)
+let lastScrollY = 0
+let scrollFrame = 0
+
+function updateVisibility() {
+  scrollFrame = 0
+  const nextScrollY = Math.max(0, window.scrollY)
+  const delta = nextScrollY - lastScrollY
+
+  if (nextScrollY <= 24) visible.value = false
+  else if (delta > 0.5) visible.value = false
+  else if (delta < -0.5) visible.value = true
+
+  lastScrollY = nextScrollY
+}
+
+function handleScroll() {
+  if (!scrollFrame) scrollFrame = requestAnimationFrame(updateVisibility)
+}
+
+onMounted(() => {
+  lastScrollY = Math.max(0, window.scrollY)
+  window.addEventListener('scroll', handleScroll, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', handleScroll)
+  if (scrollFrame) cancelAnimationFrame(scrollFrame)
+})
 
 function scrollToTop() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -9,7 +38,15 @@ function scrollToTop() {
 </script>
 
 <template>
-  <button type="button" class="case-scroll-top" :aria-label="t('common.scrollTop')" @click="scrollToTop">
+  <button
+    type="button"
+    class="case-scroll-top"
+    :class="{ 'case-scroll-top--visible': visible }"
+    :aria-label="t('common.scrollTop')"
+    :aria-hidden="!visible"
+    :tabindex="visible ? 0 : -1"
+    @click="scrollToTop"
+  >
     <PhArrowUp :size="22" aria-hidden="true" />
   </button>
 </template>
@@ -33,15 +70,28 @@ function scrollToTop() {
   color: inherit;
   background-color: color-mix(in srgb, currentColor 30%, transparent);
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px) scale(0.92);
+  visibility: hidden;
   transition:
     background-color 260ms ease,
-    transform 260ms var(--motion-ease, ease);
+    opacity 220ms ease,
+    transform 260ms var(--motion-ease, ease),
+    visibility 220ms;
 }
 
-.case-scroll-top:hover,
-.case-scroll-top:focus-visible {
+.case-scroll-top--visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+}
+
+.case-scroll-top--visible:hover,
+.case-scroll-top--visible:focus-visible {
   background-color: color-mix(in srgb, currentColor 42%, transparent);
-  transform: translateY(-2px);
+  transform: translateY(-2px) scale(1);
 }
 
 .case-scroll-top:focus-visible {

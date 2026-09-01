@@ -98,10 +98,13 @@ const {
   openCaseDetail,
 } = useCaseDetailTransition()
 
-const hideCaseCopyDuringDetailReturn = computed(() => (
+const caseDetailHomeReturnActive = computed(() => (
   caseDetailTransitionActive.value
   && caseDetailTransitionRequest.value?.direction === 'close'
   && caseDetailTransitionRequest.value.to === '/#cases'
+))
+const hideCaseCopyDuringDetailReturn = computed(() => (
+  caseDetailHomeReturnActive.value
   && !homeReturnMediaDocked.value
 ))
 
@@ -381,13 +384,21 @@ let firstCaseWarmScheduled = false
 let firstCaseNear = false
 let firstCaseObserver: IntersectionObserver | null = null
 
-function warmFirstCaseMedia() {
+function isColdCasesHashEntry() {
+  return typeof window !== 'undefined'
+    && window.location.hash === '#cases'
+    && !preload.revealed.value
+    && !caseDetailHomeReturnActive.value
+}
+
+function warmFirstCaseMedia(priority = false) {
   if (caseMediaReady.value || firstCaseWarmImage) return
   const src = homeCases.value[0]?.media.src
   if (!src) return
 
   const image = new Image()
   firstCaseWarmImage = image
+  if (priority) image.fetchPriority = 'high'
   image.srcset = homeCases.value[0]?.media.avifSrcset ?? homeCases.value[0]?.media.webpSrcset ?? ''
   image.sizes = '(max-width: 767px) 92vw, 42vw'
   image.src = src
@@ -404,8 +415,18 @@ function warmFirstCaseMedia() {
 }
 
 function scheduleFirstCaseWarm() {
-  if (!preload.revealed.value || !firstCaseNear || firstCaseWarmScheduled) return
+  const directCasesEntry = isColdCasesHashEntry()
+  if (
+    firstCaseWarmScheduled
+    || (!directCasesEntry && (!preload.revealed.value || !firstCaseNear))
+  ) return
   firstCaseWarmScheduled = true
+  // At /#cases this image is in the initial viewport, not a later enhancement.
+  // Start it now instead of waiting for the Hero-oriented idle budget.
+  if (directCasesEntry) {
+    warmFirstCaseMedia(true)
+    return
+  }
   const warm = () => {
     const firstCase = homeCases.value[0]
     if (firstCase) warmCaseDetail(firstCase)
@@ -1376,7 +1397,10 @@ onBeforeUnmount(() => {
       <nav
         ref="railEl"
         class="cases-rail col-span-12 md:col-span-10 md:col-start-2 md:row-start-2"
-        :class="{ 'cases-rail--detail-return-pending': hideCaseCopyDuringDetailReturn }"
+        :class="{
+          'cases-rail--detail-return': caseDetailHomeReturnActive,
+          'cases-rail--detail-return-pending': hideCaseCopyDuringDetailReturn,
+        }"
         :style="{ '--cases-wash': activeCase?.wash }"
         :aria-label="t('home.cases.navigationLabel')"
       >
@@ -1615,11 +1639,19 @@ onBeforeUnmount(() => {
   transition: opacity 0.18s var(--motion-ease, ease);
 }
 
-.cases-rail--detail-return-pending,
 .cases-blurb--detail-return-pending {
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
+}
+
+.cases-rail--detail-return-pending {
+  pointer-events: none;
+}
+
+.cases-rail--detail-return-pending .cases-rail__list {
+  visibility: hidden;
+  opacity: 0;
 }
 
 .cases-rail__list {
@@ -1637,6 +1669,7 @@ onBeforeUnmount(() => {
   overscroll-behavior-y: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  transition: opacity 0.18s var(--motion-ease, ease);
 }
 
 .cases-rail__list::-webkit-scrollbar {
@@ -1663,7 +1696,7 @@ onBeforeUnmount(() => {
     width: 100vw;
     content: '';
     pointer-events: none;
-    opacity: var(--cases-backdrop-opacity);
+    opacity: var(--cases-return-backdrop-opacity, var(--cases-backdrop-opacity));
     background: linear-gradient(
       to top,
       color-mix(in srgb, var(--cases-wash) 4%, transparent),
@@ -1671,9 +1704,25 @@ onBeforeUnmount(() => {
     );
     mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
     -webkit-mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
-    transform: translateX(-50%) scaleY(var(--cases-backdrop-scale));
+    transform: translateX(-50%) scaleY(var(--cases-return-backdrop-scale, var(--cases-backdrop-scale)));
     transform-origin: bottom center;
-    transition: bottom 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+      bottom 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.54s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.72s cubic-bezier(0.22, 1, 0.36, 1),
+      backdrop-filter 0.54s cubic-bezier(0.22, 1, 0.36, 1),
+      -webkit-backdrop-filter 0.54s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+
+  .cases-rail--detail-return {
+    --cases-return-backdrop-opacity: 1;
+    --cases-return-backdrop-scale: 1;
+  }
+
+  .cases-rail--detail-return-pending {
+    --cases-return-backdrop-opacity: 0;
+    --cases-return-backdrop-scale: 0.96;
   }
 
   .cases-rail--tail-retracted::before {
@@ -1684,6 +1733,11 @@ onBeforeUnmount(() => {
     .cases-rail::before {
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
+    }
+
+    .cases-rail--detail-return-pending::before {
+      backdrop-filter: blur(0);
+      -webkit-backdrop-filter: blur(0);
     }
   }
 
@@ -1827,6 +1881,10 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .cases-rail,
   .cases-blurb {
+    transition: none;
+  }
+
+  .cases-rail::before {
     transition: none;
   }
 

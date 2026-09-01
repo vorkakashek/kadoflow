@@ -15,8 +15,6 @@ const {
   active: detailTransitionActive,
   detailContentVisible,
 } = useCaseDetailTransition()
-const brandPreload = useBrandPreload()
-const brandPreloaderEnabled = useBrandPreloaderEnabled()
 const firstScreenEl = ref<HTMLElement | null>(null)
 const titleFrameEl = ref<HTMLElement | null>(null)
 const titleMotionEl = ref<HTMLElement | null>(null)
@@ -45,7 +43,10 @@ let waveLayerIdle = 0
 let audienceTextRebuildTimer = 0
 const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
-let stopDirectRevealWatch: (() => void) | null = null
+let directRevealReadyTimer = 0
+let detailPageUnmounted = false
+let detailEnhancementIdle = 0
+let stopDetailEnhancementWatch: (() => void) | null = null
 const waveLayerReady = ref(false)
 const mediaDecodeQueue: HTMLImageElement[] = []
 const queuedMediaDecodes = new Set<HTMLImageElement>()
@@ -93,11 +94,11 @@ function queueMediaDecode(image: HTMLImageElement) {
   pumpMediaDecodeQueue()
 }
 
-// A direct request has no fullscreen cover to stage the page underneath. Start
-// it from the same hidden pose and release it after the hydrated DOM has painted.
+// A direct request has no fullscreen cover to stage the page underneath. Keep
+// its first screen in the entry pose through hydration, font settlement and
+// the responsive header-image decode so none of that geometry is exposed.
 const isDirectEntry = !detailTransitionRequest.value && !detailTransitionActive.value
-const directEntryWaitsForBrandReveal = isDirectEntry && brandPreloaderEnabled.value
-if (isDirectEntry) detailContentVisible.value = !directEntryWaitsForBrandReveal
+if (isDirectEntry) detailContentVisible.value = false
 
 function releaseDirectEntry() {
   directRevealFrame = requestAnimationFrame(() => {
@@ -105,6 +106,32 @@ function releaseDirectEntry() {
       detailContentVisible.value = true
     })
   })
+}
+
+async function waitForDirectEntryPaint() {
+  const image = mediaEnterEl.value?.querySelector('img')
+  const imageReady = async () => {
+    if (!image) return
+    if (!image.complete) {
+      await new Promise<void>((resolve) => {
+        image.addEventListener('load', () => resolve(), { once: true })
+        image.addEventListener('error', () => resolve(), { once: true })
+      })
+    }
+    if (image.naturalWidth > 0) await image.decode().catch(() => undefined)
+  }
+
+  const stableAssets = Promise.all([
+    document.fonts?.ready ?? Promise.resolve(),
+    imageReady(),
+  ])
+  const timeout = new Promise<void>((resolve) => {
+    directRevealReadyTimer = window.setTimeout(resolve, 1400)
+  })
+
+  await Promise.race([stableAssets, timeout])
+  if (directRevealReadyTimer) window.clearTimeout(directRevealReadyTimer)
+  directRevealReadyTimer = 0
 }
 
 function setupCaseMediaPreload() {
@@ -554,6 +581,55 @@ async function setupNextProjectParallax() {
   }, block)
 }
 
+type KillableGsapContext = {
+  revert: () => void
+  kill?: (revert?: boolean) => void
+}
+
+function disposeContext(context: KillableGsapContext | null) {
+  // The route subtree is removed immediately afterwards. Reverting every
+  // animated inline style first only adds style/layout work to navigation.
+  if (context?.kill) context.kill(false)
+  else context?.revert()
+}
+
+function cancelDeferredDetailEnhancements() {
+  stopDetailEnhancementWatch?.()
+  stopDetailEnhancementWatch = null
+  if (!detailEnhancementIdle) return
+  if ('cancelIdleCallback' in window) window.cancelIdleCallback(detailEnhancementIdle)
+  else window.clearTimeout(detailEnhancementIdle)
+  detailEnhancementIdle = 0
+}
+
+function scheduleDeferredDetailEnhancements() {
+  if (detailPageUnmounted || detailEnhancementIdle) return
+  const run = () => {
+    detailEnhancementIdle = 0
+    if (detailPageUnmounted) return
+    setupCaseMediaPreload()
+    void setupDetailReveals()
+    void setupAudienceTextFill()
+    void setupNextProjectParallax()
+  }
+  detailEnhancementIdle = 'requestIdleCallback' in window
+    ? window.requestIdleCallback(run, { timeout: 900 })
+    : window.setTimeout(run, 96)
+}
+
+function deferBelowFoldSetupUntilEntryEnds() {
+  if (!detailTransitionActive.value) {
+    scheduleDeferredDetailEnhancements()
+    return
+  }
+  stopDetailEnhancementWatch = watch(detailTransitionActive, (active) => {
+    if (active) return
+    stopDetailEnhancementWatch?.()
+    stopDetailEnhancementWatch = null
+    requestAnimationFrame(scheduleDeferredDetailEnhancements)
+  })
+}
+
 onMounted(() => {
   // Direct entries have not visited the home route yet. Warm its component
   // while the user reads the case so the return transition can mount it under
@@ -564,44 +640,35 @@ onMounted(() => {
   )
   waveLayerMediaQuery.addEventListener('change', syncWaveLayerMount)
   syncWaveLayerMount()
-  void nextTick(() => {
-    setupCaseMediaPreload()
-    void setupDetailReveals()
-    void setupHeaderScroll()
-    void setupMediaParallax()
-    void setupAudienceTextFill()
-    void setupNextProjectParallax()
-  })
+  void nextTick(async () => {
+    const firstScreenMotionReady = Promise.all([
+      setupHeaderScroll(),
+      setupMediaParallax(),
+    ])
+    deferBelowFoldSetupUntilEntryEnds()
 
-  if (directEntryWaitsForBrandReveal) {
-    if (brandPreload.revealed.value) releaseDirectEntry()
-    else {
-      stopDirectRevealWatch = watch(
-        () => brandPreload.revealed.value,
-        (revealed) => {
-          if (!revealed) return
-          stopDirectRevealWatch?.()
-          stopDirectRevealWatch = null
-          releaseDirectEntry()
-        },
-      )
+    if (isDirectEntry) {
+      await Promise.all([firstScreenMotionReady, waitForDirectEntryPaint()])
+      if (!detailPageUnmounted) releaseDirectEntry()
     }
-  }
+  })
 })
 
 onBeforeUnmount(() => {
+  detailPageUnmounted = true
   if (directRevealFrame) cancelAnimationFrame(directRevealFrame)
-  stopDirectRevealWatch?.()
-  stopDirectRevealWatch = null
-  mediaParallaxCtx?.revert()
+  if (directRevealReadyTimer) window.clearTimeout(directRevealReadyTimer)
+  directRevealReadyTimer = 0
+  cancelDeferredDetailEnhancements()
+  disposeContext(mediaParallaxCtx)
   mediaParallaxCtx = null
-  headerScrollCtx?.revert()
+  disposeContext(headerScrollCtx)
   headerScrollCtx = null
-  detailRevealCtx?.revert()
+  disposeContext(detailRevealCtx)
   detailRevealCtx = null
-  audienceTextFillCtx?.revert()
+  disposeContext(audienceTextFillCtx)
   audienceTextFillCtx = null
-  nextProjectParallaxCtx?.revert()
+  disposeContext(nextProjectParallaxCtx)
   nextProjectParallaxCtx = null
   audienceTextResizeObserver?.disconnect()
   audienceTextResizeObserver = null
@@ -638,6 +705,7 @@ useHead(() => ({
         'case-detail--inverse': item.inverse,
         'case-detail--audience': item.id === 'audience',
         'case-detail--baltika': item.id === 'baltika',
+        'case-detail--transition-entry': !isDirectEntry,
         'case-detail--entering': !detailContentVisible,
       }"
       :style="{ backgroundColor: item.wash }"
@@ -718,6 +786,20 @@ useHead(() => ({
                 :alt="item.media.alt"
               />
               <picture v-else class="case-detail__picture">
+                <source
+                  v-if="projectDetail?.headerMedia?.mobileAvifSrcset"
+                  media="(max-width: 767.98px)"
+                  type="image/avif"
+                  :srcset="projectDetail.headerMedia.mobileAvifSrcset"
+                  sizes="100vw"
+                >
+                <source
+                  v-if="projectDetail?.headerMedia?.mobileWebpSrcset"
+                  media="(max-width: 767.98px)"
+                  type="image/webp"
+                  :srcset="projectDetail.headerMedia.mobileWebpSrcset"
+                  sizes="100vw"
+                >
                 <source v-if="headerMedia?.avifSrcset" type="image/avif" :srcset="headerMedia.avifSrcset" sizes="100vw">
                 <source v-if="headerMedia?.webpSrcset" type="image/webp" :srcset="headerMedia.webpSrcset" sizes="100vw">
                 <img
@@ -990,6 +1072,8 @@ h1 {
 .case-detail__media {
   margin-top: var(--space-4);
   margin-bottom: var(--space-case-media-runway);
+  translate: 0 var(--case-header-shift);
+  will-change: translate;
 }
 
 .case-detail__media--video {
@@ -1009,10 +1093,6 @@ h1 {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-}
-
-.case-detail--baltika .case-detail__image {
-  aspect-ratio: 9 / 16;
 }
 
 .case-detail__media--audience .case-detail__image {
@@ -1035,10 +1115,22 @@ h1 {
   height: 222.222%;
 }
 
+@media (min-width: 768px) {
+  .case-detail__media,
+  .case-detail__media--video,
+  .case-detail__media--audience {
+    margin-bottom: 0;
+  }
+}
+
 @media (max-width: 767.98px) {
   .case-detail__media {
     margin-top: 0;
     margin-bottom: 0;
+  }
+
+  .case-detail--baltika .case-detail__image {
+    aspect-ratio: 9 / 16;
   }
 }
 
@@ -1058,6 +1150,15 @@ h1 {
 .case-detail--entering .case-detail__meta,
 .case-detail--entering .case-detail__media {
   transform: translateY(2rem);
+}
+
+/* During an SPA case opening the fullscreen proxy already owns the media
+   entrance. Keep the live destination fully painted underneath it so the
+   handoff cannot dip to the page wash and then fade the image back in. */
+.case-detail--transition-entry .case-detail__media {
+  opacity: 1;
+  transform: none;
+  transition: none;
 }
 
 .case-detail:not(.case-detail--entering) .case-detail__meta {

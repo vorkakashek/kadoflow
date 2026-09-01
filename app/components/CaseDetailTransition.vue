@@ -60,28 +60,66 @@ async function findTarget(selector: string) {
   for (let frame = 0; frame < 12; frame += 1) {
     const target = document.querySelector<HTMLElement>(selector)
     const rect = target?.getBoundingClientRect()
-    if (rect && rect.width > 2 && rect.height > 2) return rect
+    if (target && rect && rect.width > 2 && rect.height > 2) return target
     await nextPaint()
   }
   return null
 }
 
-/** Let route watchers finish, then restore the hash position under the cover. */
-async function settleRouteHash(to: string) {
+/** Keep a hash destination pinned while the remounted home layout settles. */
+function startRouteHashPin(to: string) {
   const hashAt = to.indexOf('#')
-  if (hashAt < 0) return
+  if (hashAt < 0) return { ready: Promise.resolve(), stop: () => {} }
   const id = decodeURIComponent(to.slice(hashAt + 1))
-  if (!id) return
+  if (!id) return { ready: Promise.resolve(), stop: () => {} }
 
-  for (let frame = 0; frame < 4; frame += 1) {
-    const target = document.getElementById(id)
-    if (!target) {
-      await nextPaint()
-      continue
+  let raf = 0
+  let stopped = false
+  let stableFrames = 0
+  let tries = 0
+  let resolveReady = () => {}
+  let readyResolved = false
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve
+  })
+  const finishReady = () => {
+    if (readyResolved) return
+    readyResolved = true
+    resolveReady()
+  }
+  const step = () => {
+    if (stopped) {
+      finishReady()
+      return
     }
-    target.scrollIntoView({ block: 'start', behavior: 'auto' })
-    await nextPaint()
-    if (Math.abs(target.getBoundingClientRect().top) < 1) return
+    const target = document.getElementById(id)
+    if (target) {
+      const rect = target.getBoundingClientRect()
+      if (Math.abs(rect.top) > 0.75) {
+        window.scrollTo({
+          top: Math.max(0, window.scrollY + rect.top),
+          left: 0,
+          behavior: 'auto',
+        })
+        stableFrames = 0
+      } else {
+        stableFrames += 1
+        if (stableFrames >= 3) finishReady()
+      }
+    }
+    tries += 1
+    if (tries >= 72) finishReady()
+    raf = requestAnimationFrame(step)
+  }
+  raf = requestAnimationFrame(step)
+
+  return {
+    ready,
+    stop: () => {
+      stopped = true
+      if (raf) cancelAnimationFrame(raf)
+      finishReady()
+    },
   }
 }
 
@@ -95,7 +133,9 @@ watch(request, async (next) => {
   // Start resolving the cold route before decoding and staging the transition
   // image. Scheduled warmups normally finish this earlier; this is the fallback
   // for an immediate click or direct programmatic open.
-  if (next.direction === 'open') void warmCaseDetailRoute(next.to)
+  const routeWarmup = next.direction === 'open'
+    ? warmCaseDetailRoute(next.to)
+    : Promise.resolve()
 
   active.value = true
   wash.value = next.wash
@@ -114,7 +154,16 @@ watch(request, async (next) => {
   gsap.set(root, { opacity: 1 })
   if (next.direction === 'open' && next.rect) {
     gsap.set(backdrop, { opacity: 0 })
-    gsap.set(image, { ...next.rect, opacity: 1, filter: 'blur(0px)' })
+    gsap.set(image, {
+      ...next.rect,
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotate: 0,
+      opacity: 1,
+      filter: 'none',
+      clipPath: 'inset(0px)',
+    })
   } else {
     gsap.set(backdrop, { opacity: 0 })
     gsap.set(image, {
@@ -122,10 +171,14 @@ watch(request, async (next) => {
       left: 0,
       width: viewport.width,
       height: viewport.height,
-      opacity: 0,
-      filter: 'blur(28px)',
-      scale: 1.16,
-      rotate: -3.5,
+      x: 0,
+      y: 0,
+      // A fractional paint uploads the fixed proxy before its cover tween.
+      opacity: 0.001,
+      filter: 'none',
+      clipPath: 'inset(0px)',
+      scale: 1.1,
+      rotate: -2,
       transformOrigin: '50% 50%',
     })
   }
@@ -133,13 +186,17 @@ watch(request, async (next) => {
   // hidden layer. Otherwise v-show can expose one stale/default image frame.
   visible.value = true
   await nextTick()
+  // Promote and paint the fixed proxy before geometry starts moving. Reusing
+  // a decoded raster avoids network work, but a new composited layer still
+  // needs its own first upload.
+  await nextPaint()
 
+  let stopHashPin: (() => void) | null = null
   try {
     if (next.direction === 'open' && next.rect) {
-      // Start mounting the detail under the wash immediately. Keep the proxy
-      // fully visible after it reaches fullscreen if a cold route still needs
-      // time; never reveal an empty wash between the two scenes.
-      const navigation = router.push(next.to)
+      // Keep route mounting out of the scale-up. The proxy reaches fullscreen
+      // smoothly first; any remaining warmup/mount work runs under its static
+      // opaque frame instead of competing with the geometry tween.
       const flight = gsap.timeline()
       flight.to(backdrop, { opacity: 1, duration: 0.18, ease: 'power1.out' }, 0)
       flight.to(
@@ -155,7 +212,8 @@ watch(request, async (next) => {
         0,
       )
       await flight
-      await navigation
+      await routeWarmup
+      await router.push(next.to)
       await nextPaint()
 
       // Start the detail entrance while it is still covered. Two painted
@@ -164,20 +222,15 @@ watch(request, async (next) => {
       detailContentVisible.value = true
       await nextPaint()
 
-      const reveal = gsap.timeline()
-      reveal.to(image, {
+      // Fade the already-composited proxy + wash as one layer. Independent
+      // image/backdrop fades produced a short luminance dip before the live
+      // header media (which used to have its own delay) became visible.
+      const reveal = gsap.to(root, {
         opacity: 0,
-        filter: 'blur(20px)',
         duration: 0.42,
         ease: 'power2.out',
-      }, 0)
-      reveal.to(backdrop, {
-        opacity: 0,
-        duration: 0.42,
-        ease: 'power1.out',
-      }, 0)
+      })
       await reveal
-      gsap.set(root, { opacity: 0 })
       return
     }
 
@@ -193,9 +246,8 @@ watch(request, async (next) => {
     cover.to(backdrop, { opacity: 1, duration: 0.42, ease: 'power2.inOut' }, 0)
     cover.to(image, {
       opacity: 1,
-      filter: 'blur(0px)',
-      scale: 1.06,
-      rotate: -1.5,
+      scale: 1.04,
+      rotate: -0.75,
       duration: 0.58,
       ease: 'power2.inOut',
     }, 0)
@@ -206,21 +258,26 @@ watch(request, async (next) => {
       if (next.historyBack) await returnThroughHistory(next.to)
       else await router.push(next.to)
       await nextPaint()
-      await settleRouteHash(next.to)
+      const hashPin = startRouteHashPin(next.to)
+      stopHashPin = hashPin.stop
+      await hashPin.ready
       return next.targetSelector ? findTarget(next.targetSelector) : null
     })()
-    const target = await targetTask
+    const targetEl = await targetTask
 
-    if (target) {
+    if (targetEl) {
+      const target = targetEl.getBoundingClientRect()
       const flight = gsap.timeline()
       flight.to(image, {
         top: target.top,
         left: target.left,
         width: target.width,
         height: target.height,
+        x: 0,
+        y: 0,
         scale: 1,
         rotate: 0,
-        filter: 'blur(0px)',
+        clipPath: 'inset(0px)',
         duration: 0.60,
         ease: 'power3.inOut',
         overwrite: 'auto',
@@ -243,7 +300,6 @@ watch(request, async (next) => {
       await cover
       await gsap.to(image, {
         opacity: 0,
-        filter: 'blur(12px)',
         scale: 1.02,
         rotate: 0,
         duration: 0.42,
@@ -253,6 +309,7 @@ watch(request, async (next) => {
     }
     gsap.set(root, { opacity: 0 })
   } finally {
+    stopHashPin?.()
     if (next.direction === 'close') homeReturnPending.value = false
     visible.value = false
     request.value = null
@@ -305,6 +362,6 @@ watch(request, async (next) => {
   display: block;
   object-fit: cover;
   object-position: center;
-  will-change: top, left, width, height, transform, opacity, filter;
+  will-change: top, left, width, height, transform, opacity;
 }
 </style>

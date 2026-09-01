@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CaseSectionIntroCopy from './CaseSectionIntroCopy.vue'
 import type { ProjectCaseIntroRailBlock } from '~/utils/projectCaseDetails'
 
 const props = defineProps<{
@@ -8,10 +9,7 @@ const props = defineProps<{
 
 <template>
   <section class="case-intro-rail audience-case audience-case--intro">
-    <h2 v-html="props.block.title" />
-    <div class="audience-case__copy audience-case__copy--split">
-      <p v-for="paragraph in props.block.paragraphs" :key="paragraph">{{ paragraph }}</p>
-    </div>
+    <CaseSectionIntroCopy :title="props.block.title" :paragraphs="props.block.paragraphs" />
     <CaseHorizontalRail
       class="audience-case__media-pair audience-case__media-pair--scroll"
       :desktop-grab-speed="props.block.railSpeed ?? 1"
@@ -33,35 +31,6 @@ const props = defineProps<{
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: var(--layout-gutter);
   margin-top: var(--space-6);
-}
-
-h2 {
-  grid-column: 2 / span 5;
-  grid-row: 1;
-  max-width: none;
-  margin: 0;
-  font-size: clamp(2.75rem, 4.2vw, 6rem);
-  font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 0.91;
-  text-align: left;
-  white-space: nowrap;
-}
-
-p { margin: 0; }
-
-.audience-case__copy {
-  display: grid;
-  grid-column: 6 / -2;
-  grid-row: 2;
-  grid-template-columns: 1fr;
-  row-gap: var(--space-2);
-  margin-top: var(--space-4);
-  color: color-mix(in srgb, var(--palette-milk, #f5f1e8) 78%, #0a0501);
-  font-size: var(--type-case-body-large);
-  font-weight: 300;
-  letter-spacing: -0.01em;
-  line-height: 1.28;
 }
 
 .audience-case__media-pair { grid-column: 1 / -1; margin-top: var(--space-6); }
@@ -92,25 +61,8 @@ p { margin: 0; }
   object-fit: cover;
 }
 
-@media (min-width: 768px) and (max-width: 1279.98px) {
-  h2,
-  .audience-case__copy {
-    grid-column: 2 / -2;
-  }
-}
-
 @media (max-width: 767.98px) {
   .case-intro-rail { grid-template-columns: 1fr; }
-  h2 {
-    grid-column: 1;
-    font-size: clamp(1.875rem, 8vw, 2.25rem);
-    white-space: normal;
-  }
-  .audience-case__copy {
-    grid-column: 1;
-    margin-top: var(--space-4);
-  }
-  .audience-case__copy p { font-size: var(--type-case-body); }
   .audience-case__media-pair { grid-column: 1; }
   .audience-case__wave-media--portrait { margin-top: var(--space-4); }
   :deep(.case-horizontal-rail__viewport) {

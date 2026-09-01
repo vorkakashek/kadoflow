@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CaseSectionIntroCopy from './CaseSectionIntroCopy.vue'
 import type { ProjectCaseSection } from '~/utils/projectCaseDetails'
 
 const props = defineProps<{
@@ -48,12 +49,17 @@ const presentationClasses = computed(() => {
       :paragraphs="section.paragraphs"
       @layout-change="emit('layoutChange')"
     />
-    <template v-else>
+    <template v-else-if="section.layout === 'feature'">
       <h2 v-html="section.title" />
       <div class="project-story__copy">
         <p v-for="paragraph in section.paragraphs" :key="paragraph">{{ paragraph }}</p>
       </div>
     </template>
+    <CaseSectionIntroCopy
+      v-else
+      :title="section.title"
+      :paragraphs="section.paragraphs"
+    />
 
     <CaseMediaCollection :media="section.media" :rail-speed="section.railSpeed" />
     <CaseMediaCaption v-if="section.statement" :text="section.statement" />
@@ -62,6 +68,7 @@ const presentationClasses = computed(() => {
 
 <style scoped>
 .project-story {
+  --case-section-intro-copy-margin: calc(var(--space-4) - var(--space-5));
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: var(--layout-gutter);
@@ -158,9 +165,6 @@ const presentationClasses = computed(() => {
   margin-top: var(--space-4);
 }
 
-.project-story--intro > h2 { grid-column: 1 / span 8; }
-.project-story--intro .project-story__copy { grid-column: 7 / -1; }
-
 .project-story--feature > h2 {
   grid-column: 2 / -2;
   max-width: none;
@@ -179,21 +183,6 @@ const presentationClasses = computed(() => {
   width: min(100%, 62rem);
   margin-inline: auto;
   aspect-ratio: 1;
-}
-
-.project-story--split > h2 { grid-column: 1 / span 7; }
-
-.project-story--split .project-story__copy {
-  grid-column: 8 / -1;
-  grid-template-columns: 1fr;
-  align-self: end;
-}
-
-.project-story--gallery > h2 { grid-column: 1 / span 9; }
-
-.project-story--gallery .project-story__copy {
-  grid-column: 8 / -1;
-  grid-template-columns: 1fr;
 }
 
 .project-story--title-nowrap > h2 {
@@ -323,8 +312,8 @@ const presentationClasses = computed(() => {
   margin-top: calc(var(--space-5) * -0.5);
 }
 
-.project-story--disclosure { row-gap: var(--space-6); }
-.project-story--spacing-compact-disclosure { row-gap: calc(var(--space-6) * 0.25); }
+.project-story--disclosure,
+.project-story--spacing-compact-disclosure { row-gap: var(--space-4); }
 .project-story--disclosure > :deep(.case-disclosure) { grid-column: 1 / -1; }
 .project-story--disclosure :deep(.project-story__media) { grid-column: 2 / -2; }
 .project-story--disclosure :deep(.project-story__media img) { aspect-ratio: 16 / 8; }
@@ -362,7 +351,7 @@ const presentationClasses = computed(() => {
     margin-top: calc(var(--space-5) * -0.5);
   }
 
-  .project-story--disclosure { row-gap: calc(var(--space-5) * 0.5); }
+  .project-story--disclosure { row-gap: var(--space-4); }
 
   .project-story > h2,
   .project-story__copy,

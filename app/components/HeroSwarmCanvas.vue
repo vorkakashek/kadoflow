@@ -442,6 +442,7 @@ let resizePaintTimer = 0
 let lastLayoutKey = ''
 let removeWindowResize: (() => void) | null = null
 let firstSceneReady = false
+let keepAliveActive = true
 
 function layoutKey() {
   return `${window.innerWidth}|${window.innerHeight}`
@@ -498,7 +499,7 @@ function startLoop() {
 watch(
   () => props.active,
   (on) => {
-    if (on) {
+    if (on && keepAliveActive) {
       forceResize?.()
       startLoop()
     } else {
@@ -585,6 +586,18 @@ onUnmounted(() => {
   window.clearTimeout(desktopMotionNoticeTimer)
   window.clearTimeout(androidHapticExitTimer)
   disposeScene()
+})
+
+onDeactivated(() => {
+  keepAliveActive = false
+  stopLoop()
+})
+
+onActivated(() => {
+  keepAliveActive = true
+  if (!props.active || document.visibilityState === 'hidden') return
+  forceResize?.()
+  startLoop()
 })
 
 async function bootScene() {
@@ -1449,7 +1462,7 @@ async function bootScene() {
   // Pause only when the tab itself is hidden (throttled rAF would flash).
   const onPageVisibility = () => {
     if (document.visibilityState === 'hidden') stopLoop()
-    else if (props.active) startLoop()
+    else if (props.active && keepAliveActive) startLoop()
   }
   document.addEventListener('visibilitychange', onPageVisibility)
   const prevRemovePointer = removePointerListeners
