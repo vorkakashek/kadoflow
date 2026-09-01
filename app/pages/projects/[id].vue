@@ -46,9 +46,6 @@ let nextProjectParallaxCtx: { revert: () => void } | null = null
 let audienceTextResizeObserver: ResizeObserver | null = null
 let caseMediaPreloadObserver: IntersectionObserver | null = null
 let caseMediaDecodeObserver: IntersectionObserver | null = null
-let waveLayerMediaQuery: MediaQueryList | null = null
-let waveLayerDelay = 0
-let waveLayerIdle = 0
 let audienceTextRebuildTimer = 0
 const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
@@ -58,7 +55,6 @@ let lastDetailScrollAt = 0
 const detailEnhancementTimers: number[] = []
 const detailEnhancementIdles: number[] = []
 let stopDetailEnhancementWatch: (() => void) | null = null
-const waveLayerReady = ref(false)
 const mediaDecodeQueue: HTMLImageElement[] = []
 const queuedMediaDecodes = new Set<HTMLImageElement>()
 let activeMediaDecodes = 0
@@ -155,8 +151,8 @@ function setupCaseMediaPreload() {
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches
   // Reading normally moves downward: keep a useful forward runway while the
   // smaller top margin is enough for already cached reverse-scroll media.
-  const networkAhead = slow ? 0.65 : finePointer ? 1.5 : 0.8
-  const decodeAhead = slow ? 0.25 : finePointer ? 0.75 : 0.35
+  const networkAhead = slow ? 0.65 : finePointer ? 3 : 0.8
+  const decodeAhead = slow ? 0.25 : finePointer ? 1.8 : 0.35
   caseMediaPreloadObserver = new IntersectionObserver((entries, observer) => {
     for (const entry of entries) {
       if (!entry.isIntersecting || !(entry.target instanceof HTMLImageElement)) continue
@@ -186,39 +182,6 @@ function setupCaseMediaPreload() {
     caseMediaPreloadObserver.observe(image)
     caseMediaDecodeObserver.observe(image)
   }
-}
-
-function cancelWaveLayerWarmup() {
-  if (waveLayerDelay) globalThis.clearTimeout(waveLayerDelay)
-  waveLayerDelay = 0
-  if (waveLayerIdle && typeof window.cancelIdleCallback === 'function') {
-    window.cancelIdleCallback(waveLayerIdle)
-  }
-  waveLayerIdle = 0
-}
-
-function syncWaveLayerMount() {
-  const eligible = Boolean(waveLayerMediaQuery?.matches)
-  if (!eligible) {
-    cancelWaveLayerWarmup()
-    waveLayerReady.value = false
-    return
-  }
-  if (waveLayerReady.value || waveLayerDelay || waveLayerIdle) return
-  const mount = () => {
-    waveLayerIdle = 0
-    if (waveLayerMediaQuery?.matches) {
-      waveLayerReady.value = true
-    }
-  }
-  // Mount the lightweight Vue shell early, including beneath the route cover.
-  // Its OGL runtime still compiles in an idle slice, while pointer listeners
-  // are guaranteed to exist as soon as the page becomes interactive.
-  waveLayerDelay = globalThis.setTimeout(() => {
-    waveLayerDelay = 0
-    if (!waveLayerMediaQuery?.matches) return
-    mount()
-  }, 120)
 }
 
 async function refreshAudienceScrollPositions() {
@@ -662,7 +625,6 @@ function scheduleDeferredDetailEnhancements() {
 
   // Keep the first interactive frames empty, then spread layout-sensitive
   // setup across separate idle slices instead of releasing every feature at once.
-  scheduleDetailEnhancement(700, setupCaseMediaPreload)
   scheduleDetailEnhancement(1000, setupDetailReveals)
   scheduleDetailEnhancement(1350, setupNextProjectParallax)
   scheduleDetailEnhancement(1750, setupAudienceTextFill)
@@ -687,12 +649,11 @@ onMounted(() => {
   watch(scrollRevision, () => {
     lastDetailScrollAt = performance.now()
   })
-  waveLayerMediaQuery = window.matchMedia(
-    '(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
-  )
-  waveLayerMediaQuery.addEventListener('change', syncWaveLayerMount)
-  syncWaveLayerMount()
   void nextTick(async () => {
+    // Register the network/decode runway before the user can outrun native
+    // lazy loading. The observers themselves are cheap; their work remains
+    // incremental as media approaches the viewport.
+    setupCaseMediaPreload()
     const firstScreenMotionReady = Promise.all([
       setupHeaderScroll(),
       setupMediaParallax(),
@@ -731,9 +692,6 @@ onBeforeUnmount(() => {
   caseMediaDecodeObserver = null
   mediaDecodeQueue.length = 0
   queuedMediaDecodes.clear()
-  waveLayerMediaQuery?.removeEventListener('change', syncWaveLayerMount)
-  waveLayerMediaQuery = null
-  cancelWaveLayerWarmup()
   if (audienceTextRebuildTimer) window.clearTimeout(audienceTextRebuildTimer)
   audienceTextRebuildTimer = 0
 })
@@ -763,7 +721,6 @@ useHead(() => ({
       }"
       :style="{ backgroundColor: item.wash }"
     >
-      <LazyCaseMediaWaveLayer v-if="waveLayerReady" />
       <CaseScrollTop />
       <div ref="detailContentEl" class="case-detail__inner">
       <div ref="firstScreenEl" class="case-detail__first-screen">
