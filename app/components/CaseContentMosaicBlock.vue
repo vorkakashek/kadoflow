@@ -29,19 +29,30 @@ function rowItems(row: ProjectCaseMosaicRow) {
       >
         <CaseHorizontalRail class="audience-case__menu-media-pair">
           <template v-for="item in rowItems(row)" :key="`${item.kind}-${item.media.src}`">
-            <CaseResponsivePicture
-              :media="item.media"
-              class="audience-case__mosaic-picture"
-              :class="[
-                `audience-case__mosaic-picture--${item.kind}`,
-                row.featureSide === 'start'
-                  ? 'audience-case__mosaic-picture--top'
-                  : 'audience-case__mosaic-picture--bottom',
-              ]"
-            />
+            <div
+              class="audience-case__mosaic-cell"
+              :class="`audience-case__mosaic-cell--${item.kind}`"
+            >
+              <CaseResponsivePicture
+                :media="item.media"
+                class="audience-case__mosaic-picture"
+                :class="[
+                  `audience-case__mosaic-picture--${item.kind}`,
+                  row.featureSide === 'start'
+                    ? 'audience-case__mosaic-picture--top'
+                    : 'audience-case__mosaic-picture--bottom',
+                ]"
+              />
+              <p
+                v-if="item.kind === 'detail'"
+                class="audience-case__statement audience-case__statement--desktop"
+              >
+                {{ row.statement }}
+              </p>
+            </div>
           </template>
         </CaseHorizontalRail>
-        <p class="audience-case__statement audience-case__statement--menu">{{ row.statement }}</p>
+        <p class="audience-case__statement audience-case__statement--mobile">{{ row.statement }}</p>
       </div>
     </div>
   </section>
@@ -131,6 +142,8 @@ p { margin: 0; }
   overflow: hidden;
 }
 
+.audience-case__mosaic-cell { min-width: 0; }
+
 .audience-case__mosaic-picture :deep(img) {
   display: block;
   width: 100%;
@@ -145,16 +158,13 @@ p { margin: 0; }
 .audience-case__menu-row--top .audience-case__mosaic-picture--detail { margin-top: 100%; }
 .audience-case__menu-row--bottom .audience-case__mosaic-picture--detail { margin-top: 8%; }
 .audience-case__menu-row--bottom .audience-case__mosaic-picture--feature { margin-top: 16%; }
-.audience-case__menu-row .audience-case__statement {
-  width: calc((100% - var(--layout-gutter)) / 3);
+.audience-case__statement--desktop {
+  width: 66.6667%;
   margin-top: var(--space-4);
+  margin-left: 16.6667%;
 }
-.audience-case__menu-row--top .audience-case__statement {
-  margin-left: calc(7 * (100% - var(--layout-gutter)) / 12 + var(--layout-gutter));
-}
-.audience-case__menu-row--bottom .audience-case__statement {
-  margin-left: calc((100% - var(--layout-gutter)) / 12);
-}
+
+.audience-case__statement--mobile { display: none; }
 
 .audience-case__statement {
   max-width: none;
@@ -205,15 +215,23 @@ p { margin: 0; }
     align-items: flex-start;
     gap: var(--space-1);
   }
-  .audience-case__menu-media-pair .audience-case__mosaic-picture {
+  .audience-case__menu-media-pair .audience-case__mosaic-cell {
     flex: 0 0 auto;
     width: auto;
     height: var(--case-rail-mobile-media-height);
+    overflow: hidden;
+    margin-top: 0;
+  }
+  .audience-case__menu-media-pair .audience-case__mosaic-cell--feature { aspect-ratio: 4 / 5; }
+  .audience-case__menu-media-pair .audience-case__mosaic-cell--detail { aspect-ratio: 16 / 10; }
+  .audience-case__menu-media-pair .audience-case__mosaic-picture {
+    width: 100%;
+    height: 100%;
     margin-top: 0;
     aspect-ratio: auto;
   }
   .audience-case__menu-media-pair .audience-case__mosaic-picture :deep(img) {
-    width: auto;
+    width: 100%;
     max-width: none;
     height: 100%;
     object-fit: contain;
@@ -222,9 +240,11 @@ p { margin: 0; }
     width: 80vw;
     margin-inline: calc(50% - 40vw);
   }
-  .audience-case__statement--menu {
-    width: 80%;
-    max-width: var(--layout-span-8);
+  .audience-case__statement--desktop { display: none; }
+  .audience-case__statement--mobile {
+    display: block;
+    width: 100%;
+    max-width: none;
     margin: var(--space-2) 0 0;
   }
 }

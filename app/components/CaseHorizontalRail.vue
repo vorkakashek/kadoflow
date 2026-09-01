@@ -5,6 +5,7 @@ const props = withDefaults(defineProps<{
   desktopGrabSpeed: 1,
 })
 const { t } = useI18n()
+const { motionActive } = useCaseDetailExperience()
 
 const viewportEl = ref<HTMLElement | null>(null)
 const contentEl = ref<HTMLElement | null>(null)
@@ -41,6 +42,7 @@ function startViewportInertia() {
   const viewport = viewportEl.value
   if (
     !viewport
+    || !motionActive.value
     || Math.abs(viewportDragVelocity) < 0.015
     || window.matchMedia('(prefers-reduced-motion: reduce)').matches
   ) return
@@ -67,6 +69,10 @@ function startViewportInertia() {
 
   inertiaFrame = requestAnimationFrame(tick)
 }
+
+watch(motionActive, (active) => {
+  if (!active) stopViewportInertia()
+})
 
 function sync() {
   const viewport = viewportEl.value

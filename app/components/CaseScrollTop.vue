@@ -2,34 +2,26 @@
 import { PhArrowUp } from '@phosphor-icons/vue'
 const { t } = useI18n()
 const visible = ref(false)
-let lastScrollY = 0
-let scrollFrame = 0
+const { scrollY, scrollDelta, scrollRevision } = useMotionRuntime()
+const { motionActive } = useCaseDetailExperience()
 
 function updateVisibility() {
-  scrollFrame = 0
-  const nextScrollY = Math.max(0, window.scrollY)
-  const delta = nextScrollY - lastScrollY
+  if (!motionActive.value) {
+    visible.value = false
+    return
+  }
+  const nextScrollY = scrollY.value
+  const delta = scrollDelta.value
 
   if (nextScrollY <= 24) visible.value = false
   else if (delta > 0.5) visible.value = false
   else if (delta < -0.5) visible.value = true
-
-  lastScrollY = nextScrollY
 }
 
-function handleScroll() {
-  if (!scrollFrame) scrollFrame = requestAnimationFrame(updateVisibility)
-}
-
-onMounted(() => {
-  lastScrollY = Math.max(0, window.scrollY)
-  window.addEventListener('scroll', handleScroll, { passive: true })
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', handleScroll)
-  if (scrollFrame) cancelAnimationFrame(scrollFrame)
-})
+watch(scrollRevision, updateVisibility)
+watch(motionActive, (active) => {
+  if (!active || scrollY.value <= 24) visible.value = false
+}, { immediate: true })
 
 function scrollToTop() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches

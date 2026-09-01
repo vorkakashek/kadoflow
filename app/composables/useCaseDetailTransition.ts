@@ -23,23 +23,24 @@ export function useCaseDetailTransition() {
   )
   const active = useState('case-detail-transition-active', () => false)
   const origin = useState<CaseDetailOrigin>('case-detail-origin', () => 'home')
-  /** Detail content stays staged behind the fullscreen transition until it ends. */
-  const detailContentVisible = useState('case-detail-content-visible', () => true)
   const home = useHomeExperience()
+  const detail = useCaseDetailExperience()
 
   function openCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction'> & { origin: CaseDetailOrigin }) {
-    if (active.value) return
+    if (active.value || request.value) return
     origin.value = next.origin
+    const nextCaseId = next.to.split('/').at(-1) ?? 'audience'
+    detail.beginTransitionEntry(nextCaseId)
     if (next.origin === 'home') {
-      home.beginDetailOpen(next.to.split('/').at(-1) ?? home.activeCaseId.value)
+      home.beginDetailOpen(nextCaseId)
     }
-    detailContentVisible.value = false
     request.value = { ...next, direction: 'open' }
   }
 
   function closeCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction' | 'to' | 'targetSelector'>) {
-    if (active.value) return
+    if (active.value || request.value) return
     const returningHome = origin.value === 'home'
+    detail.beginExit()
     if (returningHome) home.beginDetailReturn()
     request.value = {
       ...next,
@@ -58,7 +59,10 @@ export function useCaseDetailTransition() {
     homeReturnPending: home.homeReturnPending,
     homeReturnMediaDocked: home.homeReturnMediaDocked,
     homeCaseId: home.activeCaseId,
-    detailContentVisible,
+    detailContentVisible: detail.contentVisible,
+    revealDetailContent: detail.revealContent,
+    completeCaseDetailEntry: detail.completeEntry,
+    completeCaseDetailExit: detail.completeExit,
     completeDetailOpen: home.completeDetailOpen,
     consumeHomeReturnSurface: home.consumeHomeReturnSurface,
     markHomeReturnMediaDocked: home.markHomeReturnMediaDocked,

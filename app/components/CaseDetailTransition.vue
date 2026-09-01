@@ -6,7 +6,9 @@ const router = useRouter()
 const {
   request,
   active,
-  detailContentVisible,
+  revealDetailContent,
+  completeCaseDetailEntry,
+  completeCaseDetailExit,
   completeDetailOpen,
   markHomeReturnMediaDocked,
   completeDetailReturn,
@@ -192,7 +194,7 @@ watch(request, async (next) => {
   // needs its own first upload.
   await nextPaint()
 
-  let stopHashPin: (() => void) | null = null
+  const hashPinSession: { stop?: () => void } = {}
   try {
     if (next.direction === 'open' && next.rect) {
       // Keep route mounting out of the scale-up. The proxy reaches fullscreen
@@ -220,7 +222,7 @@ watch(request, async (next) => {
       // Start the detail entrance while it is still covered. Two painted
       // frames let CSS transitions leave their hidden pose before the proxy
       // and wash reveal the new scene together.
-      detailContentVisible.value = true
+      revealDetailContent()
       await nextPaint()
 
       // Fade the already-composited proxy + wash as one layer. Independent
@@ -260,7 +262,7 @@ watch(request, async (next) => {
       else await router.push(next.to)
       await nextPaint()
       const hashPin = startRouteHashPin(next.to)
-      stopHashPin = hashPin.stop
+      hashPinSession.stop = hashPin.stop
       await hashPin.ready
       return next.targetSelector ? findTarget(next.targetSelector) : null
     })()
@@ -310,9 +312,14 @@ watch(request, async (next) => {
     }
     gsap.set(root, { opacity: 0 })
   } finally {
-    stopHashPin?.()
-    if (next.direction === 'close') completeDetailReturn()
-    else completeDetailOpen()
+    hashPinSession.stop?.()
+    if (next.direction === 'close') {
+      completeDetailReturn()
+      completeCaseDetailExit()
+    } else {
+      completeDetailOpen()
+      completeCaseDetailEntry()
+    }
     visible.value = false
     request.value = null
     active.value = false

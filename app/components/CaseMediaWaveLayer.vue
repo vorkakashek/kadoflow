@@ -42,7 +42,8 @@ type RetiringWave = {
 }
 
 const canvasEl = ref<HTMLCanvasElement | null>(null)
-const { active: detailTransitionActive } = useCaseDetailTransition()
+const { motionActive } = useCaseDetailExperience()
+const { scrollRevision, resizeRevision } = useMotionRuntime()
 
 const vertexShader = /* glsl */ `
   attribute vec2 uv;
@@ -239,7 +240,8 @@ let inputMotionStrength = 0
 let trailEnergy = 0
 let effectMix = 1
 let simulationAccumulator = 0
-let stopTransitionWatch: (() => void) | null = null
+let stopMotionWatch: (() => void) | null = null
+let stopRuntimeWatch: (() => void) | null = null
 let textureWarmupIdle = 0
 let rendererWarmupIdle = 0
 let scrollIdleTimer = 0
@@ -326,7 +328,7 @@ function isIdentityTransform(transform: string) {
 }
 
 function isMediaMotionStable(media: WaveMedia) {
-  if (detailTransitionActive.value || scopeEl?.classList.contains('case-detail--entering')) return false
+  if (!motionActive.value || scopeEl?.classList.contains('case-detail--entering')) return false
 
   const now = performance.now()
   const cached = motionStateCache.get(media)
@@ -1291,8 +1293,6 @@ onMounted(() => {
   scopeEl?.addEventListener('pointerover', handlePointerOver)
   scopeEl?.addEventListener('pointermove', handlePointerMove)
   scopeEl?.addEventListener('pointerout', handlePointerOut)
-  window.addEventListener('resize', handleResize)
-  window.addEventListener('scroll', handleScroll, { passive: true })
   canvasEl.value?.addEventListener('webglcontextlost', handleContextLost)
   if (mediaQuery.matches && scopeEl) {
     // Compile OGL and both shaders away from the first hover/scroll frame.
@@ -1317,14 +1317,21 @@ onMounted(() => {
       if (isEligibleMedia(media)) mediaWarmupObserver.observe(media)
     }
   }
-  stopTransitionWatch = watch(detailTransitionActive, (active) => {
-    if (!active) return
+  stopMotionWatch = watch(motionActive, (active) => {
+    if (active) return
     activationId++
     hoveredMedia = null
     hoveredClipAncestors = []
     releaseRetiringWaves()
     releaseActiveMedia()
-  })
+  }, { immediate: true })
+  stopRuntimeWatch = watch(
+    [scrollRevision, resizeRevision],
+    ([nextScroll, nextResize], [previousScroll, previousResize]) => {
+      if (nextScroll !== previousScroll) handleScroll()
+      if (nextResize !== previousResize) handleResize()
+    },
+  )
 })
 
 onBeforeUnmount(() => {
@@ -1332,11 +1339,11 @@ onBeforeUnmount(() => {
   scopeEl?.removeEventListener('pointerover', handlePointerOver)
   scopeEl?.removeEventListener('pointermove', handlePointerMove)
   scopeEl?.removeEventListener('pointerout', handlePointerOut)
-  window.removeEventListener('resize', handleResize)
-  window.removeEventListener('scroll', handleScroll)
   canvasEl.value?.removeEventListener('webglcontextlost', handleContextLost)
-  stopTransitionWatch?.()
-  stopTransitionWatch = null
+  stopMotionWatch?.()
+  stopMotionWatch = null
+  stopRuntimeWatch?.()
+  stopRuntimeWatch = null
   destroyRenderer()
   scopeEl = null
 })

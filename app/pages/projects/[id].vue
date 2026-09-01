@@ -13,8 +13,15 @@ const item = computed(() =>
 const {
   request: detailTransitionRequest,
   active: detailTransitionActive,
-  detailContentVisible,
 } = useCaseDetailTransition()
+const {
+  contentVisible: detailContentVisible,
+  motionActive: detailMotionActive,
+  stageDirectEntry,
+  mountPage: mountCaseDetailPage,
+  completeEntry: completeCaseDetailEntry,
+  unmountPage: unmountCaseDetailPage,
+} = useCaseDetailExperience()
 const firstScreenEl = ref<HTMLElement | null>(null)
 const titleFrameEl = ref<HTMLElement | null>(null)
 const titleMotionEl = ref<HTMLElement | null>(null)
@@ -98,12 +105,12 @@ function queueMediaDecode(image: HTMLImageElement) {
 // its first screen in the entry pose through hydration, font settlement and
 // the responsive header-image decode so none of that geometry is exposed.
 const isDirectEntry = !detailTransitionRequest.value && !detailTransitionActive.value
-if (isDirectEntry) detailContentVisible.value = false
+if (isDirectEntry) stageDirectEntry(String(route.params.id))
 
 function releaseDirectEntry() {
   directRevealFrame = requestAnimationFrame(() => {
     directRevealFrame = requestAnimationFrame(() => {
-      detailContentVisible.value = true
+      completeCaseDetailEntry()
     })
   })
 }
@@ -179,13 +186,13 @@ function setupCaseMediaPreload() {
 
 function cancelWaveLayerWarmup() {
   if (!waveLayerIdle) return
-  if ('cancelIdleCallback' in window) window.cancelIdleCallback(waveLayerIdle)
-  else window.clearTimeout(waveLayerIdle)
+  if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(waveLayerIdle)
+  else globalThis.clearTimeout(waveLayerIdle)
   waveLayerIdle = 0
 }
 
 function syncWaveLayerMount() {
-  const eligible = Boolean(waveLayerMediaQuery?.matches)
+  const eligible = Boolean(waveLayerMediaQuery?.matches && detailMotionActive.value)
   if (!eligible) {
     cancelWaveLayerWarmup()
     waveLayerReady.value = false
@@ -194,13 +201,15 @@ function syncWaveLayerMount() {
   if (waveLayerReady.value || waveLayerIdle) return
   const mount = () => {
     waveLayerIdle = 0
-    if (waveLayerMediaQuery?.matches) waveLayerReady.value = true
+    if (waveLayerMediaQuery?.matches && detailMotionActive.value) {
+      waveLayerReady.value = true
+    }
   }
   // The effect is desktop-only. Warm it shortly after critical paint so the
   // first deliberate hover is ready without adding OGL to mobile case startup.
-  waveLayerIdle = 'requestIdleCallback' in window
+  waveLayerIdle = typeof window.requestIdleCallback === 'function'
     ? window.requestIdleCallback(mount, { timeout: 900 })
-    : window.setTimeout(mount, 300)
+    : globalThis.setTimeout(mount, 300)
 }
 
 async function refreshAudienceScrollPositions() {
@@ -597,8 +606,8 @@ function cancelDeferredDetailEnhancements() {
   stopDetailEnhancementWatch?.()
   stopDetailEnhancementWatch = null
   if (!detailEnhancementIdle) return
-  if ('cancelIdleCallback' in window) window.cancelIdleCallback(detailEnhancementIdle)
-  else window.clearTimeout(detailEnhancementIdle)
+  if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(detailEnhancementIdle)
+  else globalThis.clearTimeout(detailEnhancementIdle)
   detailEnhancementIdle = 0
 }
 
@@ -612,18 +621,18 @@ function scheduleDeferredDetailEnhancements() {
     void setupAudienceTextFill()
     void setupNextProjectParallax()
   }
-  detailEnhancementIdle = 'requestIdleCallback' in window
+  detailEnhancementIdle = typeof window.requestIdleCallback === 'function'
     ? window.requestIdleCallback(run, { timeout: 900 })
-    : window.setTimeout(run, 96)
+    : globalThis.setTimeout(run, 96)
 }
 
 function deferBelowFoldSetupUntilEntryEnds() {
-  if (!detailTransitionActive.value) {
+  if (detailMotionActive.value) {
     scheduleDeferredDetailEnhancements()
     return
   }
-  stopDetailEnhancementWatch = watch(detailTransitionActive, (active) => {
-    if (active) return
+  stopDetailEnhancementWatch = watch(detailMotionActive, (active) => {
+    if (!active) return
     stopDetailEnhancementWatch?.()
     stopDetailEnhancementWatch = null
     requestAnimationFrame(scheduleDeferredDetailEnhancements)
@@ -631,6 +640,7 @@ function deferBelowFoldSetupUntilEntryEnds() {
 }
 
 onMounted(() => {
+  mountCaseDetailPage(String(route.params.id))
   // Direct entries have not visited the home route yet. Warm its component
   // while the user reads the case so the return transition can mount it under
   // the fullscreen cover without a route-chunk pause.
@@ -639,7 +649,7 @@ onMounted(() => {
     '(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)',
   )
   waveLayerMediaQuery.addEventListener('change', syncWaveLayerMount)
-  syncWaveLayerMount()
+  watch(detailMotionActive, syncWaveLayerMount, { immediate: true })
   void nextTick(async () => {
     const firstScreenMotionReady = Promise.all([
       setupHeaderScroll(),
@@ -656,6 +666,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   detailPageUnmounted = true
+  unmountCaseDetailPage()
   if (directRevealFrame) cancelAnimationFrame(directRevealFrame)
   if (directRevealReadyTimer) window.clearTimeout(directRevealReadyTimer)
   directRevealReadyTimer = 0

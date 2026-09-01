@@ -13,6 +13,7 @@ const reducedMotion = ref(false)
 const responsivePosterVisible = ref(!!props.poster && !!props.mobilePoster)
 const useMobileSource = ref(false)
 const activeSrc = computed(() => useMobileSource.value && props.mobileSrc ? props.mobileSrc : props.src)
+const { motionActive } = useCaseDetailExperience()
 
 let motionQuery: MediaQueryList | null = null
 let sourceQuery: MediaQueryList | null = null
@@ -23,7 +24,7 @@ function syncPlayback() {
   const video = videoEl.value
   if (!video) return
 
-  if (reducedMotion.value || document.hidden || !inView) {
+  if (reducedMotion.value || !motionActive.value || !inView) {
     video.pause()
     return
   }
@@ -64,20 +65,20 @@ onMounted(() => {
   motionQuery.addEventListener('change', syncMotionPreference)
 
   observer = new IntersectionObserver(([entry]) => {
-    inView = entry.isIntersecting
+    inView = entry?.isIntersecting ?? false
     syncPlayback()
   }, { threshold: 0.15 })
   if (rootEl.value) observer.observe(rootEl.value)
 
-  document.addEventListener('visibilitychange', syncPlayback)
   syncMotionPreference()
 })
+
+watch(motionActive, syncPlayback)
 
 onBeforeUnmount(() => {
   motionQuery?.removeEventListener('change', syncMotionPreference)
   sourceQuery?.removeEventListener('change', syncVideoSource)
   observer?.disconnect()
-  document.removeEventListener('visibilitychange', syncPlayback)
 })
 </script>
 
