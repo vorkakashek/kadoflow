@@ -55,8 +55,18 @@ export const imageRecipes = [
     widths: [480, 960, 1440, 1920, 2760],
   },
   {
+    source: 'public/home/cases/audience/case-detail-4-vertical.png',
+    outputStem: 'public/home/cases/audience/audience-atmosphere-mobile',
+    widths: [480, 960, 1440, 1920],
+  },
+  {
     source: 'public/home/cases/audience/case-detail-5.png',
     outputStem: 'public/home/cases/audience/audience-menu-lead',
+    widths: [480, 960, 1440, 1920],
+  },
+  {
+    source: 'public/home/cases/audience/case-detail-5-vertical.png',
+    outputStem: 'public/home/cases/audience/audience-menu-lead-mobile',
     widths: [480, 960, 1440, 1920],
   },
   {
@@ -75,6 +85,16 @@ export const imageRecipes = [
     widths: [480, 960, 1488],
   },
   {
+    source: 'public/home/cases/audience/case-detail-11.png',
+    outputStem: 'public/home/cases/audience/audience-menu-category-primary',
+    widths: [480, 960, 1440, 1920, 2760],
+  },
+  {
+    source: 'public/home/cases/audience/case-detail-12.png',
+    outputStem: 'public/home/cases/audience/audience-menu-category-details',
+    widths: [480, 960, 1440, 1920, 2760],
+  },
+  {
     source: 'public/home/cases/audience/case-detail-9.png',
     outputStem: 'public/home/cases/audience/audience-admin-small',
     widths: [480, 960, 1020],
@@ -83,6 +103,11 @@ export const imageRecipes = [
     source: 'public/home/cases/audience/case-detail-10.png',
     outputStem: 'public/home/cases/audience/audience-admin-large',
     widths: [480, 960, 1440],
+  },
+  {
+    source: 'public/home/cases/audience/case-detail-10-mobile.png',
+    outputStem: 'public/home/cases/audience/audience-admin-large-mobile',
+    widths: [480, 960, 1440, 1920],
   },
   {
     source: 'public/home/cases/audience/case-detail-end.png',

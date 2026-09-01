@@ -17,7 +17,7 @@
           {
             "src": "/home/cases/audience/case-detail-3.png",
             "width": 1840,
-            "height": 1380,
+            "height": 1227,
             "shape": "landscape",
             "avifSrcset": "/home/cases/audience/audience-intro-2-480.avif 480w, /home/cases/audience/audience-intro-2-960.avif 960w, /home/cases/audience/audience-intro-2-1440.avif 1440w, /home/cases/audience/audience-intro-2-1840.avif 1840w",
             "webpSrcset": "/home/cases/audience/audience-intro-2-480.webp 480w, /home/cases/audience/audience-intro-2-960.webp 960w, /home/cases/audience/audience-intro-2-1440.webp 1440w, /home/cases/audience/audience-intro-2-1840.webp 1840w",
@@ -35,6 +35,9 @@
           "shape": "wide",
           "avifSrcset": "/home/cases/audience/audience-atmosphere-480.avif 480w, /home/cases/audience/audience-atmosphere-960.avif 960w, /home/cases/audience/audience-atmosphere-1440.avif 1440w, /home/cases/audience/audience-atmosphere-1920.avif 1920w, /home/cases/audience/audience-atmosphere-2760.avif 2760w",
           "webpSrcset": "/home/cases/audience/audience-atmosphere-480.webp 480w, /home/cases/audience/audience-atmosphere-960.webp 960w, /home/cases/audience/audience-atmosphere-1440.webp 1440w, /home/cases/audience/audience-atmosphere-1920.webp 1920w, /home/cases/audience/audience-atmosphere-2760.webp 2760w",
+          "mobileSrc": "/home/cases/audience/case-detail-4-vertical.png",
+          "mobileAvifSrcset": "/home/cases/audience/audience-atmosphere-mobile-480.avif 480w, /home/cases/audience/audience-atmosphere-mobile-960.avif 960w, /home/cases/audience/audience-atmosphere-mobile-1440.avif 1440w, /home/cases/audience/audience-atmosphere-mobile-1920.avif 1920w",
+          "mobileWebpSrcset": "/home/cases/audience/audience-atmosphere-mobile-480.webp 480w, /home/cases/audience/audience-atmosphere-mobile-960.webp 960w, /home/cases/audience/audience-atmosphere-mobile-1440.webp 1440w, /home/cases/audience/audience-atmosphere-mobile-1920.webp 1920w",
           "sizes": "100vw"
         }
       },
@@ -49,6 +52,9 @@
             "shape": "wide",
             "avifSrcset": "/home/cases/audience/audience-menu-lead-480.avif 480w, /home/cases/audience/audience-menu-lead-960.avif 960w, /home/cases/audience/audience-menu-lead-1440.avif 1440w, /home/cases/audience/audience-menu-lead-1920.avif 1920w",
             "webpSrcset": "/home/cases/audience/audience-menu-lead-480.webp 480w, /home/cases/audience/audience-menu-lead-960.webp 960w, /home/cases/audience/audience-menu-lead-1440.webp 1440w, /home/cases/audience/audience-menu-lead-1920.webp 1920w",
+            "mobileSrc": "/home/cases/audience/case-detail-5-vertical.png",
+            "mobileAvifSrcset": "/home/cases/audience/audience-menu-lead-mobile-480.avif 480w, /home/cases/audience/audience-menu-lead-mobile-960.avif 960w, /home/cases/audience/audience-menu-lead-mobile-1440.avif 1440w, /home/cases/audience/audience-menu-lead-mobile-1920.avif 1920w",
+            "mobileWebpSrcset": "/home/cases/audience/audience-menu-lead-mobile-480.webp 480w, /home/cases/audience/audience-menu-lead-mobile-960.webp 960w, /home/cases/audience/audience-menu-lead-mobile-1440.webp 1440w, /home/cases/audience/audience-menu-lead-mobile-1920.webp 1920w",
             "sizes": "(max-width: 767px) 100vw, 50vw"
           }
         },
@@ -64,12 +70,12 @@
               "sizes": "(max-width: 767px) 100vw, 50vw"
             },
             "detail": {
-              "src": "/home/cases/audience/audience-img-960.webp",
-              "width": 1856,
-              "height": 2304,
+              "src": "/home/cases/audience/audience-menu-category-primary-960.webp",
+              "width": 6000,
+              "height": 4003,
               "shape": "landscape",
-              "avifSrcset": "/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w",
-              "webpSrcset": "/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w",
+              "avifSrcset": "/home/cases/audience/audience-menu-category-primary-480.avif 480w, /home/cases/audience/audience-menu-category-primary-960.avif 960w, /home/cases/audience/audience-menu-category-primary-1440.avif 1440w, /home/cases/audience/audience-menu-category-primary-1920.avif 1920w, /home/cases/audience/audience-menu-category-primary-2760.avif 2760w",
+              "webpSrcset": "/home/cases/audience/audience-menu-category-primary-480.webp 480w, /home/cases/audience/audience-menu-category-primary-960.webp 960w, /home/cases/audience/audience-menu-category-primary-1440.webp 1440w, /home/cases/audience/audience-menu-category-primary-1920.webp 1920w, /home/cases/audience/audience-menu-category-primary-2760.webp 2760w",
               "sizes": "50vw"
             },
             "featureSide": "start"
@@ -85,12 +91,12 @@
               "sizes": "(max-width: 767px) 100vw, 50vw"
             },
             "detail": {
-              "src": "/home/cases/audience/audience-img-960.webp",
-              "width": 1856,
-              "height": 2304,
+              "src": "/home/cases/audience/audience-menu-category-details-960.webp",
+              "width": 6000,
+              "height": 4000,
               "shape": "landscape",
-              "avifSrcset": "/home/cases/audience/audience-img-480.avif 480w, /home/cases/audience/audience-img-960.avif 960w, /home/cases/audience/audience-img-1440.avif 1440w, /home/cases/audience/audience-img-1856.avif 1856w",
-              "webpSrcset": "/home/cases/audience/audience-img-480.webp 480w, /home/cases/audience/audience-img-960.webp 960w, /home/cases/audience/audience-img-1440.webp 1440w, /home/cases/audience/audience-img-1856.webp 1856w",
+              "avifSrcset": "/home/cases/audience/audience-menu-category-details-480.avif 480w, /home/cases/audience/audience-menu-category-details-960.avif 960w, /home/cases/audience/audience-menu-category-details-1440.avif 1440w, /home/cases/audience/audience-menu-category-details-1920.avif 1920w, /home/cases/audience/audience-menu-category-details-2760.avif 2760w",
+              "webpSrcset": "/home/cases/audience/audience-menu-category-details-480.webp 480w, /home/cases/audience/audience-menu-category-details-960.webp 960w, /home/cases/audience/audience-menu-category-details-1440.webp 1440w, /home/cases/audience/audience-menu-category-details-1920.webp 1920w, /home/cases/audience/audience-menu-category-details-2760.webp 2760w",
               "sizes": "50vw"
             },
             "featureSide": "end"
@@ -131,10 +137,13 @@
           {
             "src": "/home/cases/audience/audience-admin-large-960.webp",
             "width": 1440,
-            "height": 1984,
+            "height": 1985,
             "shape": "portrait",
             "avifSrcset": "/home/cases/audience/audience-admin-large-480.avif 480w, /home/cases/audience/audience-admin-large-960.avif 960w, /home/cases/audience/audience-admin-large-1440.avif 1440w",
             "webpSrcset": "/home/cases/audience/audience-admin-large-480.webp 480w, /home/cases/audience/audience-admin-large-960.webp 960w, /home/cases/audience/audience-admin-large-1440.webp 1440w",
+            "mobileSrc": "/home/cases/audience/case-detail-10-mobile.png",
+            "mobileAvifSrcset": "/home/cases/audience/audience-admin-large-mobile-480.avif 480w, /home/cases/audience/audience-admin-large-mobile-960.avif 960w, /home/cases/audience/audience-admin-large-mobile-1440.avif 1440w, /home/cases/audience/audience-admin-large-mobile-1920.avif 1920w",
+            "mobileWebpSrcset": "/home/cases/audience/audience-admin-large-mobile-480.webp 480w, /home/cases/audience/audience-admin-large-mobile-960.webp 960w, /home/cases/audience/audience-admin-large-mobile-1440.webp 1440w, /home/cases/audience/audience-admin-large-mobile-1920.webp 1920w",
             "sizes": "(max-width: 767px) 100vw, 64vw"
           }
         ]

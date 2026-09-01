@@ -23,20 +23,16 @@ export function useCaseDetailTransition() {
   )
   const active = useState('case-detail-transition-active', () => false)
   const origin = useState<CaseDetailOrigin>('case-detail-origin', () => 'home')
-  /** Consumed by FlowSurface after a detail → home overlay has handed off. */
-  const homeReturnPending = useState('case-detail-home-return-pending', () => false)
-  /** Lets the home case rail reveal only after the return proxy is docked. */
-  const homeReturnMediaDocked = useState('case-detail-home-return-media-docked', () => false)
-  const homeCaseId = useState('home-active-case-id', () => 'audience')
   /** Detail content stays staged behind the fullscreen transition until it ends. */
   const detailContentVisible = useState('case-detail-content-visible', () => true)
+  const home = useHomeExperience()
 
   function openCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction'> & { origin: CaseDetailOrigin }) {
     if (active.value) return
-    homeReturnPending.value = false
-    homeReturnMediaDocked.value = false
     origin.value = next.origin
-    if (next.origin === 'home') homeCaseId.value = next.to.split('/').at(-1) ?? homeCaseId.value
+    if (next.origin === 'home') {
+      home.beginDetailOpen(next.to.split('/').at(-1) ?? home.activeCaseId.value)
+    }
     detailContentVisible.value = false
     request.value = { ...next, direction: 'open' }
   }
@@ -44,8 +40,7 @@ export function useCaseDetailTransition() {
   function closeCaseDetail(next: Omit<CaseDetailTransitionRequest, 'direction' | 'to' | 'targetSelector'>) {
     if (active.value) return
     const returningHome = origin.value === 'home'
-    homeReturnPending.value = returningHome
-    homeReturnMediaDocked.value = false
+    if (returningHome) home.beginDetailReturn()
     request.value = {
       ...next,
       direction: 'close',
@@ -60,10 +55,14 @@ export function useCaseDetailTransition() {
     request,
     active,
     origin,
-    homeReturnPending,
-    homeReturnMediaDocked,
-    homeCaseId,
+    homeReturnPending: home.homeReturnPending,
+    homeReturnMediaDocked: home.homeReturnMediaDocked,
+    homeCaseId: home.activeCaseId,
     detailContentVisible,
+    completeDetailOpen: home.completeDetailOpen,
+    consumeHomeReturnSurface: home.consumeHomeReturnSurface,
+    markHomeReturnMediaDocked: home.markHomeReturnMediaDocked,
+    completeDetailReturn: home.completeDetailReturn,
     openCaseDetail,
     closeCaseDetail,
   }

@@ -48,6 +48,7 @@ import {
   isMobileChromeHeightOnlyResize,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
+import type { HomeCaseSurfaceMedia as CaseSurfaceMedia } from '~/composables/useHomeExperience'
 
 /** The site's minimal mode keeps the core Surface choreography intact. */
 function systemReducedMotion() {
@@ -141,54 +142,28 @@ const props = withDefaults(
   },
 )
 
-const {
-  request: caseDetailTransitionRequest,
-  active: caseDetailTransitionActive,
-  origin: caseDetailTransitionOrigin,
-  homeReturnPending: caseDetailHomeReturnPending,
-} = useCaseDetailTransition()
 const preload = useBrandPreload()
+const {
+  surfaceDocked: caseSurfaceDocked,
+  surfaceReady: caseSurfaceReady,
+  surfaceReturning: caseSurfaceReturning,
+  caseMediaReady,
+  caseSurfaceMedia,
+  caseMediaMorphRevision,
+  caseMediaPrepareRevision,
+  routePhase,
+  homeReturnPending: caseDetailHomeReturnPending,
+  setSurfaceDocked,
+  setSurfaceReady,
+  setSurfaceReturning,
+  beginCasesEntry,
+  consumeHomeReturnSurface,
+} = useHomeExperience()
 
 function returningHomeFromCaseDetail() {
   return caseDetailHomeReturnPending.value
-    || (
-      caseDetailTransitionActive.value
-      && caseDetailTransitionRequest.value?.direction === 'close'
-      && caseDetailTransitionOrigin.value === 'home'
-    )
+    || routePhase.value === 'returning-home'
 }
-
-/** Shared with HomeCases — surface owns the case photo once docked. */
-const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
-/** True only once the frame is physically pinned to the current case media. */
-const caseSurfaceReady = useState('home-case-surface-ready', () => false)
-/** Shared with HomeCases so its mobile rail exits on the exact same frame. */
-const caseSurfaceReturning = useState('home-case-surface-returning', () => false)
-/** Set by HomeCases after the first case raster has been decoded off the critical path. */
-const caseMediaReady = useState('home-case-media-ready', () => false)
-type CaseSurfaceMedia = {
-  src: string
-  webpSrcset?: string
-  avifSrcset?: string
-  alt: string
-  wash: string
-  video?: {
-    webm: string
-    mp4: string
-    mobileWebm?: string
-    mobileMp4?: string
-    poster: string
-  }
-}
-
-const caseSurfaceMedia = useState<CaseSurfaceMedia | null>(
-  'home-case-surface-media',
-  () => null,
-)
-/** Bumped by HomeCases after a case switch so we morph the parked box. */
-const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
-/** Emitted before HomeCases replaces its card, so a pinned surface can animate. */
-const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
 
 const BLANK_IMAGE =
   'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
@@ -233,8 +208,8 @@ const surfaceToneOpacity = computed(() => {
 })
 
 function setCaseSurfaceDocked(on: boolean) {
-  caseSurfaceDocked.value = on
-  if (on) caseSurfaceReturning.value = false
+  if (on) setSurfaceReturning(false)
+  setSurfaceDocked(on)
   showCaseFill.value = on
   if (on) {
     const media = caseSurfaceMedia.value
@@ -650,8 +625,8 @@ function paintHeroToKadoSegment(t: number) {
     showCaseFill.value = false
     caseFillOpacity.value = 0
     caseMediaActive = false
-    caseSurfaceDocked.value = false
-    caseSurfaceReady.value = false
+    setSurfaceDocked(false)
+    setSurfaceReady(false)
   }
 
   const { h, v } = targetsFromScrollProgress(props.plan, t, parseEase ?? ((_) => (u) => u))
@@ -685,7 +660,7 @@ function paintKadoToCasesSegment(t: number) {
   const docked = t >= CASE_PARK_P
   if (docked !== caseMediaActive) {
     caseMediaActive = docked
-    caseSurfaceDocked.value = docked
+    setSurfaceDocked(docked)
   }
   // Soft fade in for photo + desaturation of surface tone
   const fadeT = Math.min(1, Math.max(0, (t - CASE_FILL_FADE_START) / (1 - CASE_FILL_FADE_START)))
@@ -711,7 +686,7 @@ function paintKadoToCasesSegment(t: number) {
     else paintBox(to, 1)
     return
   }
-  caseSurfaceReady.value = false
+  setSurfaceReady(false)
   if (caseFramePinned()) unpinFrame()
   // t===1 -> live photo; t===0 -> live stone. Same path both ways, no seam.
   paintBox(lerpBox(from, to, t), 1)
@@ -838,7 +813,7 @@ function settleMobileCaseFrame(
   }
   // The case raster stays hidden for the whole geometry flight.
   hideMobileCasePhoto(caseFillOpacity.value > 0)
-  caseSurfaceReady.value = false
+  setSurfaceReady(false)
   caseSettleTween = gsapMod.default.to(proxy, {
     t: 1,
     duration: systemReducedMotion()
@@ -864,7 +839,7 @@ function settleMobileCaseFrame(
       mobileCaseReverseArmed = lastCaseSectionTop != null
         && lastCaseSectionTop <= stableMobileTriggerViewportHeight() * 0.9
       caseMediaActive = true
-      caseSurfaceDocked.value = true
+      setSurfaceDocked(true)
       const dest = caseMediaPose() ?? fallbackDest
       paintBox(dest, 1)
       pinCaseFrame()
@@ -883,7 +858,7 @@ function settleMobileCaseFrame(
  * an identical, fully docked photo instead of exposing a second gray morph.
  */
 function dockMobileCaseFrameUnderDetailReturn(dest: SurfaceBox) {
-  caseDetailHomeReturnPending.value = false
+  consumeHomeReturnSurface()
   caseHopGen += 1
   killHopTween()
   killCaseSettleTween()
@@ -899,8 +874,8 @@ function dockMobileCaseFrameUnderDetailReturn(dest: SurfaceBox) {
   mobileCaseReverseArmed = false
   lastCaseSectionTop = null
   caseMediaActive = true
-  caseSurfaceReturning.value = false
-  caseSurfaceReady.value = false
+  setSurfaceReturning(false)
+  setSurfaceReady(false)
   setCaseSurfaceDocked(true)
   paintBox(dest, 1)
   pinCaseFrame()
@@ -931,7 +906,7 @@ function enterMobileCaseFrame() {
   killHopTween()
   killCaseSettleTween()
   caseHopDirection = 'forward'
-  caseSurfaceReturning.value = false
+  setSurfaceReturning(false)
   mobileCaseReverseArmed = false
   lastCaseSectionTop = null
   caseHopOppositePx = 0
@@ -939,8 +914,9 @@ function enterMobileCaseFrame() {
   mobileCaseProgress = Math.max(startProgress, SURFACE_MORPH_EPSILON)
   mobileCaseArrived = false
   caseMediaActive = true
-  caseSurfaceDocked.value = false
-  caseSurfaceReady.value = false
+  setSurfaceDocked(false)
+  beginCasesEntry()
+  setSurfaceReady(false)
   const startEnter = () => {
     if (gen !== caseHopGen) return
     if (current) {
@@ -971,14 +947,14 @@ function leaveMobileCaseFrame() {
   const gen = ++caseHopGen
   killCaseSettleTween()
   caseHopDirection = 'reverse'
-  caseSurfaceReturning.value = true
+  setSurfaceReturning(true)
   mobileCaseReverseArmed = false
   caseHopOppositePx = 0
   const wasPinned = caseFramePinned()
   unpinFrame()
   mobileCaseArrived = false
   mobileCaseProgress = Math.max(startProgress, SURFACE_MORPH_EPSILON)
-  caseSurfaceReady.value = false
+  setSurfaceReady(false)
   hideMobileCasePhoto(true)
 
   const startReverse = () => {
@@ -1003,7 +979,7 @@ function leaveMobileCaseFrame() {
         caseHopOppositePx = 0
         mobileCaseProgress = 0
         caseMediaActive = false
-        caseSurfaceDocked.value = false
+        setSurfaceDocked(false)
         hideMobileCasePhoto(false)
         const dest = wordPose()
         if (dest) paintBox(dest, 1)
@@ -1075,7 +1051,7 @@ function morphParkedCaseMedia(animate: boolean) {
   // Don't fight mobile hop / other tweens.
   if (hopTween || caseMediaMorphTween) return
 
-  caseSurfaceReady.value = false
+  setSurfaceReady(false)
 
   const morphFrom = { ...from }
   const gsap = gsapMod.default
@@ -1094,7 +1070,7 @@ function morphParkedCaseMedia(animate: boolean) {
       caseMediaMorphTween = null
       paintBox((caseMediaPose() ?? fallbackDest), 1)
       caseMediaActive = true
-      caseSurfaceDocked.value = true
+      setSurfaceDocked(true)
       // A case switch temporarily releases the Teleport so the frame can
       // interpolate between two card geometries. Reattach it immediately once
       // the morph has finished instead of waiting for another scroll update.
@@ -1301,7 +1277,7 @@ function pinCaseFrame() {
   if (!host || !el) return
   if (pinTo.value === host) {
     syncPinnedMask()
-    caseSurfaceReady.value = true
+    setSurfaceReady(true)
     return
   }
 
@@ -1322,7 +1298,7 @@ function pinCaseFrame() {
   pinRo.observe(host)
   void nextTick(() => {
     syncPinnedMask()
-    caseSurfaceReady.value = pinTo.value === host
+    setSurfaceReady(pinTo.value === host)
   })
 }
 
@@ -1918,12 +1894,12 @@ function killMorph() {
   lastCaseSectionTop = null
   mobileScrubBridge = null
   caseMediaActive = false
-  caseSurfaceReturning.value = false
+  setSurfaceReturning(false)
   mobileCaseFillTween?.kill()
   mobileCaseFillTween = null
   stopMobileCasePhotoReveal()
   setCaseSurfaceDocked(false)
-  caseSurfaceReady.value = false
+  setSurfaceReady(false)
   for (const t of mobileTriggers) t.kill()
   mobileTriggers = []
   killHopTween()
@@ -2429,14 +2405,14 @@ watch(
   },
 )
 
-watch(caseMediaMorphNonce, () => {
+watch(caseMediaMorphRevision, () => {
   mobileCaseHandoffY = null
   if (caseSurfaceMedia.value) {
     switchCasePhoto(caseSurfaceMedia.value, true)
   }
 })
 
-watch(caseMediaPrepareNonce, () => {
+watch(caseMediaPrepareRevision, () => {
   mobileCaseHandoffY = null
   caseMediaMorphTween?.kill()
   caseMediaMorphTween = null
@@ -2444,7 +2420,7 @@ watch(caseMediaPrepareNonce, () => {
   // A pinned frame follows its host's size synchronously. Freeze it in viewport
   // coordinates first; the following case switch will tween it to the new host.
   if (caseFramePinned()) {
-    caseSurfaceReady.value = false
+    setSurfaceReady(false)
     unpinFrame()
   }
 })

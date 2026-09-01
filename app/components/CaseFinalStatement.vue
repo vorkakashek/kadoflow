@@ -63,19 +63,19 @@ withDefaults(defineProps<{
   .project-story--final {
     min-height: 0;
     grid-template-columns: 1fr;
-    margin: var(--space-6) 0;
+    margin: calc(var(--space-6) * 2) 0;
   }
 
   .project-story--final p,
   .project-story--final p.case-text-fill {
     grid-column: 1;
-    font-size: clamp(2.25rem, 5.4vw, 6.48rem);
+    font-size: clamp(1.35rem, 3.24vw, 3.888rem);
     text-align: left;
   }
 
   .project-story--final-editorial p,
   .project-story--final-editorial p.case-text-fill {
-    font-size: clamp(2.25rem, 5.4vw, 6.48rem);
+    font-size: clamp(1.35rem, 3.24vw, 3.888rem);
   }
 }
 </style>

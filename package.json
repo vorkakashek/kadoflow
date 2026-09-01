@@ -10,6 +10,7 @@
     "html:optimize": "node scripts/optimize-prerendered-html.mjs",
     "perf:report": "node scripts/report-performance.mjs",
     "perf:check": "node scripts/report-performance.mjs --check",
+    "typecheck": "nuxt typecheck",
     "predev": "npm run locales:build && npm run tokens:fluid",
     "build": "npm run locales:build && npm run tokens:fluid && npm run images:build && npm run env:build && nuxt build && npm run html:optimize && npm run perf:check",
     "dev": "nuxt dev --host",
@@ -36,6 +37,8 @@
     "@types/three": "^0.185.4",
     "playwright-core": "^1.62.1",
     "sharp": "^0.35.4",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.11"
   }
 }

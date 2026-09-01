@@ -54,55 +54,39 @@ const casesIntroTitle = computed(() => t('home.cases.title'))
 const casesIntroCopy = computed(() => t('home.cases.intro'))
 const casesIntroWords = computed(() => casesIntroCopy.value.split(' '))
 
-const activeId = useState('home-active-case-id', () => homeCases.value[0]?.id ?? 'audience')
-const switching = ref(false)
-const caseSurfaceDocked = useState('home-case-surface-docked', () => false)
-/** True only after FlowSurface has finished its final settle and is pinned to media. */
-const caseSurfaceReady = useState('home-case-surface-ready', () => false)
-const caseSurfaceReturning = useState('home-case-surface-returning', () => false)
+const {
+  activeCaseId: activeId,
+  casePhase,
+  surfaceDocked: caseSurfaceDocked,
+  surfaceReady: caseSurfaceReady,
+  surfaceReturning: caseSurfaceReturning,
+  caseMediaReady,
+  homeReturnMediaDocked,
+  routePhase,
+  selectCase: selectHomeCase,
+  setCaseInverse,
+  publishCaseMedia,
+  setCaseMediaReady,
+  beginCaseSwitch,
+  prepareCaseMediaSwitch,
+  commitCaseMediaSwitch,
+  completeCaseSwitch,
+} = useHomeExperience()
+const switching = computed(() => casePhase.value === 'switching')
 /** Restarted for every case; appears only after the surface/media have settled. */
 const showCaseArrow = ref(false)
 let caseArrowTimer = 0
-const caseSurfaceMedia = useState<{
-  src: string
-  webpSrcset?: string
-  avifSrcset?: string
-  alt: string
-  wash: string
-  video?: {
-    webm: string
-    mp4: string
-    mobileWebm?: string
-    mobileMp4?: string
-    poster: string
-  }
-} | null>(
-  'home-case-surface-media',
-  () => null,
-)
-const caseMediaMorphNonce = useState('home-case-media-morph-nonce', () => 0)
-/** Ask FlowSurface to freeze its pinned frame before this card changes size. */
-const caseMediaPrepareNonce = useState('home-case-media-prepare-nonce', () => 0)
 /**
  * The first case image should not compete with the hero's initial payload.
  * Once the brand reveal is complete, warm and decode it while the browser is idle
  * so the Kado → Cases handoff has a ready raster.
  */
-const caseMediaReady = useState('home-case-media-ready', () => false)
 const preload = useBrandPreload()
-const caseInverse = useState('home-case-inverse', () => !!homeCases.value[0]?.inverse)
 const {
-  request: caseDetailTransitionRequest,
-  active: caseDetailTransitionActive,
-  homeReturnMediaDocked,
   openCaseDetail,
 } = useCaseDetailTransition()
 
-const caseDetailHomeReturnActive = computed(() => (
-  caseDetailTransitionActive.value
-  && caseDetailTransitionRequest.value?.direction === 'close'
-  && caseDetailTransitionRequest.value.to === '/#cases'
-))
+const caseDetailHomeReturnActive = computed(() => routePhase.value === 'returning-home')
 const hideCaseCopyDuringDetailReturn = computed(() => (
   caseDetailHomeReturnActive.value
   && !homeReturnMediaDocked.value
@@ -352,24 +336,24 @@ function captureMobileCasesHeight() {
 
 function publishSurfaceMedia(item: HomeCase | undefined) {
   if (!item) {
-    caseSurfaceMedia.value = null
+    publishCaseMedia(null)
     return
   }
-  caseSurfaceMedia.value = {
+  publishCaseMedia({
     src: item.media.src,
     webpSrcset: item.media.webpSrcset,
     avifSrcset: item.media.avifSrcset,
     alt: item.media.alt,
     wash: item.wash,
     video: item.media.video,
-  }
+  })
 }
 
 watch(
   activeCase,
   (item) => {
     publishSurfaceMedia(item)
-    caseInverse.value = !!item?.inverse
+    setCaseInverse(!!item?.inverse)
   },
   { immediate: true },
 )
@@ -404,13 +388,13 @@ function warmFirstCaseMedia(priority = false) {
   image.src = src
   const finish = () => {
     void image.decode().catch(() => undefined).finally(() => {
-      caseMediaReady.value = true
+      setCaseMediaReady(true)
     })
   }
   if (image.complete) finish()
   else image.addEventListener('load', finish, { once: true })
   image.addEventListener('error', () => {
-    caseMediaReady.value = true
+    setCaseMediaReady(true)
   }, { once: true })
 }
 
@@ -1024,7 +1008,7 @@ watch(activeId, () => clearCaseArrow())
 function onMediaLayoutReady() {
   if (!caseSurfaceDocked.value) return
   requestAnimationFrame(() => {
-    caseMediaMorphNonce.value += 1
+    commitCaseMediaSwitch()
     scheduleMobileStageCollapse()
   })
 }
@@ -1123,9 +1107,9 @@ async function selectCase(item: HomeCase) {
   const gsap = await ensureGsap()
 
   if (prefersReduce()) {
-    activeId.value = item.id
+    selectHomeCase(item.id, !!item.inverse)
     publishSurfaceMedia(item)
-    if (caseSurfaceDocked.value) caseMediaMorphNonce.value += 1
+    if (caseSurfaceDocked.value) commitCaseMediaSwitch()
     await nextTick()
     measureMobileStageCollapse()
     scheduleMobileStageCollapse()
@@ -1136,7 +1120,7 @@ async function selectCase(item: HomeCase) {
   }
 
   const gen = ++switchGen
-  switching.value = true
+  beginCaseSwitch()
   mobileStageCollapseSt?.kill()
   mobileStageCollapseSt = null
 
@@ -1165,7 +1149,7 @@ async function selectCase(item: HomeCase) {
 
   // 3. Freeze the parked surface in its current box before the DOM card changes
   // dimensions. FlowSurface then has a real from→to geometry to interpolate.
-  caseMediaPrepareNonce.value += 1
+  prepareCaseMediaSwitch()
   await nextTick()
   if (gen !== switchGen) return
 
@@ -1176,7 +1160,7 @@ async function selectCase(item: HomeCase) {
   const railTopBeforeLayout = rail?.getBoundingClientRect().top ?? null
   const fromH = root?.offsetHeight ?? 0
   if (root && fromH) gsap.set(root, { height: fromH })
-  activeId.value = item.id
+  selectHomeCase(item.id, !!item.inverse)
   await nextTick()
   if (gen !== switchGen) return
   measureMobileStageCollapse()
@@ -1184,7 +1168,7 @@ async function selectCase(item: HomeCase) {
   // The figure now has its next dimensions. Only now start the photo handoff,
   // so the surface can resize before the outgoing image is wiped.
   publishSurfaceMedia(item)
-  caseMediaMorphNonce.value += 1
+  commitCaseMediaSwitch()
   if (root && fromH) {
     root.style.height = 'auto'
     const toH = root.offsetHeight
@@ -1210,7 +1194,7 @@ async function selectCase(item: HomeCase) {
   await waitTimeline(inn)
 
   if (gen === switchGen) {
-    switching.value = false
+    completeCaseSwitch()
     switchTl = null
   }
 }
@@ -1267,6 +1251,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  completeCaseSwitch()
   clearCaseArrow()
   if (suppressCaseLinkClickTimer) {
     window.clearTimeout(suppressCaseLinkClickTimer)
@@ -2404,7 +2389,9 @@ onBeforeUnmount(() => {
   line-height: 1.35;
   text-align: left;
   text-wrap: pretty;
-  transition: opacity 0.18s var(--motion-ease, ease);
+  /* GSAP owns both switch phases. A CSS opacity transition here trails every
+     frame, so the old copy is still visible when Vue moves the new text. */
+  transition: none;
 }
 
 /* Editorial case poses. Navigation and media share one 12-column field. */
@@ -2534,6 +2521,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767.98px) {
+  .cases-inner {
+    padding-top: calc((var(--layout-surface-top) + var(--space-section)) * 0.4);
+  }
+
   .cases-rail__list > li,
   .cases-rail__btn {
     flex: 0 0 auto;

@@ -541,12 +541,15 @@ onMounted(async () => {
   // made ScrollTrigger apply its current pose as a visible late jump.
   await setupSectionParallax()
   if (componentUnmounted) return
+  // Levitation is part of the stone's stable resting state, not a deferred
+  // enhancement. Start it before Hero/idle-gated text work so a fast visitor
+  // never sees the stone begin floating halfway through the Kado section.
+  void setupStoneLevitation()
   await waitForHeroIntro()
   await waitForEnhancementIdle()
   if (componentUnmounted) return
   await ensureLineFill()
   if (componentUnmounted) return
-  void setupStoneLevitation()
   lastHostWidth = bodyFocusEl.value?.clientWidth ?? 0
   if (bodyFocusEl.value) {
     resizeObserver = new ResizeObserver(() => {

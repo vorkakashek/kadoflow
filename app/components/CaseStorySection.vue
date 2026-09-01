@@ -390,7 +390,7 @@ const presentationClasses = computed(() => {
   .project-story--disclosure :deep(.project-story__media img) { aspect-ratio: 4 / 5; }
 
   .project-story--feature :deep(.project-story__media .case-autoplay-video),
-  .project-story--media-motion :deep(.project-story__media .case-autoplay-video) { aspect-ratio: 1; }
+  .project-story--media-motion :deep(.project-story__media .case-autoplay-video) { aspect-ratio: 9 / 16; }
 
   .project-story--media-motion :deep(video) { object-fit: cover; }
   .project-story--media-label :deep(.project-story__media img) { aspect-ratio: 4 / 3; }

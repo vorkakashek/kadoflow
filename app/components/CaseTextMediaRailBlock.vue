@@ -82,16 +82,14 @@ h2 {
 @media (max-width: 767.98px) {
   .case-text-media-rail { margin-top: calc(var(--space-section) * 0.5); }
   h2 {
-    width: 80%;
-    margin-right: 0;
-    margin-left: auto;
+    width: 100%;
+    margin-inline: 0;
     font-size: clamp(1.875rem, 8vw, 2.25rem);
     text-align: left;
   }
   .audience-case__lede {
-    width: 80%;
-    margin-right: 0;
-    margin-left: auto;
+    width: 100%;
+    margin-inline: 0;
     font-size: var(--type-case-body);
     text-align: left;
   }
@@ -113,6 +111,7 @@ h2 {
     width: auto;
     height: var(--case-rail-mobile-media-height);
     margin-top: 0;
+    aspect-ratio: auto;
   }
   :deep(.case-horizontal-rail__content > .audience-case__responsive-picture > img) {
     width: auto;

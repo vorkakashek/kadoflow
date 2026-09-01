@@ -6,9 +6,10 @@ const router = useRouter()
 const {
   request,
   active,
-  homeReturnPending,
-  homeReturnMediaDocked,
   detailContentVisible,
+  completeDetailOpen,
+  markHomeReturnMediaDocked,
+  completeDetailReturn,
 } = useCaseDetailTransition()
 const rootEl = ref<HTMLElement | null>(null)
 const backdropEl = ref<HTMLElement | null>(null)
@@ -287,7 +288,7 @@ watch(request, async (next) => {
       // the still-large proxy, which read as a second copy of the same image.
       flight.to(backdrop, { opacity: 0, duration: 0.16, ease: 'power1.out' }, 0.44)
       await flight
-      homeReturnMediaDocked.value = true
+      markHomeReturnMediaDocked()
 
       // Finish docking before handing the frame back to the live surface.
       // A fractional opacity forces the browser to composite and paint the
@@ -310,11 +311,11 @@ watch(request, async (next) => {
     gsap.set(root, { opacity: 0 })
   } finally {
     stopHashPin?.()
-    if (next.direction === 'close') homeReturnPending.value = false
+    if (next.direction === 'close') completeDetailReturn()
+    else completeDetailOpen()
     visible.value = false
     request.value = null
     active.value = false
-    homeReturnMediaDocked.value = false
   }
 })
 </script>

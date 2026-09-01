@@ -33,6 +33,8 @@ const {
 } = usePageCanvas()
 const rootEl = ref<HTMLElement | null>(null)
 const live = ref(false)
+const DEFAULT_IRIS_COLOR = 'color-mix(in srgb, var(--palette-sand) 78%, var(--palette-ash))'
+const irisColor = ref(DEFAULT_IRIS_COLOR)
 const {
   active: caseDetailTransitionActive,
   closeCaseDetail,
@@ -59,6 +61,7 @@ function captureOrigin(e: Event) {
   const hit = t.closest('a[href]')
   originEl = hit
   if (!(hit instanceof HTMLAnchorElement)) return
+  irisColor.value = hit.dataset.pageIrisColor || DEFAULT_IRIS_COLOR
   try {
     const url = new URL(hit.href, location.href)
     if (url.origin === location.origin && (url.pathname === '/' || url.pathname === '')) {
@@ -71,6 +74,7 @@ function captureOrigin(e: Event) {
 
 function onPopState() {
   popNav = true
+  irisColor.value = DEFAULT_IRIS_COLOR
 }
 
 function shouldSkip(
@@ -397,6 +401,7 @@ onUnmounted(() => {
     ref="rootEl"
     class="page-iris"
     :class="{ 'page-iris--live': live }"
+    :style="{ backgroundColor: irisColor }"
     aria-hidden="true"
   />
 </template>

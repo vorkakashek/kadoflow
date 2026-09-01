@@ -43,7 +43,7 @@ const mobileHeader = ref(false)
 const mobileScrollMarkOn = ref(false)
 /** Desktop keeps the compact mark while the reader moves down on any page. */
 const desktopScrollMarkOn = ref(false)
-const caseInverse = useState('home-case-inverse', () => false)
+const { caseInverse } = useHomeExperience()
 const {
   closeCaseDetail,
   active: caseDetailTransitionActive,

@@ -12,6 +12,8 @@ export type ProjectCaseMedia = {
   poster?: string
   mobileSrc?: string
   mobilePoster?: string
+  mobileWebpSrcset?: string
+  mobileAvifSrcset?: string
   webpSrcset?: string
   avifSrcset?: string
   sizes?: string

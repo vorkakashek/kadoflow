@@ -841,6 +841,7 @@ useHead(() => ({
       :to="homeCaseDetailPath(nextItem)"
       class="case-detail__next"
       :class="{ 'case-detail__next--inverse': nextItem.inverse }"
+      :data-page-iris-color="nextItem.wash"
       :style="{ backgroundColor: nextItem.wash }"
     >
       <span ref="nextProjectContentEl" class="case-detail__next-content">
@@ -1031,7 +1032,7 @@ h1 {
     display: flex;
     min-height: var(--app-screen);
     flex-direction: column;
-    padding-bottom: var(--space-6);
+    padding-bottom: 0;
   }
 
   .case-detail__hero {
@@ -1045,7 +1046,7 @@ h1 {
     min-height: 0;
     flex: 1;
     flex-direction: column;
-    gap: calc(var(--space-4) * 0.5);
+    gap: 0;
     padding-top: 0;
   }
 
@@ -1125,7 +1126,7 @@ h1 {
 
 @media (max-width: 767.98px) {
   .case-detail__media {
-    margin-top: 0;
+    margin-top: var(--space-3);
     margin-bottom: 0;
   }
 
