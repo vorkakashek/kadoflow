@@ -3,6 +3,7 @@ const { t } = useI18n()
 const visible = ref(false)
 const { scrollY, scrollDelta, scrollRevision } = useMotionRuntime()
 const { motionActive } = useCaseDetailExperience()
+const { style: fabStyle } = useMobileFabGeometry()
 
 function updateVisibility() {
   if (!motionActive.value) {
@@ -33,6 +34,7 @@ function scrollToTop() {
     type="button"
     class="case-scroll-top"
     :class="{ 'case-scroll-top--visible': visible }"
+    :style="fabStyle"
     :aria-label="t('common.scrollTop')"
     :aria-hidden="!visible"
     :tabindex="visible ? 0 : -1"

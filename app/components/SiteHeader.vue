@@ -76,9 +76,6 @@ function onCaseDetailBack(event: MouseEvent) {
     wash: item.wash,
   })
 }
-const fabStyle = computed(() => ({
-  bottom: `calc(${fabBottomExtra.value}px + 2 * var(--layout-margin) + var(--safe-bottom, 0px))`,
-}))
 const logoInverted = computed(
   () => detailInverse.value
     || (isOverCases.value && activeHomeCaseInverse.value),
@@ -94,8 +91,8 @@ const menuBtnEl = ref<HTMLElement | null>(null)
 const menuSlotEl = ref<HTMLElement | null>(null)
 const caseBackEl = ref<HTMLElement | null>(null)
 const caseMobileBackEl = ref<HTMLElement | null>(null)
-/** Extra px so FAB sits above the visual viewport bottom (= same edge gap as `right`). */
-const fabBottomExtra = ref(0)
+/** Shared geometry keeps every thumb-zone control on one baseline. */
+const { bottomExtra: fabBottomExtra, style: fabStyle } = useMobileFabGeometry()
 const thumbNav = ref(false)
 const introPending = ref(true)
 
@@ -1214,7 +1211,7 @@ onUnmounted(() => {
   <Teleport to="body">
     <Transition name="mobile-scroll-mark">
       <NuxtLink
-        v-if="mobileScrollMarkVisible && !canvasSurface && !detailCase"
+        v-if="mobileScrollMarkVisible && !canvasSurface"
         to="/"
         class="mobile-scroll-mark pointer-events-auto"
         :class="{ 'mobile-scroll-mark--inverted': mobileScrollMarkInverted }"

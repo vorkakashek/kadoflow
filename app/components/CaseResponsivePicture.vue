@@ -20,7 +20,10 @@ defineProps<{
       :width="media.width"
       :height="media.height"
       :class="imageClass"
-      :style="media.aspectRatio ? { aspectRatio: media.aspectRatio } : undefined"
+      :style="{
+        aspectRatio: media.aspectRatio,
+        '--case-media-mobile-aspect-ratio': media.mobileAspectRatio,
+      }"
       loading="lazy"
       decoding="async"
     >

@@ -72,7 +72,7 @@ const props = defineProps<{
     margin-inline: calc(50% - 50vw);
   }
   :deep(.case-horizontal-rail__content) {
-    --case-rail-mobile-media-height: min(62svh, 72vw);
+    --case-rail-mobile-media-height: min(93svh, 108vw);
     display: flex;
     width: max-content;
     align-items: flex-start;

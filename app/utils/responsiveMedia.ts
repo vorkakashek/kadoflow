@@ -16,6 +16,9 @@ const presets: Record<string, ResponsiveMediaPreset> = {
     webpSrcset: '/home/cases/keys-store/keys-1-480.webp 480w, /home/cases/keys-store/keys-1-960.webp 960w, /home/cases/keys-store/keys-1-1440.webp 1440w, /home/cases/keys-store/keys-1-2079.webp 2079w',
     avifSrcset: '/home/cases/keys-store/keys-1-480.avif 480w, /home/cases/keys-store/keys-1-960.avif 960w, /home/cases/keys-store/keys-1-1440.avif 1440w, /home/cases/keys-store/keys-1-2079.avif 2079w',
     sizes: '(max-width: 767px) 92vw, 50vw',
+    mobileSrc: '/home/cases/keys-store/keys-1-vertical.webp',
+    mobileWebpSrcset: '/home/cases/keys-store/keys-1-vertical-480.webp 480w, /home/cases/keys-store/keys-1-vertical-960.webp 960w, /home/cases/keys-store/keys-1-vertical-1440.webp 1440w',
+    mobileAvifSrcset: '/home/cases/keys-store/keys-1-vertical-480.avif 480w, /home/cases/keys-store/keys-1-vertical-960.avif 960w, /home/cases/keys-store/keys-1-vertical-1440.avif 1440w',
   },
   '/home/cases/keys-store/keys-2.webp': {
     width: 4000,
@@ -31,7 +34,7 @@ const presets: Record<string, ResponsiveMediaPreset> = {
     avifSrcset: '/home/cases/keys-store/keys-3-480.avif 480w, /home/cases/keys-store/keys-3-960.avif 960w, /home/cases/keys-store/keys-3-1440.avif 1440w, /home/cases/keys-store/keys-3-2079.avif 2079w',
     sizes: '(max-width: 767px) 92vw, 50vw',
   },
-  ...Object.fromEntries([4, 5, 6, 7, 8].map(index => [
+  ...Object.fromEntries([5, 6, 7, 8].map(index => [
     `/home/cases/keys-store/keys-${index}.webp`,
     {
       width: 2560,
@@ -41,6 +44,16 @@ const presets: Record<string, ResponsiveMediaPreset> = {
       sizes: '(max-width: 767px) 92vw, 50vw',
     },
   ])),
+  '/home/cases/keys-store/keys-4.webp': {
+    width: 2560,
+    height: 1440,
+    webpSrcset: '/home/cases/keys-store/keys-4-480.webp 480w, /home/cases/keys-store/keys-4-960.webp 960w, /home/cases/keys-store/keys-4-1440.webp 1440w, /home/cases/keys-store/keys-4-2079.webp 2079w',
+    avifSrcset: '/home/cases/keys-store/keys-4-480.avif 480w, /home/cases/keys-store/keys-4-960.avif 960w, /home/cases/keys-store/keys-4-1440.avif 1440w, /home/cases/keys-store/keys-4-2079.avif 2079w',
+    sizes: '(max-width: 767px) 92vw, 50vw',
+    mobileSrc: '/home/cases/keys-store/keys-4-vertical.webp',
+    mobileWebpSrcset: '/home/cases/keys-store/keys-4-vertical-480.webp 480w, /home/cases/keys-store/keys-4-vertical-960.webp 960w, /home/cases/keys-store/keys-4-vertical-1440.webp 1440w',
+    mobileAvifSrcset: '/home/cases/keys-store/keys-4-vertical-480.avif 480w, /home/cases/keys-store/keys-4-vertical-960.avif 960w, /home/cases/keys-store/keys-4-vertical-1440.avif 1440w',
+  },
   '/home/cases/keys-store/keys-9.webp': {
     width: 5504,
     height: 3072,
@@ -71,6 +84,9 @@ const presets: Record<string, ResponsiveMediaPreset> = {
     webpSrcset: '/home/cases/keys-store/keys-12-480.webp 480w, /home/cases/keys-store/keys-12-960.webp 960w, /home/cases/keys-store/keys-12-1440.webp 1440w, /home/cases/keys-store/keys-12-2079.webp 2079w, /home/cases/keys-store/keys-12-2760.webp 2760w',
     avifSrcset: '/home/cases/keys-store/keys-12-480.avif 480w, /home/cases/keys-store/keys-12-960.avif 960w, /home/cases/keys-store/keys-12-1440.avif 1440w, /home/cases/keys-store/keys-12-2079.avif 2079w, /home/cases/keys-store/keys-12-2760.avif 2760w',
     sizes: '100vw',
+    mobileSrc: '/home/cases/keys-store/keys-12-vertical.webp',
+    mobileWebpSrcset: '/home/cases/keys-store/keys-12-vertical-480.webp 480w, /home/cases/keys-store/keys-12-vertical-960.webp 960w, /home/cases/keys-store/keys-12-vertical-1440.webp 1440w',
+    mobileAvifSrcset: '/home/cases/keys-store/keys-12-vertical-480.avif 480w, /home/cases/keys-store/keys-12-vertical-960.avif 960w, /home/cases/keys-store/keys-12-vertical-1440.avif 1440w',
   },
   '/home/cases/schmidt/schmidt-1.webp': {
     width: 6000,
@@ -78,6 +94,9 @@ const presets: Record<string, ResponsiveMediaPreset> = {
     webpSrcset: '/home/cases/schmidt/schmidt-1-480.webp 480w, /home/cases/schmidt/schmidt-1-960.webp 960w, /home/cases/schmidt/schmidt-1-1440.webp 1440w, /home/cases/schmidt/schmidt-1-1920.webp 1920w, /home/cases/schmidt/schmidt-1-2760.webp 2760w',
     avifSrcset: '/home/cases/schmidt/schmidt-1-480.avif 480w, /home/cases/schmidt/schmidt-1-960.avif 960w, /home/cases/schmidt/schmidt-1-1440.avif 1440w, /home/cases/schmidt/schmidt-1-1920.avif 1920w, /home/cases/schmidt/schmidt-1-2760.avif 2760w',
     sizes: '(max-width: 767px) 100vw, 100vw',
+    mobileSrc: '/home/cases/schmidt/schmidt-1-vertical.webp',
+    mobileWebpSrcset: '/home/cases/schmidt/schmidt-1-vertical-480.webp 480w, /home/cases/schmidt/schmidt-1-vertical-960.webp 960w, /home/cases/schmidt/schmidt-1-vertical-1440.webp 1440w',
+    mobileAvifSrcset: '/home/cases/schmidt/schmidt-1-vertical-480.avif 480w, /home/cases/schmidt/schmidt-1-vertical-960.avif 960w, /home/cases/schmidt/schmidt-1-vertical-1440.avif 1440w',
   },
   '/home/cases/schmidt/schmidt-3.webp': {
     width: 2560,
@@ -123,6 +142,9 @@ const presets: Record<string, ResponsiveMediaPreset> = {
     webpSrcset: '/home/cases/schmidt/schmidt-10-480.webp 480w, /home/cases/schmidt/schmidt-10-960.webp 960w, /home/cases/schmidt/schmidt-10-1440.webp 1440w, /home/cases/schmidt/schmidt-10-1920.webp 1920w, /home/cases/schmidt/schmidt-10-2560.webp 2560w',
     avifSrcset: '/home/cases/schmidt/schmidt-10-480.avif 480w, /home/cases/schmidt/schmidt-10-960.avif 960w, /home/cases/schmidt/schmidt-10-1440.avif 1440w, /home/cases/schmidt/schmidt-10-1920.avif 1920w, /home/cases/schmidt/schmidt-10-2560.avif 2560w',
     sizes: '100vw',
+    mobileSrc: '/home/cases/schmidt/schmidt-10-vertical.webp',
+    mobileWebpSrcset: '/home/cases/schmidt/schmidt-10-vertical-480.webp 480w, /home/cases/schmidt/schmidt-10-vertical-960.webp 960w, /home/cases/schmidt/schmidt-10-vertical-1440.webp 1440w',
+    mobileAvifSrcset: '/home/cases/schmidt/schmidt-10-vertical-480.avif 480w, /home/cases/schmidt/schmidt-10-vertical-960.avif 960w, /home/cases/schmidt/schmidt-10-vertical-1440.avif 1440w',
   },
   '/home/cases/schmidt/schmidt-11.webp': {
     width: 2560,

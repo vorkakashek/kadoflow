@@ -2556,6 +2556,9 @@ watch(
               }"
             >
               <picture v-if="caseMediaReady" class="case-surface-fill__picture">
+                <source v-if="fillFrontMedia?.mobileAvifSrcset" media="(max-width: 767.98px)" type="image/avif" :srcset="fillFrontMedia.mobileAvifSrcset" sizes="92vw">
+                <source v-if="fillFrontMedia?.mobileWebpSrcset" media="(max-width: 767.98px)" type="image/webp" :srcset="fillFrontMedia.mobileWebpSrcset" sizes="92vw">
+                <source v-if="fillFrontMedia?.mobileSrc" media="(max-width: 767.98px)" :srcset="fillFrontMedia.mobileSrc">
                 <source v-if="fillFrontMedia?.avifSrcset" type="image/avif" :srcset="fillFrontMedia.avifSrcset" sizes="(max-width: 767px) 92vw, 42vw">
                 <source v-if="fillFrontMedia?.webpSrcset" type="image/webp" :srcset="fillFrontMedia.webpSrcset" sizes="(max-width: 767px) 92vw, 42vw">
                 <img
@@ -2604,6 +2607,9 @@ watch(
               }"
             >
               <picture v-if="caseMediaReady" class="case-surface-fill__picture">
+                <source v-if="fillBackMedia?.mobileAvifSrcset" media="(max-width: 767.98px)" type="image/avif" :srcset="fillBackMedia.mobileAvifSrcset" sizes="92vw">
+                <source v-if="fillBackMedia?.mobileWebpSrcset" media="(max-width: 767.98px)" type="image/webp" :srcset="fillBackMedia.mobileWebpSrcset" sizes="92vw">
+                <source v-if="fillBackMedia?.mobileSrc" media="(max-width: 767.98px)" :srcset="fillBackMedia.mobileSrc">
                 <source v-if="fillBackMedia?.avifSrcset" type="image/avif" :srcset="fillBackMedia.avifSrcset" sizes="(max-width: 767px) 92vw, 42vw">
                 <source v-if="fillBackMedia?.webpSrcset" type="image/webp" :srcset="fillBackMedia.webpSrcset" sizes="(max-width: 767px) 92vw, 42vw">
                 <img

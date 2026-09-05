@@ -19,6 +19,9 @@ export type HomeCaseSurfaceMedia = {
   src: string
   webpSrcset?: string
   avifSrcset?: string
+  mobileSrc?: string
+  mobileWebpSrcset?: string
+  mobileAvifSrcset?: string
   alt: string
   wash: string
   video?: {

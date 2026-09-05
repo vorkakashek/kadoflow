@@ -42,7 +42,7 @@ const emit = defineEmits<{
 
 @media (max-width: 767.98px) {
   .audience-case__media-wide :deep(img) {
-    aspect-ratio: 2215 / 3278;
+    aspect-ratio: var(--case-media-mobile-aspect-ratio, 2215 / 3278) !important;
   }
 }
 </style>

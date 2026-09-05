@@ -24,6 +24,12 @@ export const imageRecipes = [
     fallback: 'webp',
   },
   {
+    source: 'public/home/cases/keys-store/keys-1-vertical.png',
+    outputStem: 'public/home/cases/keys-store/keys-1-vertical',
+    widths: [480, 960, 1440],
+    fallback: 'webp',
+  },
+  {
     source: 'public/home/cases/keys-store/keys-2.png',
     outputStem: 'public/home/cases/keys-store/keys-2',
     widths: [480, 960, 1440, 2079],
@@ -41,6 +47,12 @@ export const imageRecipes = [
     widths: [480, 960, 1440, 2079],
     fallback: 'webp',
   })),
+  {
+    source: 'public/home/cases/keys-store/keys-4-vertical.png',
+    outputStem: 'public/home/cases/keys-store/keys-4-vertical',
+    widths: [480, 960, 1440],
+    fallback: 'webp',
+  },
   {
     source: 'public/home/cases/keys-store/keys-9.png',
     outputStem: 'public/home/cases/keys-store/keys-9',
@@ -72,6 +84,12 @@ export const imageRecipes = [
     fallback: 'webp',
   },
   {
+    source: 'public/home/cases/keys-store/keys-12-vertical.png',
+    outputStem: 'public/home/cases/keys-store/keys-12-vertical',
+    widths: [480, 960, 1440],
+    fallback: 'webp',
+  },
+  {
     source: 'public/home/cases/keys-store/case-detail-end.png',
     outputStem: 'public/home/cases/keys-store/keys-end',
     widths: [480, 960, 1440, 1920],
@@ -80,6 +98,12 @@ export const imageRecipes = [
     source: 'public/home/cases/schmidt/schmidt-1.png',
     outputStem: 'public/home/cases/schmidt/schmidt-1',
     widths: [480, 960, 1440, 1920, 2760],
+    fallback: 'webp',
+  },
+  {
+    source: 'public/home/cases/schmidt/schmidt-1-vertical.png',
+    outputStem: 'public/home/cases/schmidt/schmidt-1-vertical',
+    widths: [480, 960, 1440],
     fallback: 'webp',
   },
   {
@@ -116,6 +140,12 @@ export const imageRecipes = [
     source: 'public/home/cases/schmidt/schmidt-10.png',
     outputStem: 'public/home/cases/schmidt/schmidt-10',
     widths: [480, 960, 1440, 1920, 2560],
+    fallback: 'webp',
+  },
+  {
+    source: 'public/home/cases/schmidt/schmidt-10-vertical.png',
+    outputStem: 'public/home/cases/schmidt/schmidt-10-vertical',
+    widths: [480, 960, 1440],
     fallback: 'webp',
   },
   {
@@ -221,13 +251,22 @@ export const imageRecipes = [
     widths: [480, 960, 1440],
   },
   {
-    source: 'public/home/cases/baltika/baltika-blender.png',
-    outputStem: 'public/home/cases/baltika/baltika-detail-header-portrait',
-    widths: [320, 480, 640],
-    crop: {
-      aspectRatio: 9 / 16,
-      position: 'centre',
-    },
+    source: 'public/home/cases/baltika/baltika-detail-header.png',
+    outputStem: 'public/home/cases/baltika/baltika-detail-header',
+    widths: [480, 960, 1440, 1920],
+    fallback: 'webp',
+  },
+  {
+    source: 'public/home/cases/baltika/baltika-detail-header-vertical.png',
+    outputStem: 'public/home/cases/baltika/baltika-detail-header-vertical',
+    widths: [480, 960, 1440],
+    fallback: 'webp',
+  },
+  {
+    source: 'public/home/cases/baltika/baltika-3-vertical.png',
+    outputStem: 'public/home/cases/baltika/baltika-3-vertical',
+    widths: [480, 960, 1440],
+    fallback: 'webp',
   },
   ...Array.from({ length: 7 }, (_, index) => {
     const imageNumber = index + 1

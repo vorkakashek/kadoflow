@@ -56,6 +56,9 @@ const casesIntroTitleLines = computed(() => (
 ))
 
 function caseMediaAspectRatio(item: HomeCase) {
+  if (mobileCases.value && item.media.mobileWidth && item.media.mobileHeight) {
+    return `${item.media.mobileWidth} / ${item.media.mobileHeight}`
+  }
   const heightScale = item.id === 'audience' || item.id === 'keys-store' ? 0.85 : 1
   return `${item.media.width} / ${item.media.height * heightScale}`
 }
@@ -349,6 +352,9 @@ function publishSurfaceMedia(item: HomeCase | undefined) {
     src: item.media.src,
     webpSrcset: item.media.webpSrcset,
     avifSrcset: item.media.avifSrcset,
+    mobileSrc: item.media.mobileSrc,
+    mobileWebpSrcset: item.media.mobileWebpSrcset,
+    mobileAvifSrcset: item.media.mobileAvifSrcset,
     alt: item.media.alt,
     wash: item.wash,
     video: item.media.video,
@@ -1438,6 +1444,25 @@ onBeforeUnmount(() => {
             :style="{ aspectRatio: caseMediaAspectRatio(activeCase) }"
           >
             <picture v-if="caseMediaReady" class="cases-media__picture">
+              <source
+                v-if="activeCase.media.mobileAvifSrcset"
+                media="(max-width: 767.98px)"
+                type="image/avif"
+                :srcset="activeCase.media.mobileAvifSrcset"
+                sizes="92vw"
+              >
+              <source
+                v-if="activeCase.media.mobileWebpSrcset"
+                media="(max-width: 767.98px)"
+                type="image/webp"
+                :srcset="activeCase.media.mobileWebpSrcset"
+                sizes="92vw"
+              >
+              <source
+                v-if="activeCase.media.mobileSrc"
+                media="(max-width: 767.98px)"
+                :srcset="activeCase.media.mobileSrc"
+              >
               <source
                 v-if="activeCase.media.avifSrcset"
                 type="image/avif"

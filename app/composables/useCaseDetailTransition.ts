@@ -22,7 +22,9 @@ export function useCaseDetailTransition() {
     () => null,
   )
   const active = useState('case-detail-transition-active', () => false)
-  const origin = useState<CaseDetailOrigin>('case-detail-origin', () => 'home')
+  // A cold detail entry (including reload) has no live source-page context.
+  // Fall back to the project catalog; SPA opens still record their real origin.
+  const origin = useState<CaseDetailOrigin>('case-detail-origin', () => 'projects')
   const home = useHomeExperience()
   const detail = useCaseDetailExperience()
 

@@ -192,8 +192,13 @@ async function refreshAudienceScrollPositions() {
 async function setupMediaParallax() {
   const media = mediaParallaxEl.value
   if (!media || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  const parallaxHeaderMedia = item.value?.id === 'audience' || item.value?.id === 'keys-store'
-  const parallaxTravel = item.value?.id === 'keys-store' ? -15 : -55
+  const mobileHeaderParallax = window.matchMedia('(max-width: 767.98px)').matches
+  const parallaxHeaderMedia = mobileHeaderParallax
+    || item.value?.id === 'audience'
+    || item.value?.id === 'keys-store'
+  const parallaxTravel = mobileHeaderParallax
+    ? -16.667
+    : item.value?.id === 'keys-store' ? -15 : -55
   const mediaFrame = mediaEnterEl.value ?? media
 
   mediaParallaxCtx?.revert()
@@ -217,9 +222,8 @@ async function setupMediaParallax() {
       media,
       { yPercent: 0 },
       {
-        // Audience and Keys Store keep an oversized image moving inside the
-        // header crop window. Other cases intentionally have no header-media
-        // parallax. Keys Store uses a quieter travel range.
+        // Every mobile case uses the same oversized 4:5 header treatment.
+        // Desktop keeps the established Audience/Keys-only behaviour.
         yPercent: parallaxTravel,
         ease: 'none',
         scrollTrigger,
@@ -800,7 +804,7 @@ useHead(() => ({
           </div>
           <div
             ref="mediaEnterEl"
-            class="case-detail__media"
+            class="case-detail__media case-detail__media--mobile-parallax"
             :class="{
               'case-detail__media--audience': item.id === 'audience',
               'case-detail__media--keys': item.id === 'keys-store',
@@ -820,18 +824,23 @@ useHead(() => ({
               />
               <picture v-else class="case-detail__picture">
                 <source
-                  v-if="projectDetail?.headerMedia?.mobileAvifSrcset"
+                  v-if="headerMedia?.mobileAvifSrcset"
                   media="(max-width: 767.98px)"
                   type="image/avif"
-                  :srcset="projectDetail.headerMedia.mobileAvifSrcset"
+                  :srcset="headerMedia.mobileAvifSrcset"
                   sizes="100vw"
                 >
                 <source
-                  v-if="projectDetail?.headerMedia?.mobileWebpSrcset"
+                  v-if="headerMedia?.mobileWebpSrcset"
                   media="(max-width: 767.98px)"
                   type="image/webp"
-                  :srcset="projectDetail.headerMedia.mobileWebpSrcset"
+                  :srcset="headerMedia.mobileWebpSrcset"
                   sizes="100vw"
+                >
+                <source
+                  v-if="headerMedia?.mobileSrc"
+                  media="(max-width: 767.98px)"
+                  :srcset="headerMedia.mobileSrc"
                 >
                 <source v-if="headerMedia?.avifSrcset" type="image/avif" :srcset="headerMedia.avifSrcset" sizes="100vw">
                 <source v-if="headerMedia?.webpSrcset" type="image/webp" :srcset="headerMedia.webpSrcset" sizes="100vw">
@@ -1170,8 +1179,20 @@ h1 {
     margin-bottom: 0;
   }
 
-  .case-detail--baltika .case-detail__image {
-    aspect-ratio: 9 / 16;
+  .case-detail__media--mobile-parallax {
+    aspect-ratio: 4 / 5;
+    overflow: hidden;
+  }
+
+  .case-detail__media--mobile-parallax .case-detail__media-parallax {
+    height: 120%;
+  }
+
+  .case-detail__media--mobile-parallax .case-detail__image {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    object-fit: cover;
   }
 }
 

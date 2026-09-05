@@ -380,6 +380,9 @@ function openCase(item: HomeCase, event: MouseEvent) {
           >
             <div class="projects-card__cover" :data-case-cover="item.media.src">
               <picture>
+                <source v-if="item.media.mobileAvifSrcset" media="(max-width: 767.98px)" type="image/avif" :srcset="item.media.mobileAvifSrcset" sizes="100vw">
+                <source v-if="item.media.mobileWebpSrcset" media="(max-width: 767.98px)" type="image/webp" :srcset="item.media.mobileWebpSrcset" sizes="100vw">
+                <source v-if="item.media.mobileSrc" media="(max-width: 767.98px)" :srcset="item.media.mobileSrc">
                 <source v-if="item.media.avifSrcset" type="image/avif" :srcset="item.media.avifSrcset" sizes="(max-width: 767px) 100vw, 33vw">
                 <source v-if="item.media.webpSrcset" type="image/webp" :srcset="item.media.webpSrcset" sizes="(max-width: 767px) 100vw, 33vw">
                 <img

@@ -190,7 +190,8 @@
         "id": "keys-catalog-language",
         "media": {
           "src": "/home/cases/keys-store/keys-4.webp",
-          "shape": "portrait"
+          "shape": "portrait",
+          "mobileAspectRatio": "4 / 5"
         }
       },
       {
@@ -252,7 +253,8 @@
         "id": "keys-identity",
         "media": {
           "src": "/home/cases/keys-store/keys-12.webp",
-          "shape": "wide"
+          "shape": "wide",
+          "mobileAspectRatio": "4 / 5"
         }
       },
       {
@@ -274,14 +276,14 @@
     "headerMedia": {
       "src": "/home/cases/baltika/baltika-detail-header-1920.webp",
       "width": 1920,
-      "height": 1140,
+      "height": 1090,
       "webpSrcset": "/home/cases/baltika/baltika-detail-header-480.webp 480w, /home/cases/baltika/baltika-detail-header-960.webp 960w, /home/cases/baltika/baltika-detail-header-1440.webp 1440w, /home/cases/baltika/baltika-detail-header-1920.webp 1920w",
       "avifSrcset": "/home/cases/baltika/baltika-detail-header-480.avif 480w, /home/cases/baltika/baltika-detail-header-960.avif 960w, /home/cases/baltika/baltika-detail-header-1440.avif 1440w, /home/cases/baltika/baltika-detail-header-1920.avif 1920w",
-      "mobileSrc": "/home/cases/baltika/baltika-detail-header-portrait-640.webp",
-      "mobileWidth": 640,
-      "mobileHeight": 1138,
-      "mobileWebpSrcset": "/home/cases/baltika/baltika-detail-header-portrait-320.webp 320w, /home/cases/baltika/baltika-detail-header-portrait-480.webp 480w, /home/cases/baltika/baltika-detail-header-portrait-640.webp 640w",
-      "mobileAvifSrcset": "/home/cases/baltika/baltika-detail-header-portrait-320.avif 320w, /home/cases/baltika/baltika-detail-header-portrait-480.avif 480w, /home/cases/baltika/baltika-detail-header-portrait-640.avif 640w"
+      "mobileSrc": "/home/cases/baltika/baltika-detail-header-vertical.webp",
+      "mobileWidth": 1440,
+      "mobileHeight": 1800,
+      "mobileWebpSrcset": "/home/cases/baltika/baltika-detail-header-vertical-480.webp 480w, /home/cases/baltika/baltika-detail-header-vertical-960.webp 960w, /home/cases/baltika/baltika-detail-header-vertical-1440.webp 1440w",
+      "mobileAvifSrcset": "/home/cases/baltika/baltika-detail-header-vertical-480.avif 480w, /home/cases/baltika/baltika-detail-header-vertical-960.avif 960w, /home/cases/baltika/baltika-detail-header-vertical-1440.avif 1440w"
     },
     "blocks": [
       {
@@ -314,8 +316,12 @@
         "id": "baltika-label",
         "media": {
             "src": "/home/cases/baltika/baltika-3.png",
+            "mobileSrc": "/home/cases/baltika/baltika-3-vertical.webp",
+            "mobileWebpSrcset": "/home/cases/baltika/baltika-3-vertical-480.webp 480w, /home/cases/baltika/baltika-3-vertical-960.webp 960w, /home/cases/baltika/baltika-3-vertical-1440.webp 1440w",
+            "mobileAvifSrcset": "/home/cases/baltika/baltika-3-vertical-480.avif 480w, /home/cases/baltika/baltika-3-vertical-960.avif 960w, /home/cases/baltika/baltika-3-vertical-1440.avif 1440w",
             "shape": "landscape",
             "aspectRatio": "4 / 3",
+            "mobileAspectRatio": "4 / 5",
             "webpSrcset": "/home/cases/baltika/baltika-3-480.webp 480w, /home/cases/baltika/baltika-3-960.webp 960w, /home/cases/baltika/baltika-3-1440.webp 1440w, /home/cases/baltika/baltika-3-1920.webp 1920w, /home/cases/baltika/baltika-3-2640.webp 2640w",
             "avifSrcset": "/home/cases/baltika/baltika-3-480.avif 480w, /home/cases/baltika/baltika-3-960.avif 960w, /home/cases/baltika/baltika-3-1440.avif 1440w, /home/cases/baltika/baltika-3-1920.avif 1920w, /home/cases/baltika/baltika-3-2640.avif 2640w",
             "sizes": "(max-width: 767.98px) 100vw, 83.333vw"
@@ -369,9 +375,10 @@
         "media": [
           {
             "src": "/home/cases/baltika/baltika-motion.mp4",
-            "mobileSrc": "/home/cases/baltika/baltika-motion-mobile.mp4",
+            "mobileSrc": "/home/cases/baltika/MAIN_COMP_MOBILE.mp4",
             "shape": "square",
             "type": "video",
+            "mobileAspectRatio": "1 / 1",
             "poster": "/home/cases/baltika/baltika-motion-poster.webp",
             "mobilePoster": "/home/cases/baltika/baltika-motion-mobile-poster.webp"
           }
@@ -522,7 +529,8 @@
         "id": "schmidt-flavours",
         "media": {
           "src": "/home/cases/schmidt/schmidt-10.webp",
-          "shape": "wide"
+          "shape": "wide",
+          "mobileAspectRatio": "4 / 5"
         }
       },
       {

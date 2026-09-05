@@ -36,7 +36,10 @@ const presentationClasses = computed(() => {
     :class="[
       `project-story--${section.layout}`,
       ...presentationClasses,
-      { 'project-story--keys-system': section.id === 'keys-system' },
+      {
+        'project-story--keys-system': section.id === 'keys-system',
+        'project-story--schmidt-production': section.id === 'schmidt-production',
+      },
     ]"
   >
     <template v-if="section.layout === 'feature'">
@@ -404,7 +407,7 @@ const presentationClasses = computed(() => {
   }
 
   :deep(.project-story__media--scroll .case-horizontal-rail__content) {
-    --case-rail-mobile-media-height: min(62svh, 72vw);
+    --case-rail-mobile-media-height: min(93svh, 108vw);
     display: flex;
     width: max-content;
     align-items: flex-start;
@@ -430,6 +433,18 @@ const presentationClasses = computed(() => {
     margin-top: 0;
     aspect-ratio: auto !important;
     object-fit: contain;
+  }
+
+  .project-story--schmidt-production :deep(.case-horizontal-rail__content > picture) {
+    width: var(--case-rail-mobile-media-height);
+    aspect-ratio: 1;
+  }
+
+  .project-story--schmidt-production :deep(.case-horizontal-rail__content > picture > img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: right center;
   }
 
   .project-story--media-collection-rail :deep(.case-horizontal-rail__content) {

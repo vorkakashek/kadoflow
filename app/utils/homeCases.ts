@@ -20,9 +20,14 @@ export type HomeCase = {
     src: string
     webpSrcset?: string
     avifSrcset?: string
+    mobileSrc?: string
+    mobileWebpSrcset?: string
+    mobileAvifSrcset?: string
     alt: string
     width: number
     height: number
+    mobileWidth?: number
+    mobileHeight?: number
     orientation?: 'portrait' | 'landscape'
     video?: {
       webm: string
