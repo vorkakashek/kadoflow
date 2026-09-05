@@ -5,7 +5,6 @@ import { extname, join, resolve } from 'node:path'
 const outputRoot = resolve(process.cwd(), '.output/public')
 const modulePreloadPattern = /<link\s+rel="modulepreload"[^>]*>\s*/g
 const criticalStylesheetPattern = /<link\s+rel="stylesheet"\s+href="(\/_nuxt\/(?:entry\.[^"]+|navWaveHover\.[^"]+)\.css)"[^>]*>\s*/g
-const entryModulePattern = /<script\s+type="module"\s+src="([^"]+)"[^>]*><\/script>/
 const grainPreloadPattern = /<link\s+rel="preload"\s+as="image"\s+href="\/textures\/grain-tile-128\.avif"[^>]*>\s*/g
 const grainUrlPattern = /url\((['"]?)(?:\/|\.\.\/)textures\/grain-tile-128\.avif\1\)/g
 const grainBytes = await readFile(join(outputRoot, 'textures/grain-tile-128.avif'))
@@ -13,7 +12,6 @@ const grainDataUrl = `data:image/avif;base64,${grainBytes.toString('base64')}`
 let optimized = 0
 let removed = 0
 let inlined = 0
-let deferredEntries = 0
 let embeddedGrainStyles = 0
 
 async function writeCompressed(path, bytes) {
@@ -48,10 +46,6 @@ async function visit(directory) {
     result = result
       .replace(grainPreloadPattern, '')
       .replace(grainUrlPattern, `url(${grainDataUrl})`)
-      .replace(entryModulePattern, (_, src) => {
-        deferredEntries += 1
-        return `<script type="module">const start=()=>import(${JSON.stringify(src)});if(matchMedia('(max-width: 767px), (pointer: coarse)').matches){let ready;const boot=()=>ready??=start();addEventListener('click',e=>{const b=e.target.closest?.('button');if(!b){boot();return}e.preventDefault();boot().then(()=>requestAnimationFrame(()=>b.click()))},{once:true});addEventListener('keydown',boot,{once:true});setTimeout(()=>window.requestIdleCallback?requestIdleCallback(boot,{timeout:1000}):boot(),1200)}else start()</script>`
-      })
     if (result === source) return
     const bytes = Buffer.from(result)
     await writeCompressed(path, bytes)
@@ -72,4 +66,4 @@ await Promise.all(assetEntries.map(async (entry) => {
 }))
 
 await visit(outputRoot)
-console.log(`Optimized ${optimized} prerendered HTML files; deferred ${removed} modulepreloads and ${deferredEntries} mobile entries; inlined ${inlined} critical stylesheets; embedded grain in ${embeddedGrainStyles} CSS assets.`)
+console.log(`Optimized ${optimized} prerendered HTML files; removed ${removed} modulepreloads; inlined ${inlined} critical stylesheets; embedded grain in ${embeddedGrainStyles} CSS assets.`)

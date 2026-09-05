@@ -25,6 +25,7 @@ const exiting = ref(false)
 const liteExit = ref(false)
 const connectionOptimized = ref(false)
 const show = ref(true)
+const liteExitDurationMs = ref(920)
 /** Odometer — driven by lap-1 orbit progress (not a slow post-queue). */
 const shownPct = ref(0)
 const tensDigit = computed(() => Math.floor(shownPct.value / 10))
@@ -632,6 +633,9 @@ onMounted(async () => {
   preload.begin()
   reduced.value =
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const mobileLite =
+    window.innerWidth < 900
+    || window.matchMedia('(pointer: coarse)').matches
 
   const connection = (navigator as Navigator & {
     connection?: { effectiveType?: string; saveData?: boolean }
@@ -643,22 +647,23 @@ onMounted(async () => {
     || connection?.effectiveType === '3g',
   )
   connectionOptimized.value = constrained
-  // Save-data / slow networks keep the branded mark but skip the full orbit
-  // and iris. Normal mobile devices use the same O → disc → iris story as
-  // desktop; settleAndExit already selects its cheaper transform-only morph.
-  if (constrained || reduced.value) {
+  // Mobile keeps a concise branded mark, but does not hold the meaningful SSR
+  // Hero behind a GSAP download and a full orbit. Desktop retains the complete
+  // O → disc → iris story; constrained links keep the slower explanatory beat.
+  if (constrained || reduced.value || mobileLite) {
     liteExit.value = true
     shownPct.value = 99
     updateArcFill(1)
     preload.markSceneReady()
     preload.markFontsReady()
     preload.beginFinish()
+    liteExitDurationMs.value = constrained ? 1350 : reduced.value ? 400 : 920
     liteExitTimer = window.setTimeout(() => {
       settled = true
       preload.setRevealT(1)
       if (!preload.revealed.value) preload.markRevealed()
       show.value = false
-    }, constrained ? 1350 : 680)
+    }, liteExitDurationMs.value)
     return
   }
 
@@ -741,6 +746,7 @@ onUnmounted(() => {
       'is-lite': liteExit,
       'is-connection-lite': connectionOptimized,
     }"
+    :style="{ '--brand-lite-duration': `${liteExitDurationMs}ms` }"
     role="status"
     aria-live="polite"
     aria-busy="true"
@@ -859,23 +865,24 @@ onUnmounted(() => {
 
 .brand-preload.is-lite {
   pointer-events: none;
-  animation: brand-preload-lite-exit 0.68s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: brand-preload-lite-exit var(--brand-lite-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .brand-preload.is-lite .brand-preload__glyph {
-  animation: brand-preload-lite-mark 0.68s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: brand-preload-lite-mark var(--brand-lite-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .brand-preload.is-lite .brand-preload__pct {
-  display: none;
+  display: block;
+  animation: brand-preload-lite-pct var(--brand-lite-duration) ease-out forwards;
 }
 
 .brand-preload.is-lite.is-connection-lite {
-  animation: brand-preload-connection-exit 1.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-name: brand-preload-connection-exit;
 }
 
 .brand-preload.is-lite.is-connection-lite .brand-preload__glyph {
-  animation: brand-preload-connection-mark 1.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-name: brand-preload-connection-mark;
 }
 
 @keyframes brand-preload-lite-exit {
@@ -893,6 +900,11 @@ onUnmounted(() => {
   0% { opacity: 1; transform: scale(1); }
   58% { opacity: 1; transform: scale(1.04); }
   100% { opacity: 0; transform: scale(0.94); }
+}
+
+@keyframes brand-preload-lite-pct {
+  0%, 58% { opacity: 1; }
+  82%, 100% { opacity: 0; }
 }
 
 @keyframes brand-preload-connection-exit {
@@ -1050,6 +1062,13 @@ onUnmounted(() => {
   .brand-preload__glyph {
     width: min(65vw, 297px);
     height: min(65vw, 297px);
+  }
+}
+
+/* Hide the SSR 00 until client capability detection switches mobile to 99. */
+@media (max-width: 899px), (pointer: coarse) {
+  .brand-preload:not(.is-lite) .brand-preload__pct {
+    opacity: 0;
   }
 }
 </style>

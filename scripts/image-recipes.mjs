@@ -1,10 +1,11 @@
 /**
  * Source-to-delivery recipes for responsive raster media.
  *
- * Add a recipe when a new visual is introduced. `source` stays the
- * highest-quality original; the generated AVIF/WebP files are what the app
- * references in <picture>. Widths larger than the source are skipped, so we
- * never spend bytes on an upscaled image.
+ * Add a recipe when a new visual is introduced. `source` is a public-shaped
+ * relative name, but optimize-images resolves it inside the local, gitignored
+ * assets/source-media tree. Only generated AVIF/WebP delivery files belong in
+ * public/. Widths larger than the source are skipped, so we never spend bytes
+ * on an upscaled image.
  */
 export const imageRecipes = [
   {

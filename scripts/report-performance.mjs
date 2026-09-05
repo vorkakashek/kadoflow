@@ -55,6 +55,21 @@ const largest = rows.reduce(
   (current, row) => (row.bytes > (current?.bytes ?? -1) ? row : current),
   null,
 )
+const clientAssetRoot = resolve(outputRoot, '_nuxt')
+const clientJsRows = readdirSync(clientAssetRoot)
+  .filter(file => file.endsWith('.js'))
+  .map((file) => {
+    const path = resolve(clientAssetRoot, file)
+    return {
+      file: `/_nuxt/${file}`,
+      bytes: readFileSync(path).byteLength,
+      gzipBytes: gzipSize(path),
+    }
+  })
+const largestClientChunk = clientJsRows.reduce(
+  (current, row) => (row.bytes > (current?.bytes ?? -1) ? row : current),
+  null,
+)
 
 const assetUrls = Array.from(
   html.matchAll(/<link\s+rel="(?:stylesheet|preload)"[^>]+href="([^"]+)"/g),
@@ -91,6 +106,7 @@ console.table(
 console.log(`Initial entry/modulepreloads: ${rows.length}`)
 console.log(`Initial JS: ${(totals.bytes / 1024).toFixed(1)} KB minified / ${(totals.gzipBytes / 1024).toFixed(1)} KB gzip`)
 console.log(`Largest initial chunk: ${largest ? `${largest.file} (${(largest.bytes / 1024).toFixed(1)} KB)` : 'none'}`)
+console.log(`Largest client chunk: ${largestClientChunk ? `${largestClientChunk.file} (${(largestClientChunk.bytes / 1024).toFixed(1)} KB minified / ${(largestClientChunk.gzipBytes / 1024).toFixed(1)} KB gzip)` : 'none'}`)
 console.log(`Prerendered HTML: ${(readFileSync(htmlPath).byteLength / 1024).toFixed(1)} KB`)
 console.log(`Estimated critical transfer: ${(criticalTransferBytes / 1024).toFixed(1)} KB gzip/WOFF2`)
 
@@ -102,6 +118,9 @@ if (checking) {
   }
   if (largest && largest.bytes > budgets.largestInitialChunkBytes) {
     failures.push(`largest initial chunk ${largest.bytes} B exceeds ${budgets.largestInitialChunkBytes} B`)
+  }
+  if (largestClientChunk && largestClientChunk.bytes > budgets.largestClientChunkBytes) {
+    failures.push(`largest client chunk ${largestClientChunk.bytes} B exceeds ${budgets.largestClientChunkBytes} B`)
   }
   if (criticalTransferBytes > budgets.criticalTransferBytes) {
     failures.push(

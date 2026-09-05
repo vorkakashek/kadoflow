@@ -4,6 +4,7 @@ import sharp from 'sharp'
 import { imageRecipes } from './image-recipes.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+const sourceRoot = resolve(root, 'assets/source-media')
 const outputFormats = [
   { extension: 'avif', encode: (image) => image.avif({ quality: 52, effort: 6 }) },
   { extension: 'webp', encode: (image) => image.webp({ quality: 80, effort: 5 }) },
@@ -19,7 +20,7 @@ async function ensureSource(sourcePath) {
 }
 
 async function buildRecipe(recipe) {
-  const sourcePath = resolve(root, recipe.source)
+  const sourcePath = resolve(sourceRoot, recipe.source.replace(/^public[\\/]/, ''))
   await ensureSource(sourcePath)
 
   const metadata = await sharp(sourcePath).metadata()

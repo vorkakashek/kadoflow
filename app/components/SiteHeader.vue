@@ -973,7 +973,7 @@ onMounted(() => {
         ? Array.from(navEl.value.querySelectorAll('.nav-link'))
         : []
 
-      if (logo) g.set(logo, { autoAlpha: 0, y: -12 })
+      if (logo) g.set(logo, { autoAlpha: 0 })
       if (caseBack) g.set(caseBack, { autoAlpha: 0, y: -10 })
       if (navEl.value) g.set(navEl.value, { autoAlpha: 0, y: -10 })
       if (navLinks.length) g.set(navLinks, { autoAlpha: 0, y: -5 })
@@ -989,7 +989,9 @@ onMounted(() => {
       // The pill itself participates in the reveal. Previously the shell was
       // uncovered before its children were staged, so the nav background and
       // case-back control flashed in raw while the links animated afterward.
-      if (logo) tl.to(logo, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.35)
+      if (logo) {
+        tl.to(logo, { autoAlpha: 1, duration: 0.28, ease: 'power1.out' }, 0.06)
+      }
       if (caseBack) tl.to(caseBack, { autoAlpha: 1, y: 0, duration: 0.58 }, 0.47)
       if (navEl.value) {
         tl.to(navEl.value, { autoAlpha: 1, y: 0, duration: 0.58 }, 0.52)

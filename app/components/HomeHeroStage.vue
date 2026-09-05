@@ -444,7 +444,6 @@ let introGen = 0
 
 const swarmMount = ref(false)
 const swarmLit = ref(false)
-const connectionConstrained = ref(false)
 const heroWebglPrebootRequested = useState<boolean>(
   'home-hero-webgl-preboot-requested',
   () => false,
@@ -487,7 +486,7 @@ function scheduleSwarmMount(fromNavigation: boolean) {
   }).connection
   // `effectiveType` is a rolling latency/downlink estimate and can briefly
   // report 3g on a desktop connection. Treating that estimate as authoritative
-  // made a fast PC show the baked scene poster and postpone WebGL for 5 seconds.
+  // made a fast PC postpone WebGL for 5 seconds.
   // Honour explicit Save-Data everywhere; use the noisy network estimate only
   // for the lightweight mobile/coarse-pointer path it was intended to protect.
   const constrained = Boolean(
@@ -501,21 +500,6 @@ function scheduleSwarmMount(fromNavigation: boolean) {
       )
     ),
   )
-  connectionConstrained.value = constrained
-
-  // On a normal mobile connection, build the lightweight scene behind the
-  // opaque part of the compact preloader. Previously an intentional 1.8 s
-  // post-reveal delay made an already cached scene look much slower than it is.
-  if (mobileLite.value && !constrained) {
-    void preloadThreeBundle()
-    if ('requestIdleCallback' in window) {
-      swarmIdleId = window.requestIdleCallback(mount, { timeout: 180 })
-    } else {
-      swarmFallbackTimer = window.setTimeout(mount, 80)
-    }
-    return
-  }
-
   // A warm desktop reload can create its WebGL context while the preloader is
   // motionless at 99%. The preloader raises this flag only after its orbit has
   // settled, so the measured context-creation task cannot hitch either motion.
@@ -695,6 +679,7 @@ onMounted(() => {
         }
         return
       }
+
       const gen = ++introGen
       introTl?.kill()
       introTl = null
@@ -740,9 +725,8 @@ onMounted(() => {
       }
 
       if (mobile) {
-        // The full mobile iris reveals the Hero over 260 ms. Start useful
-        // content under that opening so the first elements are already moving
-        // roughly 200 ms before the veil is completely gone.
+        // The Surface grows from its lower edge after the compact preloader.
+        // Reveal lower copy first, then the slogan as the top edge arrives.
         if (mediaEl.value) {
           tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.65 }, 0)
         }
@@ -776,20 +760,20 @@ onMounted(() => {
       }
 
       if (mobile) {
-        if (sloganEl.value) {
-          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0)
-        }
         if (titleLines.length) {
           tl.to(
             titleLines,
-            { autoAlpha: 1, y: 0, duration: 0.75, stagger: 0.12 },
-            0.08,
+            { autoAlpha: 1, y: 0, duration: 0.62, stagger: 0.1 },
+            0.12,
           )
         } else if (titleEl.value) {
-          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 0.08)
+          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.62 }, 0.12)
         }
         if (descEl.value) {
-          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.65 }, 0.4)
+          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.56 }, 0.34)
+        }
+        if (sloganEl.value) {
+          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.48 }, 0.5)
         }
       } else {
         if (titleLines.length) {
@@ -883,7 +867,7 @@ onUnmounted(() => {
             @lit="onSwarmLit"
           />
         </ClientOnly>
-        <!-- Constrained mobile links get a scene-only poster; other clients keep the neutral lid. -->
+        <!-- Neutral Surface-colour lid stays up until the first live GL frame. -->
         <div
           ref="swarmCoverEl"
           class="hero-swarm-cover"
@@ -892,20 +876,7 @@ onUnmounted(() => {
             'hero-swarm-cover--lock': glCoverLocked,
           }"
           aria-hidden="true"
-        >
-          <picture v-if="connectionConstrained" class="hero-swarm-poster">
-            <source
-              media="(max-width: 767.98px)"
-              srcset="/home/hero-swarm-poster-mobile.webp"
-            >
-            <img
-              src="/home/hero-swarm-poster.webp"
-              alt=""
-              decoding="async"
-              fetchpriority="high"
-            >
-          </picture>
-        </div>
+        />
         </div>
       </div>
 
@@ -981,22 +952,6 @@ onUnmounted(() => {
   background: var(--palette-stone);
   pointer-events: none;
   transition: opacity 0.5s var(--motion-ease, ease), visibility 0.5s;
-}
-
-.hero-swarm-poster,
-.hero-swarm-poster img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.hero-swarm-poster {
-  position: absolute;
-  inset: 0;
-}
-
-.hero-swarm-poster img {
-  object-fit: cover;
 }
 
 .hero-swarm-cover--up {

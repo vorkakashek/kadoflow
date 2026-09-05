@@ -102,8 +102,8 @@ function queueMediaDecode(image: HTMLImageElement) {
 }
 
 // A direct request has no fullscreen cover to stage the page underneath. Keep
-// its first screen in the entry pose through hydration, font settlement and
-// the responsive header-image decode so none of that geometry is exposed.
+// its first screen in the entry pose through hydration and the responsive
+// header-image decode so none of that geometry is exposed.
 const isDirectEntry = !detailTransitionRequest.value && !detailTransitionActive.value
 if (isDirectEntry) stageDirectEntry(String(route.params.id))
 
@@ -128,10 +128,9 @@ async function waitForDirectEntryPaint() {
     if (image.naturalWidth > 0) await image.decode().catch(() => undefined)
   }
 
-  const stableAssets = Promise.all([
-    document.fonts?.ready ?? Promise.resolve(),
-    imageReady(),
-  ])
+  // Font loading must not delay the first screen. The reserved responsive
+  // geometry keeps the image stable, while font-display handles text fallback.
+  const stableAssets = imageReady()
   const timeout = new Promise<void>((resolve) => {
     directRevealReadyTimer = window.setTimeout(resolve, 1400)
   })

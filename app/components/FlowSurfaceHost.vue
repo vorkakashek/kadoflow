@@ -233,6 +233,11 @@ function setCaseSurfaceDocked(on: boolean) {
 const frame = ref<HTMLElement | null>(null)
 const shellEl = ref<HTMLElement | null>(null)
 const clipPathEl = ref<SVGPathElement | null>(null)
+/** Cold mobile entry: reveal the complete Hero surface from its lower edge. */
+const heroEntryArmed = ref(false)
+const heroEntryRunning = ref(false)
+let heroEntryTimer = 0
+let stopHeroEntryRevealWatch: (() => void) | null = null
 /** Teleport target for a pinned hop — null keeps the frame in the fixed shell. */
 const pinTo = ref<HTMLElement | null>(null)
 /** Hero-rest pose — stage keeps this size/origin; frame morphs around it. */
@@ -722,6 +727,29 @@ function stopCasePhotoReveal(complete = false) {
     }
   }
   casePhotoRevealKeepsTone.value = false
+}
+
+function finishHeroEntryReveal() {
+  if (heroEntryTimer) window.clearTimeout(heroEntryTimer)
+  heroEntryTimer = 0
+  heroEntryRunning.value = false
+  heroEntryArmed.value = false
+  stopHeroEntryRevealWatch?.()
+  stopHeroEntryRevealWatch = null
+}
+
+function startHeroEntryReveal() {
+  if (!heroEntryArmed.value || heroEntryRunning.value) return
+  requestAnimationFrame(() => {
+    if (hostUnmounted || !heroEntryArmed.value) return
+    heroEntryRunning.value = true
+    // Safety cleanup if animationend is lost during mobile browser chrome resize.
+    heroEntryTimer = window.setTimeout(finishHeroEntryReveal, 1100)
+  })
+}
+
+function onFrameAnimationEnd(event: AnimationEvent) {
+  if (event.animationName === 'flow-surface-hero-entry') finishHeroEntryReveal()
 }
 
 function hideCasePhoto(animate: boolean) {
@@ -2316,6 +2344,20 @@ onMounted(async () => {
   const coldDirectEntry = !preload.revealed.value
     && !returningHomeFromCaseDetail()
     && !initialCasesHashEntry.value
+  const animateMobileHeroEntry = coldDirectEntry
+    && (isNarrowViewport() || isCoarsePointer())
+    && !systemReducedMotion()
+  if (animateMobileHeroEntry) {
+    heroEntryArmed.value = true
+    heroEntryRunning.value = false
+    stopHeroEntryRevealWatch = watch(
+      () => preload.revealed.value,
+      (revealed) => {
+        if (revealed) startHeroEntryReveal()
+      },
+      { immediate: true },
+    )
+  }
   await nextTick()
   // Let the route/page DOM settle before ST — avoids refresh↔pin softlock on SPA entry.
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
@@ -2337,6 +2379,7 @@ onUnmounted(() => {
   hostUnmounted = true
   if (motionBootTimer) window.clearTimeout(motionBootTimer)
   motionBootTimer = 0
+  finishHeroEntryReveal()
   if (motionIdleId !== null && 'cancelIdleCallback' in window) {
     window.cancelIdleCallback(motionIdleId)
   }
@@ -2523,7 +2566,12 @@ watch(
         ref="frame"
         data-flow-surface-frame
         class="absolute overflow-visible"
+        :class="{
+          'flow-surface-frame--hero-entry': heroEntryArmed,
+          'flow-surface-frame--hero-entry-running': heroEntryRunning,
+        }"
         style="top: var(--layout-surface-top); left: var(--layout-margin); width: calc(100% - var(--layout-margin) * 2); height: calc(100% - var(--layout-surface-top) - var(--layout-margin));"
+        @animationend="onFrameAnimationEnd"
       >
         <FlowSurface
           mode="window"
@@ -2657,6 +2705,19 @@ watch(
 </template>
 
 <style>
+.flow-surface-frame--hero-entry {
+  clip-path: inset(100% 0 0 0);
+}
+
+.flow-surface-frame--hero-entry-running {
+  animation: flow-surface-hero-entry 0.86s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes flow-surface-hero-entry {
+  from { clip-path: inset(100% 0 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
 .case-surface-fill {
   position: absolute;
   /* Bleed beneath the outer Surface mask. The moving SVG mask and this

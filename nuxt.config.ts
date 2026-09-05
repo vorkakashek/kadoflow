@@ -1,6 +1,13 @@
 import tailwindcss from '@tailwindcss/vite'
 import { homeCaseIds } from './app/utils/homeCases'
 
+const threeSourceUrl = new URL('./node_modules/three/src/Three.js', import.meta.url)
+const threeSourceEntry = decodeURIComponent(
+  /^\/[A-Za-z]:\//.test(threeSourceUrl.pathname)
+    ? threeSourceUrl.pathname.slice(1)
+    : threeSourceUrl.pathname,
+)
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -19,6 +26,12 @@ export default defineNuxtConfig({
 
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      // The package root is one pre-bundled module. Pointing at Three's source
+      // entry lets Rolldown remove unused subsystems before emitting the lazy
+      // Hero vendor chunk.
+      alias: [{ find: /^three$/, replacement: threeSourceEntry }],
+    },
     server: {
       host: true,
       strictPort: true,

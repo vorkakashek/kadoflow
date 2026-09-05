@@ -10,14 +10,12 @@ import {
   DirectionalLight,
   Euler,
   HemisphereLight,
-  LoadingManager,
   MathUtils,
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   Plane,
-  PMREMGenerator,
   Quaternion,
   Raycaster,
   Scene,
@@ -27,11 +25,9 @@ import {
   Vector3,
   WebGLRenderer,
   type BufferGeometry,
-  type DataTexture,
   type Material,
   type Texture,
 } from 'three'
-import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import {
   isAppleTouchDevice,
   isCoarsePointer,
@@ -55,7 +51,6 @@ const { t } = useI18n()
 /** Flip this to A/B studio looks (files in /public/env). */
 const HDRI_PRESETS = {
   studioSoft: '/env/studio_small_09_256.hdr',
-  photoStudio: '/env/photo_studio_01_2k.hdr',
   studioWarm: '/env/studio_small_03_256.hdr',
 } as const
 const ACTIVE_HDRI: keyof typeof HDRI_PRESETS = 'studioSoft'
@@ -142,10 +137,10 @@ const CHAOS_IDLE = 0.000018
 /** Occasional self-knock chance per ball per frame (at ~60fps). */
 const CHAOS_POP_CHANCE = 0.0014
 const CHAOS_POP_FORCE = 0.012
-/** Lock to seats on boot / resize so separation doesn't grenade the swarm. */
+/** Entry gather window: stronger springs, with input and idle knocks muted. */
 const SETTLE_MS = 700
-/** Lite intro: place balls this far out (× ringRadius), then spring home. */
-const LITE_SCATTER_RATIO = 2.25
+/** Intro: place balls this far out (× ringRadius), then spring home. */
+const ENTRY_SCATTER_RATIO = 2.25
 /** Debounce real window resizes before a full scene reboot. */
 const REBOOT_MS = 320
 const MOTION_INTRO_COOKIE = 'kado_motion_intro'
@@ -642,13 +637,16 @@ async function bootScene() {
 
   const gl = new WebGLRenderer({
     antialias: true,
-    alpha: true,
+    alpha: false,
     powerPreference: 'high-performance',
     // Page Canvas no longer snapshots this buffer. Keeping it discardable avoids
     // the copy-back cost; the existing stone cover masks frames during GL wake-up.
     preserveDrawingBuffer: false,
   })
-  gl.setClearColor(0x000000, 0)
+  const surfaceColor = getComputedStyle(document.documentElement)
+    .getPropertyValue('--palette-stone')
+    .trim() || '#d8d2c6'
+  gl.setClearColor(surfaceColor, 1)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
   // Frosted transmission does not need a full-resolution refraction buffer.
   // Half resolution cuts that first GPU allocation/render to a quarter of pixels.
@@ -674,23 +672,19 @@ async function bootScene() {
     gl.domElement.style.touchAction = 'none'
   }
 
-  // The 256 px mobile HDR is small enough to prepare under the compact
-  // preloader. It restores broad studio reflections that direct lights alone
-  // cannot provide to smooth Standard materials.
-  const pmrem = new PMREMGenerator(gl)
-  pmrem.compileEquirectangularShader()
-
-  const manager = new LoadingManager()
-  manager.onProgress = (_url, loaded, total) => {
-    if (firstSceneReady) return
-    const ratio = total > 0 ? loaded / total : 0
-    preload.setSceneProgress(0.08 + ratio * 0.55)
-  }
-
-  // Downsampled HDR maps preserve the accepted lighting while keeping both
-  // mobile and desktop environments below the first-Hero resource budget.
-  const environmentPromise = new HDRLoader(manager).loadAsync(
-    lite ? HDRI_PRESETS.studioWarm : HDRI_PRESETS[ACTIVE_HDRI],
+  // Keep HDR parsing and PMREM out of the already large scene chunk. This
+  // second-stage import starts only after the renderer exists and remains
+  // independently cacheable from the core interaction code.
+  const environmentPromise = import('~/utils/loadHeroEnvironment').then(
+    ({ loadHeroEnvironment }) => loadHeroEnvironment(
+      gl,
+      lite ? HDRI_PRESETS.studioWarm : HDRI_PRESETS[ACTIVE_HDRI],
+      (loaded, total) => {
+        if (firstSceneReady) return
+        const ratio = total > 0 ? loaded / total : 0
+        preload.setSceneProgress(0.08 + ratio * 0.55)
+      },
+    ),
   )
 
   renderer = gl
@@ -873,36 +867,23 @@ async function bootScene() {
   }
 
   const applyEnvAssets = async () => {
-    let hdrTex: DataTexture
+    let preparedEnvironment: Texture
     try {
-      hdrTex = await environmentPromise
+      preparedEnvironment = await environmentPromise
     } catch {
-      pmrem.dispose()
       await settleAndEmitLit()
       return
     }
     if (envFallbackChosen) {
-      pmrem.dispose()
-      hdrTex.dispose()
+      preparedEnvironment.dispose()
       return
     }
     if (gen !== bootGen || renderer !== gl) {
-      pmrem.dispose()
-      hdrTex.dispose()
+      preparedEnvironment.dispose()
       return
     }
     if (!firstSceneReady) preload.setSceneProgress(0.9)
-
-    try {
-      envMap = pmrem.fromEquirectangular(hdrTex).texture
-    } catch {
-      hdrTex.dispose()
-      pmrem.dispose()
-      await settleAndEmitLit()
-      return
-    }
-    hdrTex.dispose()
-    pmrem.dispose()
+    envMap = preparedEnvironment
     scene.environment = envMap
     scene.environmentIntensity = lite ? 0.88 : 1.05
 
@@ -1191,9 +1172,9 @@ async function bootScene() {
   }
 
   const seatAll = () => {
-    if (lite) {
+    if (!reduced) {
       // Scatter outside the ring, then let springs pull home — avoids the
-      // “stuck overlapping → explode” pop when settle ends.
+      // “stuck overlapping → explode” pop and gives both layouts one entrance.
       camera.updateMatrixWorld(true)
       camRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
       camUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize()
@@ -1202,7 +1183,7 @@ async function bootScene() {
         .normalize()
         .negate()
       const n = balls.length
-      const scatterR = Math.max(ringRadius * LITE_SCATTER_RATIO, balls[0]?.radius * 6 || 1)
+      const scatterR = Math.max(ringRadius * ENTRY_SCATTER_RATIO, balls[0]?.radius * 6 || 1)
       const depthMax = ringRadius * LITE_DEPTH_MAX_RATIO
       for (let i = 0; i < n; i++) {
         const ball = balls[i]
@@ -1225,7 +1206,7 @@ async function bootScene() {
         ball.pointerInside = false
         ball.mesh.position.copy(ball.position)
       }
-      // Gyro muted during gather; physics runs so they fly inward.
+      // Gyro / cursor / idle knocks stay muted while physics gathers inward.
       settleLeft = SETTLE_MS
       swarmHapticReset()
       return
@@ -1787,8 +1768,9 @@ async function bootScene() {
       }
       ball.seat.copy(seat)
 
-      // Boot / post-resize: stick to seats until layout + radius are stable.
-      if (settling) {
+      // Reduced motion keeps the finished composition without an entrance.
+      // Otherwise `settling` deliberately runs the same spring gather as mobile.
+      if (reduced) {
         ball.position.copy(seat)
         ball.velocity.set(0, 0, 0)
         ball.pointerInside = false
@@ -1796,7 +1778,7 @@ async function bootScene() {
         continue
       }
 
-      if (!reduced) {
+      if (!settling) {
         const chaos = CHAOS_IDLE * step
         ball.velocity.x += Math.sin(now * 0.00037 + ball.phase) * chaos
         ball.velocity.y += Math.cos(now * 0.00041 + ball.phase * 1.3) * chaos
@@ -1820,9 +1802,9 @@ async function bootScene() {
       seatPull.copy(seat).sub(ball.position)
       const distToSeat = seatPull.length()
       const orbitLeash = ball.radius * ORBIT_LEASH
-      let returnForce = RETURN
+      let returnForce = RETURN * (settling ? 2.6 : 1)
       if (distToSeat > RETURN_SOFT_DIST * ball.radius) {
-        returnForce *= 0.28
+        returnForce *= settling ? 0.32 : 0.28
       }
       // Spring leash stays full-strength even while hover softens base return.
       let leashSpring = 0
@@ -1834,7 +1816,7 @@ async function bootScene() {
       // Screen-space hit — enter knock + continuous hold while the cursor is near.
       let near = false
       tmp.copy(ball.position).project(camera)
-      if (pointerActive && tmp.z < 1 && tmp.z > -1) {
+      if (!settling && pointerActive && tmp.z < 1 && tmp.z > -1) {
         const dx = (tmp.x - pointerNdc.x) * halfW
         const dy = (tmp.y - pointerNdc.y) * halfH
         const pixelDist = Math.hypot(dx, dy)

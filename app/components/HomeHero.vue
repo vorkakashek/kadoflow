@@ -51,8 +51,7 @@ defineExpose({ section, surfaceSlot })
 :global(:root) {
   --home-surface-grain: image-set(
     url('/textures/grain-tile-128.avif') type('image/avif'),
-    url('/textures/grain-tile-128.webp') type('image/webp'),
-    url('/textures/grain-tile.png') type('image/png')
+    url('/textures/grain-tile-128.webp') type('image/webp')
   );
 }
 

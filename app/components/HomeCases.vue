@@ -2368,14 +2368,27 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
-/* Audience and Keys Store keep their existing width but use a 15% shorter
-   cover frame. Baltika is reduced proportionally, so the whole image remains
-   visible instead of being cropped into a shallower frame. */
+/* Keys Store stays centred in its grid slot, but its Surface is 20% smaller. */
+.home-cases[data-case-id='keys-store'] .cases-media {
+  width: 80%;
+  justify-self: center;
+}
+
+/* SCHMIDT keeps its wide composition, with a quieter 30% smaller footprint. */
+.home-cases[data-case-id='schmidt'] .cases-media {
+  width: 70%;
+  justify-self: center;
+}
+
+/* Baltika is reduced proportionally, so the whole image remains visible
+   instead of being cropped into a shallower frame. */
 .home-cases[data-case-id='baltika'] .cases-media {
-  width: 85%;
+  width: 80%;
 }
 
 @media (max-width: 767.98px) {
+  .home-cases[data-case-id='keys-store'] .cases-media,
+  .home-cases[data-case-id='schmidt'] .cases-media,
   .home-cases[data-case-id='baltika'] .cases-media {
     align-self: center;
   }

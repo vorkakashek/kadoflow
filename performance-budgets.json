@@ -3,5 +3,6 @@
   "criticalJsGrowthBytes": 10240,
   "criticalTransferBytes": 307200,
   "largestInitialChunkBytes": 512000,
+  "largestClientChunkBytes": 512000,
   "baselineCriticalJsGzipBytes": 109299
 }
