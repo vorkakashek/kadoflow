@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { PhArrowUpRight } from '@phosphor-icons/vue'
 import { homeCaseDetailPath } from '~/utils/homeCases'
 import { onNavWaveEnter, onNavWaveLeave } from '~/utils/navWaveHover'
 
@@ -47,6 +46,7 @@ let audienceTextResizeObserver: ResizeObserver | null = null
 let caseMediaPreloadObserver: IntersectionObserver | null = null
 let caseMediaDecodeObserver: IntersectionObserver | null = null
 let audienceTextRebuildTimer = 0
+let audienceFontReadyRefreshQueued = false
 const audienceTextFillLayouts = new WeakMap<HTMLElement, string>()
 let directRevealFrame = 0
 let directRevealReadyTimer = 0
@@ -192,12 +192,13 @@ async function refreshAudienceScrollPositions() {
 async function setupMediaParallax() {
   const media = mediaParallaxEl.value
   if (!media || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  const audience = item.value?.id === 'audience'
+  const parallaxHeaderMedia = item.value?.id === 'audience' || item.value?.id === 'keys-store'
+  const parallaxTravel = item.value?.id === 'keys-store' ? -15 : -55
   const mediaFrame = mediaEnterEl.value ?? media
 
   mediaParallaxCtx?.revert()
   mediaParallaxCtx = null
-  if (!audience) return
+  if (!parallaxHeaderMedia) return
 
   const gsap = (await import('gsap')).default
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
@@ -216,9 +217,10 @@ async function setupMediaParallax() {
       media,
       { yPercent: 0 },
       {
-        // Audience keeps its oversized image moving inside the crop window.
-        // Other cases intentionally have no header-media parallax.
-        yPercent: -55,
+        // Audience and Keys Store keep an oversized image moving inside the
+        // header crop window. Other cases intentionally have no header-media
+        // parallax. Keys Store uses a quieter travel range.
+        yPercent: parallaxTravel,
         ease: 'none',
         scrollTrigger,
       },
@@ -422,14 +424,22 @@ async function setupDetailReveals() {
 }
 
 async function setupAudienceTextFill() {
+  const root = detailContentEl.value
   const hosts = Array.from(
-    detailContentEl.value?.querySelectorAll<HTMLElement>('.case-text-fill') ?? [],
+    root?.querySelectorAll<HTMLElement>('.case-text-fill') ?? [],
   )
   if (!hosts.length || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
-  // Line boxes depend on the final font metrics. Measuring before the webfont
-  // settles can bake fallback-font wraps into the generated rows.
-  await document.fonts.ready
+  // Build immediately so a fast scroll cannot outrun the effect while the
+  // webfont is still loading. Rebuild once after the final metrics settle.
+  if (document.fonts.status !== 'loaded' && !audienceFontReadyRefreshQueued) {
+    audienceFontReadyRefreshQueued = true
+    void document.fonts.ready.then(() => {
+      audienceFontReadyRefreshQueued = false
+      if (!detailPageUnmounted && detailContentEl.value === root) void setupAudienceTextFill()
+    })
+  }
+
   audienceTextFillCtx?.revert()
   const hostInks = hosts.map((host) => {
     const paragraphs = host.matches('p')
@@ -495,7 +505,9 @@ async function setupAudienceTextFill() {
           trigger: host,
           start: 'top 82%',
           end: 'bottom 45%',
-          scrub: 0.7,
+          // Keep the fill locked to the actual scroll position. A smoothed
+          // scrub visibly lagged behind rapid middle-mouse scrolling.
+          scrub: true,
         },
       })
       inks.forEach((ink, index) => {
@@ -627,20 +639,29 @@ function scheduleDeferredDetailEnhancements() {
   // setup across separate idle slices instead of releasing every feature at once.
   scheduleDetailEnhancement(1000, setupDetailReveals)
   scheduleDetailEnhancement(1350, setupNextProjectParallax)
-  scheduleDetailEnhancement(1750, setupAudienceTextFill)
   scheduleDetailEnhancement(2400, () => preloadRouteComponents('/'))
 }
 
 function deferBelowFoldSetupUntilEntryEnds() {
+  const startEnhancements = () => {
+    requestAnimationFrame(() => {
+      if (detailPageUnmounted || !detailMotionActive.value) return
+      // Text fill is scroll-critical: initialize it before the user can move
+      // past the first target. The heavier non-critical effects stay deferred.
+      void setupAudienceTextFill()
+      scheduleDeferredDetailEnhancements()
+    })
+  }
+
   if (detailMotionActive.value) {
-    scheduleDeferredDetailEnhancements()
+    startEnhancements()
     return
   }
   stopDetailEnhancementWatch = watch(detailMotionActive, (active) => {
     if (!active) return
     stopDetailEnhancementWatch?.()
     stopDetailEnhancementWatch = null
-    requestAnimationFrame(scheduleDeferredDetailEnhancements)
+    startEnhancements()
   })
 }
 
@@ -772,7 +793,7 @@ useHead(() => ({
                     {{ item.projectLabel ?? item.projectUrl }}
                     <TextLinkWave />
                   </span>
-                  <PhArrowUpRight :size="16" />
+                  <SiteIcon name="arrow-up-right" :size="16" />
                 </a>
               </div>
             </div>
@@ -782,6 +803,8 @@ useHead(() => ({
             class="case-detail__media"
             :class="{
               'case-detail__media--audience': item.id === 'audience',
+              'case-detail__media--keys': item.id === 'keys-store',
+              'case-detail__media--parallax': item.id === 'audience' || item.id === 'keys-store',
               'case-detail__media--video': item.id === 'baltika' && !projectDetail?.headerMedia && item.media.video,
             }"
           >
@@ -856,7 +879,7 @@ useHead(() => ({
     >
       <span ref="nextProjectContentEl" class="case-detail__next-content">
         <span class="case-detail__next-name">{{ nextItem.title }}</span>
-        <span class="case-detail__next-link">{{ t('projects.detail.next') }} <PhArrowRight :size="28" /></span>
+        <span class="case-detail__next-link">{{ t('projects.detail.next') }} <SiteIcon name="arrow-right" :size="28" /></span>
       </span>
     </NuxtLink>
   </div>
@@ -879,6 +902,8 @@ useHead(() => ({
 }
 
 .case-detail__inner {
+  /* Shared vertical rhythm from every disclosure to the media that follows it. */
+  --case-disclosure-media-gap: var(--space-4);
   width: min(var(--layout-content-max), calc(100% - 2 * var(--layout-margin-content)));
   margin: 0 auto;
   padding-bottom: var(--space-section);
@@ -1106,24 +1131,29 @@ h1 {
   object-fit: cover;
 }
 
-.case-detail__media--audience .case-detail__image {
+.case-detail__media--parallax .case-detail__image {
   width: 100%;
   height: 100%;
   aspect-ratio: auto;
   object-fit: cover;
 }
 
-/* Audience keeps its full portrait image behind the shortened frame. The
-   frame is another 25% lower than the previous 4:3 crop; the inner element
-   preserves the full raster height for the longer parallax travel. */
-.case-detail__media--audience {
+/* The parallax cases keep a full image behind the shortened frame. The inner
+   element preserves enough raster height for the scroll travel. */
+.case-detail__media--parallax {
   aspect-ratio: 16 / 9;
   margin-bottom: var(--space-case-audience-runway);
   overflow: hidden;
 }
 
-.case-detail__media--audience .case-detail__media-parallax {
+.case-detail__media--parallax .case-detail__media-parallax {
   height: 222.222%;
+}
+
+/* The Keys Store source is already landscape. A smaller overscan preserves
+   substantially more of its composition while leaving room for the parallax. */
+.case-detail__media--keys .case-detail__media-parallax {
+  height: 125%;
 }
 
 @media (min-width: 768px) {
@@ -1161,15 +1191,6 @@ h1 {
 .case-detail--entering .case-detail__meta,
 .case-detail--entering .case-detail__media {
   transform: translateY(2rem);
-}
-
-/* During an SPA case opening the fullscreen proxy already owns the media
-   entrance. Keep the live destination fully painted underneath it so the
-   handoff cannot dip to the page wash and then fade the image back in. */
-.case-detail--transition-entry .case-detail__media {
-  opacity: 1;
-  transform: none;
-  transition: none;
 }
 
 .case-detail:not(.case-detail--entering) .case-detail__meta {

@@ -18,7 +18,6 @@ const emit = defineEmits<{
     v-if="block.type === 'story'"
     :section="block"
     :class="{ 'case-block--first': props.first }"
-    @layout-change="emit('layoutChange')"
   />
   <CaseIntroRailBlock
     v-else-if="block.type === 'intro-rail'"

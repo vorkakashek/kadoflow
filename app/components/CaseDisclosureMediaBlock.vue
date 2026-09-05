@@ -30,7 +30,7 @@ const emit = defineEmits<{
 
 .audience-case__media-wide {
   display: block;
-  margin-top: var(--space-4);
+  margin-top: var(--case-disclosure-media-gap);
 }
 
 .audience-case__media-wide :deep(img) {

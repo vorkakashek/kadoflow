@@ -5,6 +5,7 @@ import type { ProjectCaseIntroRailBlock } from '~/utils/projectCaseDetails'
 const props = defineProps<{
   block: ProjectCaseIntroRailBlock
 }>()
+
 </script>
 
 <template>

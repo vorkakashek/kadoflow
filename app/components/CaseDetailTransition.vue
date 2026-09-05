@@ -54,6 +54,19 @@ async function waitForImageDecode(image: HTMLImageElement, rasterAlreadyPainted 
   }
 }
 
+/** Make the live destination raster safe to expose under the docking proxy. */
+async function waitForTargetImagePaint(target: HTMLElement) {
+  const image = target.matches('img')
+    ? target as HTMLImageElement
+    : target.querySelector<HTMLImageElement>('img')
+  if (!image) return
+  // A returned case can sit outside the initial catalog viewport, where its
+  // lazy image would otherwise still be blank when the proxy disappears.
+  image.loading = 'eager'
+  await waitForImageDecode(image)
+  await nextPaint()
+}
+
 async function returnThroughHistory(to: string) {
   router.back()
   const targetPath = to.split('#')[0] || '/'
@@ -222,25 +235,25 @@ watch(request, async (next) => {
         await Promise.all([routeWarmup, waitForTransitionDelay(160)])
         await router.push(next.to)
         await nextPaint()
-        revealDetailContent()
-        await nextPaint()
       })()
 
-      // Begin revealing near the end of the geometry motion. If the route is
-      // cold, readiness remains the only wait; a warm route has no dead frame.
+      // Keep the detail in its entry pose for the entire proxy handoff. If its
+      // content is released here, most of the entrance plays behind the media.
       await Promise.all([routeTask, waitForTransitionDelay(500)])
       const reveal = gsap.to(root, {
         opacity: 0,
-        duration: 0.34,
+        duration: 0.54,
         ease: 'power2.out',
       })
       await Promise.all([flight, reveal])
+      revealDetailContent()
+      await nextPaint()
       return
     }
 
-    // The destination begins mounting as soon as the overlay can safely cover
-    // the route swap. Its target geometry resolves while the proxy is still
-    // entering, so the following dock continues the same movement.
+    // Fully cover the detail before swapping routes. A fixed early delay used
+    // to mount the catalog while this wash was still translucent, exposing a
+    // brief catalog frame through the transition layer.
     gsap.set(root, { opacity: 1 })
     const detail = document.querySelector<HTMLElement>('.case-detail__inner')
     const cover = gsap.timeline()
@@ -256,15 +269,18 @@ watch(request, async (next) => {
       ease: 'power2.inOut',
     }, 0)
 
+    await cover
+
     const targetTask = (async () => {
-      await waitForTransitionDelay(140)
       if (next.historyBack) await returnThroughHistory(next.to)
       else await router.push(next.to)
       await nextPaint()
       const hashPin = startRouteHashPin(next.to)
       hashPinSession.stop = hashPin.stop
       await hashPin.ready
-      return next.targetSelector ? findTarget(next.targetSelector) : null
+      const target = next.targetSelector ? await findTarget(next.targetSelector) : null
+      if (target) await waitForTargetImagePaint(target)
+      return target
     })()
     const targetEl = await targetTask
 
@@ -300,7 +316,6 @@ watch(request, async (next) => {
       await nextPaint()
       await gsap.to(image, { opacity: 0, duration: 0.14, ease: 'power1.out' })
     } else {
-      await cover
       await gsap.to(image, {
         opacity: 0,
         scale: 1.02,

@@ -57,7 +57,7 @@ function handleTransition(event: TransitionEvent) {
     >
       <span class="case-disclosure__pill">
         <span class="case-disclosure__pill-label">{{ open ? t('projects.detail.disclosureCollapse') : t('projects.detail.disclosureRead') }}</span>
-        <PhPlusMinus :minus="open" :size="18" />
+        <SiteIcon :name="open ? 'minus' : 'plus'" :size="18" />
       </span>
     </span>
   </div>

@@ -43,7 +43,7 @@ const mobileHeader = ref(false)
 const mobileScrollMarkOn = ref(false)
 /** Desktop keeps the compact mark while the reader moves down on any page. */
 const desktopScrollMarkOn = ref(false)
-const { caseInverse } = useHomeExperience()
+const { activeCaseId, caseInverse } = useHomeExperience()
 const {
   closeCaseDetail,
   active: caseDetailTransitionActive,
@@ -59,6 +59,10 @@ const detailCase = computed(() => {
   return match ? homeCases.value.find((item) => item.id === match[1]) : undefined
 })
 const detailInverse = computed(() => !!detailCase.value?.inverse)
+const activeHomeCaseInverse = computed(() => (
+  homeCases.value.find(item => item.id === activeCaseId.value)?.inverse
+  ?? caseInverse.value
+))
 
 function onCaseDetailBack(event: MouseEvent) {
   const item = detailCase.value
@@ -77,13 +81,13 @@ const fabStyle = computed(() => ({
 }))
 const logoInverted = computed(
   () => detailInverse.value
-    || (isOverCases.value && caseInverse.value),
+    || (isOverCases.value && activeHomeCaseInverse.value),
 )
 const mobileScrollMarkVisible = computed(
   () => mobileHeader.value && mobileScrollMarkOn.value && !canvasForced.value,
 )
 const mobileScrollMarkInverted = computed(
-  () => detailInverse.value || (mobileMarkOverCases.value && caseInverse.value),
+  () => detailInverse.value || (mobileMarkOverCases.value && activeHomeCaseInverse.value),
 )
 const navEl = ref<HTMLElement | null>(null)
 const menuBtnEl = ref<HTMLElement | null>(null)
@@ -886,7 +890,7 @@ onMounted(() => {
 
   // HomeCases can be hot-replaced while the viewport is already inside the
   // section. Refresh the geometric logo check when its active tone is restored.
-  watch(caseInverse, () => scheduleLogoCasesToneSync())
+  watch(activeHomeCaseInverse, () => scheduleLogoCasesToneSync())
 
   watch(
     () => route.path,
@@ -1114,17 +1118,11 @@ onUnmounted(() => {
             @click="onCaseDetailBack"
           >
             <span class="case-header-back__frame" aria-hidden="true">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M27 16H5" />
-                <path d="m12 9-7 7 7 7" />
-              </svg>
+              <SiteIcon name="arrow-left" :size="32" />
             </span>
             <span class="case-header-back__label">{{ t('common.back') }}</span>
             <span class="case-header-back__frame case-header-back__frame--after" aria-hidden="true">
-              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M27 16H5" />
-                <path d="m12 9-7 7 7 7" />
-              </svg>
+              <SiteIcon name="arrow-left" :size="32" />
             </span>
           </button>
         </Transition>
@@ -1222,6 +1220,7 @@ onUnmounted(() => {
         :class="{ 'mobile-scroll-mark--inverted': mobileScrollMarkInverted }"
         :style="fabStyle"
         :aria-label="t('accessibility.brandHomeRu')"
+        @click="onLogoClick"
         @pointerenter="preloadHomeSceneAssets"
       >
         <img src="/brand/kado-logo-ru-o.svg" alt="" width="32" height="32">
@@ -1240,10 +1239,7 @@ onUnmounted(() => {
       :aria-label="t('common.backHome')"
       @click="onCaseDetailBack"
     >
-      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M27 16H5" />
-        <path d="m12 9-7 7 7 7" />
-      </svg>
+      <SiteIcon name="arrow-left" :size="32" />
     </button>
     <button
       ref="fabEl"

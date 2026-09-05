@@ -18,20 +18,20 @@ export type ProjectCaseMedia = {
   avifSrcset?: string
   sizes?: string
   aspectRatio?: string
+  mobileAspectRatio?: string
 }
 
 export type ProjectCaseSectionPresentation = {
   title?: 'default' | 'nowrap' | 'offset'
   copy?: 'default' | 'collection' | 'object-grid' | 'route'
   media?: 'default' | 'collection-rail' | 'gallery-tight' | 'label' | 'motion' | 'object-pair' | 'route'
-  spacing?: 'default' | 'compact-disclosure'
   mobileCopyGap?: 'default' | 'compact'
   statementGap?: 'default' | 'medium' | 'section' | 'small'
 }
 
 export type ProjectCaseSection = {
   id: string
-  layout: 'intro' | 'disclosure' | 'gallery' | 'feature' | 'split'
+  layout: 'intro' | 'gallery' | 'feature' | 'split'
   title: string
   paragraphs: string[]
   media: ProjectCaseMedia[]

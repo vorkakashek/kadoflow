@@ -302,7 +302,9 @@ function hideCanvasSurface() {
 }
 
 function frameIsCurrent(frame: SiteNavFrame) {
-  return frame.id === shownCurrentId.value
+  const routePath = route.path.replace(/\/+$/, '') || '/'
+  const framePath = frame.to.replace(/\/+$/, '') || '/'
+  return routePath === framePath
 }
 
 function frameShot(frame: SiteNavFrame) {

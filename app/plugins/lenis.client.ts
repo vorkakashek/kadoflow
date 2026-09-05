@@ -1,6 +1,11 @@
 const SMOOTH_SCROLL_ENABLED =
   '(prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine)'
 
+// Lenis completes `lerp` scrolling by rounding to the final pixel. Staying too
+// far below its normal follow factor leaves a visible stepped tail before that
+// final frame, especially with notched mouse wheels.
+const WHEEL_LERP = 0.1
+
 const SCROLL_LOCKS = [
   'preload-lock',
   'page-canvas-lock',
@@ -107,9 +112,9 @@ export default defineNuxtPlugin((nuxtApp) => {
       autoRaf: false,
       smoothWheel: true,
       syncTouch: false,
-      // A lower follow factor blends notched mouse-wheel deltas into one
-      // continuous glide without changing the travel distance per wheel step.
-      lerp: 0.065,
+      // Keep individual wheel notches blended, but let the final pixels settle
+      // promptly instead of exposing a long, stepped inertial tail.
+      lerp: WHEEL_LERP,
       wheelMultiplier: 1,
       stopInertiaOnNavigate: true,
       respectReducedMotion: true,

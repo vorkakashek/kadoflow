@@ -161,28 +161,39 @@ async function tweenIris(
   to: IrisGeom,
   duration: number,
   ease: string,
-  onFrame?: (geom: IrisGeom) => void,
-  liveOrigin?: () => IrisGeom,
+  options: {
+    onFrame?: (geom: IrisGeom) => void
+    liveOrigin?: () => IrisGeom
+    cornerDelay?: number
+  } = {},
 ) {
   const root = rootEl.value
   if (!root) return
   killTween()
   applyIrisClip(root, from)
   root.style.willChange = 'clip-path'
-  const proxy = { w: from.w, h: from.h }
+  const proxy = { w: from.w, h: from.h, progress: 0 }
   await new Promise<void>((resolve) => {
     tweenResolve = resolve
     tween = gsap.to(proxy, {
       w: to.w,
       h: to.h,
+      progress: 1,
       duration,
       ease,
       overwrite: true,
       onUpdate: () => {
-        const anchor = liveOrigin?.() ?? from
+        const anchor = options.liveOrigin?.() ?? from
         const geom = { ...anchor, w: proxy.w, h: proxy.h }
+        if (options.cornerDelay !== undefined) {
+          const cornerProgress = Math.max(
+            0,
+            Math.min(1, (proxy.progress - options.cornerDelay) / (1 - options.cornerDelay)),
+          )
+          geom.r = Math.min(proxy.w, proxy.h) * 0.5 * cornerProgress
+        }
         applyIrisClip(root, geom)
-        onFrame?.(geom)
+        options.onFrame?.(geom)
       },
       onComplete: () => {
         tween = null
@@ -194,7 +205,7 @@ async function tweenIris(
   })
 }
 
-async function cover(start: IrisGeom, token: number) {
+async function cover(start: IrisGeom, token: number, deferCorners = false) {
   const root = rootEl.value
   if (!root) return
   showLive()
@@ -203,8 +214,11 @@ async function cover(start: IrisGeom, token: number) {
   void root.offsetWidth
   gsap.set(root, { opacity: 1 })
   const dest = irisCoverFrom(start)
-  applyIrisClip(root, start)
-  await tweenIris(start, dest, IRIS_OPEN_S, IRIS_OPEN_EASE)
+  const clipStart = deferCorners ? { ...start, r: 0 } : start
+  applyIrisClip(root, clipStart)
+  await tweenIris(clipStart, dest, IRIS_OPEN_S, IRIS_OPEN_EASE, {
+    cornerDelay: deferCorners ? 0.2 : undefined,
+  })
   if (token !== gen) return
   applyIrisClip(root, dest)
   root.style.willChange = ''
@@ -249,8 +263,7 @@ async function revealMenuHome(
     anchor(),
     IRIS_CLOSE_S,
     IRIS_CLOSE_EASE,
-    onFrame,
-    anchor,
+    { onFrame, liveOrigin: anchor },
   )
   if (token !== gen) return
   hideLive()
@@ -327,6 +340,10 @@ onMounted(() => {
       && originEl.matches('[data-home-top]')
     const isCaseReturn =
       !caseDetailTransitionActive.value
+      // An open Page Canvas owns the whole route hop. Starting the case-return
+      // proxy here would place it above the menu and make both transitions run
+      // in sequence for the same navigation.
+      && !surfaceOn.value
       && to.path === '/'
       && !!detailId
       && !homeTopRequested
@@ -351,10 +368,11 @@ onMounted(() => {
     if (to.path === '/') preloadHomeSceneAssets()
     const token = ++gen
     originGeom = resolveOrigin(to.path)
+    const deferCorners = originEl?.matches('.case-detail__next') ?? false
     popNav = false
     pendingReveal = true
     try {
-      await cover(originGeom, token)
+      await cover(originGeom, token, deferCorners)
     } catch {
       hideLive()
     }

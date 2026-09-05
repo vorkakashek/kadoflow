@@ -6,10 +6,6 @@ const props = defineProps<{
   section: ProjectCaseSection
 }>()
 
-const emit = defineEmits<{
-  layoutChange: []
-}>()
-
 const presentationClasses = computed(() => {
   const presentation = props.section.presentation
   if (!presentation) return []
@@ -24,9 +20,6 @@ const presentationClasses = computed(() => {
     presentation.media && presentation.media !== 'default'
       ? `project-story--media-${presentation.media}`
       : null,
-    presentation.spacing && presentation.spacing !== 'default'
-      ? `project-story--spacing-${presentation.spacing}`
-      : null,
     presentation.mobileCopyGap && presentation.mobileCopyGap !== 'default'
       ? `project-story--mobile-copy-${presentation.mobileCopyGap}`
       : null,
@@ -40,16 +33,13 @@ const presentationClasses = computed(() => {
 <template>
   <section
     class="project-story"
-    :class="[`project-story--${section.layout}`, ...presentationClasses]"
+    :class="[
+      `project-story--${section.layout}`,
+      ...presentationClasses,
+      { 'project-story--keys-system': section.id === 'keys-system' },
+    ]"
   >
-    <CaseNarrativeDisclosure
-      v-if="section.layout === 'disclosure'"
-      :disclosure-id="`case-${section.id}`"
-      :title="section.title"
-      :paragraphs="section.paragraphs"
-      @layout-change="emit('layoutChange')"
-    />
-    <template v-else-if="section.layout === 'feature'">
+    <template v-if="section.layout === 'feature'">
       <h2 v-html="section.title" />
       <div class="project-story__copy">
         <p v-for="paragraph in section.paragraphs" :key="paragraph">{{ paragraph }}</p>
@@ -141,6 +131,17 @@ const presentationClasses = computed(() => {
 
 :deep(.project-story__media--2 img:last-child) { margin-top: var(--space-6); }
 
+/* Override the generic two-up stagger for the opening Keys Store pair. The
+   cards share the same grid row; only a small deliberate offset remains. */
+.project-story--keys-system :deep(.project-story__picture) {
+  display: block;
+  min-width: 0;
+}
+
+.project-story--keys-system :deep(.project-story__media--2 img:last-child) {
+  margin-top: 0;
+}
+
 :deep(.project-story__media--3:not(.project-story__media--scroll)),
 :deep(.project-story__media--3.project-story__media--scroll .case-horizontal-rail__content) {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -182,7 +183,7 @@ const presentationClasses = computed(() => {
 .project-story--feature :deep(.project-story__media .case-autoplay-video) {
   width: min(100%, 62rem);
   margin-inline: auto;
-  aspect-ratio: 1;
+  aspect-ratio: var(--case-video-aspect-ratio, 1);
 }
 
 .project-story--title-nowrap > h2 {
@@ -197,7 +198,7 @@ const presentationClasses = computed(() => {
 .project-story--copy-route .project-story__copy { grid-column: 8 / -2; }
 
 .project-story--media-motion :deep(.project-story__media .case-autoplay-video) {
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--case-video-aspect-ratio, 16 / 9);
   background-color: #e2dbcf;
 }
 
@@ -312,11 +313,6 @@ const presentationClasses = computed(() => {
   margin-top: calc(var(--space-5) * -0.5);
 }
 
-.project-story--disclosure,
-.project-story--spacing-compact-disclosure { row-gap: var(--space-4); }
-.project-story--disclosure > :deep(.case-disclosure) { grid-column: 1 / -1; }
-.project-story--disclosure :deep(.project-story__media) { grid-column: 2 / -2; }
-.project-story--disclosure :deep(.project-story__media img) { aspect-ratio: 16 / 8; }
 .project-story--media-label :deep(.project-story__media img) { aspect-ratio: 4 / 3; }
 
 :deep(.project-story__statement) {
@@ -351,8 +347,6 @@ const presentationClasses = computed(() => {
     margin-top: calc(var(--space-5) * -0.5);
   }
 
-  .project-story--disclosure { row-gap: var(--space-4); }
-
   .project-story > h2,
   .project-story__copy,
   .project-story--intro > h2,
@@ -363,8 +357,6 @@ const presentationClasses = computed(() => {
   .project-story--split .project-story__copy,
   .project-story--gallery > h2,
   .project-story--gallery .project-story__copy,
-  .project-story--disclosure > :deep(.case-disclosure),
-  .project-story--disclosure :deep(.project-story__media),
   :deep(.project-story__statement) {
     grid-column: 1;
   }
@@ -386,11 +378,12 @@ const presentationClasses = computed(() => {
   :deep(.project-story__media--3 img:nth-child(3)),
   :deep(.project-story__media--4 img:nth-child(even)) { margin-top: var(--space-5); }
 
-  .project-story--feature :deep(.project-story__media img),
-  .project-story--disclosure :deep(.project-story__media img) { aspect-ratio: 4 / 5; }
+  .project-story--feature :deep(.project-story__media img) { aspect-ratio: 4 / 5; }
 
   .project-story--feature :deep(.project-story__media .case-autoplay-video),
-  .project-story--media-motion :deep(.project-story__media .case-autoplay-video) { aspect-ratio: 9 / 16; }
+  .project-story--media-motion :deep(.project-story__media .case-autoplay-video) {
+    aspect-ratio: var(--case-video-mobile-aspect-ratio, 9 / 16);
+  }
 
   .project-story--media-motion :deep(video) { object-fit: cover; }
   .project-story--media-label :deep(.project-story__media img) { aspect-ratio: 4 / 3; }

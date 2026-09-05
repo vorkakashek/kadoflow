@@ -51,8 +51,14 @@ const showCaseGestureHint = computed(
   () => mobileCases.value && !caseGestureHintSeen.value,
 )
 const casesIntroTitle = computed(() => t('home.cases.title'))
-const casesIntroCopy = computed(() => t('home.cases.intro'))
-const casesIntroWords = computed(() => casesIntroCopy.value.split(' '))
+const casesIntroTitleLines = computed(() => (
+  casesIntroTitle.value.split('\n').map((line) => Array.from(line))
+))
+
+function caseMediaAspectRatio(item: HomeCase) {
+  const heightScale = item.id === 'audience' || item.id === 'keys-store' ? 0.85 : 1
+  return `${item.media.width} / ${item.media.height * heightScale}`
+}
 
 const {
   activeCaseId: activeId,
@@ -578,20 +584,16 @@ function railAnimTargets(): HTMLElement[] {
 
 type IntroMotionParts = {
   chars: HTMLElement[]
-  words: HTMLElement[]
   all: HTMLElement[]
 }
 
 function introMotionParts(): IntroMotionParts {
   const intro = introEl.value
-  if (!intro) return { chars: [], words: [], all: [] }
+  if (!intro) return { chars: [], all: [] }
   const chars = Array.from(
     intro.querySelectorAll<HTMLElement>('.cases-intro__char'),
   )
-  const words = Array.from(
-    intro.querySelectorAll<HTMLElement>('.cases-intro__word'),
-  )
-  return { chars, words, all: [...chars, ...words] }
+  return { chars, all: chars }
 }
 
 function setIntroHidden(
@@ -599,7 +601,6 @@ function setIntroHidden(
   parts: IntroMotionParts,
 ) {
   if (parts.chars.length) gsap.set(parts.chars, { yPercent: 115 })
-  if (parts.words.length) gsap.set(parts.words, { yPercent: 115 })
 }
 
 async function setupIntroMotion() {
@@ -633,13 +634,6 @@ async function setupIntroMotion() {
         parts.chars,
         { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
         0,
-      )
-    }
-    if (parts.words.length) {
-      tl.to(
-        parts.words,
-        { yPercent: 0, duration: 0.82, stagger: 0.04 },
-        0.24,
       )
     }
   }, intro)
@@ -1331,19 +1325,12 @@ onBeforeUnmount(() => {
         @keydown.space.prevent="dismissCaseGestureHintFromAction"
       >
         <div class="cases-gesture-hint__content">
-          <svg
-            class="cases-gesture-hint__icon"
-            xmlns="http://www.w3.org/2000/svg"
-            width="32"
-            height="32"
-            viewBox="0 0 256 256"
-            fill="none"
-            aria-hidden="true"
-          >
-            <line x1="172" y1="56" x2="244" y2="56" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
-            <polyline points="204 24 172 56 204 88" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
-            <path class="cases-gesture-hint__hand" d="M60,216,34.68,174a20,20,0,0,1,34.64-20L88,184V76a20,20,0,0,1,40,0v56a20,20,0,0,1,40,0v16a20,20,0,0,1,40,0v36c0,13.84-1.75,25-4,32" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24" />
-          </svg>
+          <SiteIcon
+            name="hand-move"
+            class="cases-gesture-hint__icon cases-gesture-hint__hand"
+            :size="32"
+            :stroke="2"
+          />
           <p class="cases-gesture-hint__copy">
             <span>{{ t('home.cases.gestureSwipe') }}</span>
             <span>{{ t('home.cases.gestureDismiss') }}</span>
@@ -1361,22 +1348,31 @@ onBeforeUnmount(() => {
       }"
     >
       <header ref="introEl" class="cases-intro col-span-12">
-        <h2 class="cases-intro__title" :aria-label="casesIntroTitle">
+        <h2
+          class="cases-intro__title"
+          :aria-label="`${casesIntroTitle}: ${homeCases.length}`"
+        >
           <span
-            v-for="(char, index) in casesIntroTitle"
-            :key="`${char}-${index}`"
-            class="cases-intro__char"
+            v-for="(line, lineIndex) in casesIntroTitleLines"
+            :key="lineIndex"
+            class="cases-intro__line-mask"
             aria-hidden="true"
-          >{{ char }}</span>
+          >
+            <span class="cases-intro__line-reveal">
+              <span
+                v-for="(char, charIndex) in line"
+                :key="`${char}-${charIndex}`"
+                class="cases-intro__char"
+              >{{ char === ' ' ? '\u00a0' : char }}</span>
+            </span>
+            <span v-if="lineIndex === 1" class="cases-intro__count">
+              <span class="cases-intro__char">{{ homeCases.length }}</span>
+            </span>
+          </span>
         </h2>
-        <p class="cases-intro__copy" :aria-label="casesIntroCopy">
-          <span
-            v-for="(word, index) in casesIntroWords"
-            :key="`${word}-${index}`"
-            class="cases-intro__word-mask"
-            aria-hidden="true"
-          ><span class="cases-intro__word">{{ word }}</span></span>
-        </p>
+        <div class="cases-intro__cue" aria-hidden="true">
+          <SiteIcon name="arrow-down-left" size="100%" />
+        </div>
       </header>
 
       <nav
@@ -1439,7 +1435,7 @@ onBeforeUnmount(() => {
               `cases-media--${activeCase.media.orientation ?? 'portrait'}`,
               { 'cases-media--video': !!activeCase.media.video },
             ]"
-            :style="{ aspectRatio: `${activeCase.media.width} / ${activeCase.media.height}` }"
+            :style="{ aspectRatio: caseMediaAspectRatio(activeCase) }"
           >
             <picture v-if="caseMediaReady" class="cases-media__picture">
               <source
@@ -1470,7 +1466,7 @@ onBeforeUnmount(() => {
               class="cases-case-link__icon"
               :class="{ 'is-visible': showCaseArrow }"
             >
-              <PhArrowRight :size="26" />
+              <SiteIcon name="arrow-right" :size="26" />
             </span>
           </figure>
         </div>
@@ -1530,6 +1526,7 @@ onBeforeUnmount(() => {
 }
 
 .cases-intro {
+  --cases-intro-title-size: clamp(3.25rem, 8.5vw, 8rem);
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: end;
@@ -1538,18 +1535,32 @@ onBeforeUnmount(() => {
   margin-bottom: clamp(2.625rem, 6vw, 5.25rem);
 }
 
-.cases-intro__title,
-.cases-intro__copy {
+.cases-intro__title {
   margin: 0;
 }
 
 .cases-intro__title {
+  position: relative;
   grid-column: 2 / span 7;
-  font-size: clamp(3.25rem, 8.5vw, 8rem);
+  font-size: var(--cases-intro-title-size);
   font-weight: 400;
   letter-spacing: -0.065em;
   line-height: 0.88;
+}
+
+.cases-intro__line-mask {
+  position: relative;
+  display: block;
+  width: max-content;
+}
+
+.cases-intro__line-reveal {
+  display: block;
   overflow: hidden;
+  /* Cyrillic ascenders (notably «б») extend slightly above this typeface's
+     compact line box. Keep a small headroom inside each reveal mask. */
+  padding-top: 0.08em;
+  padding-right: 0.04em;
 }
 
 .cases-intro__char {
@@ -1557,30 +1568,36 @@ onBeforeUnmount(() => {
   will-change: transform;
 }
 
-.cases-intro__copy {
+.cases-intro__count {
+  position: absolute;
+  top: 0.18em;
+  left: calc(100% + var(--space-2));
+  overflow: hidden;
+  height: 1em;
+  font-size: clamp(2.5rem, 4.3vw, 4rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+
+.cases-intro__count .cases-intro__char {
+  display: block;
+}
+
+.cases-intro__cue {
+  --cases-intro-cue-size: calc(var(--cases-intro-title-size) * 0.84);
+  display: flex;
+  width: var(--cases-intro-cue-size);
+  height: var(--cases-intro-cue-size);
   grid-column: 9 / -2;
   justify-self: end;
-  max-inline-size: 30ch;
-  font-size: var(--type-body);
-  letter-spacing: -0.025em;
-  line-height: 1.3;
-  opacity: 0.68;
-  text-wrap: pretty;
+  color: currentColor;
 }
 
-.cases-intro__word-mask {
-  display: inline-block;
-  overflow: hidden;
-  vertical-align: bottom;
-}
-
-.cases-intro__word-mask:not(:last-child) {
-  margin-inline-end: 0.24em;
-}
-
-.cases-intro__word {
-  display: inline-block;
-  will-change: transform;
+.cases-intro__cue :deep(svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 @media (min-width: 768px) {
@@ -1601,19 +1618,19 @@ onBeforeUnmount(() => {
 
 @media (max-width: 767.98px) {
   .cases-intro {
+    --cases-intro-title-size: clamp(3.5rem, 17vw, 5.75rem);
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
     margin-bottom: clamp(2.25rem, 9.75vw, 3.75rem);
   }
 
-  .cases-intro__title,
-  .cases-intro__copy {
+  .cases-intro__title {
     max-width: 100%;
   }
 
   .cases-intro__title {
-    font-size: clamp(3.5rem, 17vw, 5.75rem);
+    font-size: var(--cases-intro-title-size);
   }
 }
 
@@ -1904,7 +1921,7 @@ onBeforeUnmount(() => {
     width: calc(100% + var(--layout-margin-content) + var(--layout-margin-content));
     margin-left: calc(-1 * var(--layout-margin-content));
     margin-right: calc(-1 * var(--layout-margin-content));
-    margin-bottom: clamp(2.75rem, 12vw, 4.5rem);
+    margin-bottom: clamp(1.375rem, 6vw, 2.25rem);
   }
 
   .cases-rail__list {
@@ -2326,6 +2343,19 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
+/* Audience and Keys Store keep their existing width but use a 15% shorter
+   cover frame. Baltika is reduced proportionally, so the whole image remains
+   visible instead of being cropped into a shallower frame. */
+.home-cases[data-case-id='baltika'] .cases-media {
+  width: 85%;
+}
+
+@media (max-width: 767.98px) {
+  .home-cases[data-case-id='baltika'] .cases-media {
+    align-self: center;
+  }
+}
+
 .cases-aside {
   display: flex;
   flex-direction: column;
@@ -2578,22 +2608,28 @@ onBeforeUnmount(() => {
 }
 
 .home-cases--mobile .cases-intro {
-  display: flex;
+  --cases-intro-title-size: clamp(2.5rem, 14vw, 5.25rem);
+  display: grid;
   width: 100%;
-  flex-direction: column;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-column: 1 / -1;
-  gap: 1.5rem;
+  align-items: end;
+  column-gap: var(--space-2);
+  row-gap: 0;
 }
 
-.home-cases--mobile .cases-intro__title,
-.home-cases--mobile .cases-intro__copy {
+.home-cases--mobile .cases-intro__title {
   width: 100%;
   max-width: 100%;
 }
 
-.home-cases--mobile .cases-intro__title,
-.home-cases--mobile .cases-intro__copy {
-  grid-column: 1 / -1;
+.home-cases--mobile .cases-intro__title {
+  grid-column: 1;
+}
+
+.home-cases--mobile .cases-intro__cue {
+  grid-column: 2;
+  align-self: end;
 }
 
 .home-cases--mobile .cases-rail {
@@ -2618,6 +2654,7 @@ onBeforeUnmount(() => {
   grid-row: 2;
   margin-right: calc(-1 * var(--layout-margin-content));
   margin-left: calc(-1 * var(--layout-margin-content));
+  margin-bottom: clamp(1.375rem, 6vw, 2.25rem);
   padding-top: var(--cases-rail-top-pad);
   transform: none;
   background: transparent;

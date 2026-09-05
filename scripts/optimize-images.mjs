@@ -4,11 +4,6 @@ import sharp from 'sharp'
 import { imageRecipes } from './image-recipes.mjs'
 
 const root = resolve(import.meta.dirname, '..')
-const pipelineMtime = Math.max(
-  (await stat(new URL(import.meta.url))).mtimeMs,
-  (await stat(new URL('./image-recipes.mjs', import.meta.url))).mtimeMs,
-)
-
 const outputFormats = [
   { extension: 'avif', encode: (image) => image.avif({ quality: 52, effort: 6 }) },
   { extension: 'webp', encode: (image) => image.webp({ quality: 80, effort: 5 }) },
@@ -46,7 +41,7 @@ async function buildRecipe(recipe) {
     const outputPath = resolve(root, `${recipe.outputStem}-${width}.${extension}`)
     try {
       const outputStat = await stat(outputPath)
-      if (outputStat.size > 0 && outputStat.mtimeMs >= Math.max(sourceMtime, pipelineMtime)) return
+      if (outputStat.size > 0 && outputStat.mtimeMs >= sourceMtime) return
     }
     catch {
       // Missing output: generate it below.
@@ -68,6 +63,21 @@ async function buildRecipe(recipe) {
     ).toFile(outputPath)
     console.log(`Generated ${recipe.outputStem}-${width}.${extension}`)
   })))
+
+  if (recipe.fallback) {
+    const outputPath = resolve(root, `${recipe.outputStem}.${recipe.fallback}`)
+    try {
+      const outputStat = await stat(outputPath)
+      if (outputStat.size > 0 && outputStat.mtimeMs >= sourceMtime) return
+    }
+    catch {
+      // Missing fallback: generate it below.
+    }
+    const format = outputFormats.find(item => item.extension === recipe.fallback)
+    if (!format) throw new Error(`Unsupported fallback format: ${recipe.fallback}`)
+    await format.encode(sharp(sourcePath).rotate().resize({ width: usableWidths.at(-1), withoutEnlargement: true })).toFile(outputPath)
+    console.log(`Generated ${recipe.outputStem}.${recipe.fallback}`)
+  }
 }
 
 await Promise.all(imageRecipes.map(buildRecipe))

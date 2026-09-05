@@ -153,8 +153,9 @@ const MOTION_INTRO_MAX_AGE = 60 * 60 * 24 * 7
 const DESKTOP_MOTION_EASE_MS = 520
 const DESKTOP_ICON_MORPH_S = 0.38
 const HAPTIC_CONTROL_EXIT_MS = 240
-const DESKTOP_PAUSE_ICON_PATH = 'M200,32H160a16,16,0,0,0-16,16V208a16,16,0,0,0,16,16h40a16,16,0,0,0,16-16V48A16,16,0,0,0,200,32ZM96,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H96a16,16,0,0,0,16-16V48A16,16,0,0,0,96,32Z'
-const DESKTOP_PLAY_ICON_PATH = 'M239.96875,128a15.9,15.9,0,0,1-7.65625,13.65625L88.34375,229.64062A15.9978,15.9978,0,0,1,64,215.99219V40.00781A15.99781,15.99781,0,0,1,88.34375,26.35937L232.3125,114.34375A15.9,15.9,0,0,1,239.96875,128Z'
+// Tabler player-pause/player-play (MIT); combined paths retain the existing morph.
+const DESKTOP_PAUSE_ICON_PATH = 'M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12 M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12'
+const DESKTOP_PLAY_ICON_PATH = 'M7 4v16l13 -8l-13 -8'
 
 function lerpStops(x: number, stops: number[], values: number[]) {
   if (x <= stops[0]) return values[0]
@@ -1989,9 +1990,9 @@ async function bootScene() {
       :aria-label="t('accessibility.enableVibration')"
       @click="onHapticControlTap"
     >
-      <span
+      <SiteIcon
+        name="device-mobile-vibration"
         class="motion-control__icon motion-control__icon--haptic"
-        aria-hidden="true"
       />
     </button>
 
@@ -2007,28 +2008,10 @@ async function bootScene() {
       :aria-pressed="motionControlActive"
       @click="onMotionControlTap"
     >
-      <svg
+      <SiteIcon
+        name="device-mobile"
         class="motion-control__icon"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 256 256"
-        aria-hidden="true"
-      >
-        <rect width="256" height="256" fill="none" />
-        <rect
-          x="24"
-          y="64"
-          width="208"
-          height="128"
-          rx="16"
-          transform="translate(256) rotate(90)"
-          fill="none"
-          stroke="currentColor"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="12"
-        />
-        <circle cx="128" cy="60" r="10" fill="currentColor" />
-      </svg>
+      />
     </button>
 
     <button
@@ -2051,13 +2034,16 @@ async function bootScene() {
       <svg
         class="motion-control__icon motion-control__icon--desktop"
         xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 256 256"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="butt"
+        stroke-linejoin="round"
         aria-hidden="true"
       >
-        <rect width="256" height="256" fill="none" />
         <path
           ref="desktopMotionIconPath"
-          fill="currentColor"
           :d="DESKTOP_PAUSE_ICON_PATH"
         />
       </svg>
@@ -2260,9 +2246,6 @@ async function bootScene() {
   .motion-control--active .motion-control__icon--haptic {
     width: 24px;
     height: 24px;
-    background-color: currentColor;
-    -webkit-mask: url('/svg/vibrate-custom.svg') center / contain no-repeat;
-    mask: url('/svg/vibrate-custom.svg') center / contain no-repeat;
     transform: none;
   }
 

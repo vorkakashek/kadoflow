@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { PhArrowUp } from '@phosphor-icons/vue'
 const { t } = useI18n()
 const visible = ref(false)
 const { scrollY, scrollDelta, scrollRevision } = useMotionRuntime()
@@ -39,7 +38,7 @@ function scrollToTop() {
     :tabindex="visible ? 0 : -1"
     @click="scrollToTop"
   >
-    <PhArrowUp :size="22" aria-hidden="true" />
+    <SiteIcon name="arrow-up" :size="22" />
   </button>
 </template>
 
@@ -60,7 +59,7 @@ function scrollToTop() {
   place-items: center;
   appearance: none;
   color: inherit;
-  background-color: color-mix(in srgb, currentColor 30%, transparent);
+  background-color: color-mix(in srgb, currentColor 20%, transparent);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;

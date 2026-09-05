@@ -15,6 +15,10 @@ defineProps<{
     :mobile-poster="media.mobilePoster"
     :alt="media.alt"
     :class="`project-story__image--${media.shape ?? 'wide'}`"
+    :style="{
+      '--case-video-aspect-ratio': media.aspectRatio,
+      '--case-video-mobile-aspect-ratio': media.mobileAspectRatio,
+    }"
   />
   <picture v-else class="project-story__picture">
     <source v-if="media.mobileAvifSrcset" type="image/avif" :srcset="media.mobileAvifSrcset" :sizes="media.sizes" media="(max-width: 767.98px)">

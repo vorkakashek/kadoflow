@@ -173,11 +173,11 @@
         "layout": "intro",
         "media": [
           {
-            "src": "/home/cases/keys-store/keys-1.webp",
-            "shape": "portrait"
+            "src": "/home/cases/keys-store/keys-2.webp",
+            "shape": "square"
           },
           {
-            "src": "/home/cases/keys-store/keys-2.png",
+            "src": "/home/cases/keys-store/keys-3.webp",
             "shape": "wide"
           }
         ],
@@ -186,15 +186,12 @@
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "keys-catalog-language",
-        "layout": "disclosure",
-        "media": [
-          {
-            "src": "/home/cases/keys-store/keys-1.webp",
-            "shape": "portrait"
-          }
-        ]
+        "media": {
+          "src": "/home/cases/keys-store/keys-4.webp",
+          "shape": "portrait"
+        }
       },
       {
         "type": "story",
@@ -202,58 +199,61 @@
         "layout": "gallery",
         "media": [
           {
-            "src": "/home/cases/keys-store/keys-2.png",
+            "src": "/home/cases/keys-store/keys-5.webp",
             "shape": "wide"
           },
           {
-            "src": "/home/cases/keys-store/keys-1.webp",
-            "shape": "portrait"
+            "src": "/home/cases/keys-store/keys-6.webp",
+            "shape": "landscape"
           },
           {
-            "src": "/home/cases/keys-store/keys-3.png",
-            "shape": "square"
+            "src": "/home/cases/keys-store/keys-7.webp",
+            "shape": "landscape"
+          },
+          {
+            "src": "/home/cases/keys-store/keys-8.webp",
+            "shape": "wide"
           }
         ],
+        "railSpeed": 1.28,
         "presentation": {
+          "title": "nowrap",
+          "copy": "collection",
+          "media": "collection-rail",
+          "mobileCopyGap": "compact",
           "statementGap": "section"
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "keys-checkout",
-        "layout": "disclosure",
-        "media": [
-          {
-            "src": "/home/cases/keys-store/keys-3.png",
-            "shape": "square"
-          }
-        ]
+        "media": {
+          "src": "/home/cases/keys-store/keys-9.webp",
+          "shape": "wide"
+        }
       },
       {
-        "type": "story",
+        "type": "intro-rail",
         "id": "keys-trust",
-        "layout": "split",
         "media": [
           {
-            "src": "/home/cases/keys-store/keys-3.png",
-            "shape": "square"
+            "src": "/home/cases/keys-store/keys-10.webp",
+            "mobileSrc": "/home/cases/keys-store/keys-10-horizontal.webp",
+            "shape": "portrait"
           },
           {
-            "src": "/home/cases/keys-store/keys-2.png",
-            "shape": "wide"
+            "src": "/home/cases/keys-store/keys-11.webp",
+            "shape": "landscape"
           }
         ]
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "keys-identity",
-        "layout": "disclosure",
-        "media": [
-          {
-            "src": "/home/cases/keys-store/keys-1.webp",
-            "shape": "portrait"
-          }
-        ]
+        "media": {
+          "src": "/home/cases/keys-store/keys-12.webp",
+          "shape": "wide"
+        }
       },
       {
         "type": "final",
@@ -261,8 +261,13 @@
       }
     ],
     "closing": {
-      "src": "/home/cases/keys-store/keys-2.png",
-      "shape": "wide"
+      "src": "/home/cases/keys-store/keys-end-960.webp",
+      "width": 2080,
+      "height": 1234,
+      "shape": "wide",
+      "webpSrcset": "/home/cases/keys-store/keys-end-480.webp 480w, /home/cases/keys-store/keys-end-960.webp 960w, /home/cases/keys-store/keys-end-1440.webp 1440w, /home/cases/keys-store/keys-end-1920.webp 1920w",
+      "avifSrcset": "/home/cases/keys-store/keys-end-480.avif 480w, /home/cases/keys-store/keys-end-960.avif 960w, /home/cases/keys-store/keys-end-1440.avif 1440w, /home/cases/keys-store/keys-end-1920.avif 1920w",
+      "sizes": "100vw"
     }
   },
   "baltika": {
@@ -305,20 +310,15 @@
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "baltika-label",
-        "layout": "disclosure",
-        "media": [
-          {
+        "media": {
             "src": "/home/cases/baltika/baltika-3.png",
             "shape": "landscape",
+            "aspectRatio": "4 / 3",
             "webpSrcset": "/home/cases/baltika/baltika-3-480.webp 480w, /home/cases/baltika/baltika-3-960.webp 960w, /home/cases/baltika/baltika-3-1440.webp 1440w, /home/cases/baltika/baltika-3-1920.webp 1920w, /home/cases/baltika/baltika-3-2640.webp 2640w",
             "avifSrcset": "/home/cases/baltika/baltika-3-480.avif 480w, /home/cases/baltika/baltika-3-960.avif 960w, /home/cases/baltika/baltika-3-1440.avif 1440w, /home/cases/baltika/baltika-3-1920.avif 1920w, /home/cases/baltika/baltika-3-2640.avif 2640w",
             "sizes": "(max-width: 767.98px) 100vw, 83.333vw"
-          }
-        ],
-        "presentation": {
-          "media": "label"
         }
       },
       {
@@ -382,21 +382,15 @@
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "baltika-data",
-        "layout": "disclosure",
-        "media": [
-          {
+        "media": {
             "src": "/home/cases/baltika/baltika-8.png",
             "shape": "landscape",
             "aspectRatio": "2760 / 2070",
             "webpSrcset": "/home/cases/baltika/baltika-8-480.webp 480w, /home/cases/baltika/baltika-8-960.webp 960w, /home/cases/baltika/baltika-8-1440.webp 1440w, /home/cases/baltika/baltika-8-1920.webp 1920w, /home/cases/baltika/baltika-8-2760.webp 2760w",
             "avifSrcset": "/home/cases/baltika/baltika-8-480.avif 480w, /home/cases/baltika/baltika-8-960.avif 960w, /home/cases/baltika/baltika-8-1440.avif 1440w, /home/cases/baltika/baltika-8-1920.avif 1920w, /home/cases/baltika/baltika-8-2760.avif 2760w",
             "sizes": "(max-width: 767.98px) 100vw, min(83.333vw, 1206px)"
-          }
-        ],
-        "presentation": {
-          "spacing": "compact-disclosure"
         }
       },
       {
@@ -420,21 +414,15 @@
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "baltika-responsive",
-        "layout": "disclosure",
-        "media": [
-          {
+        "media": {
             "src": "/home/cases/baltika/baltika-11.png",
             "shape": "landscape",
             "aspectRatio": "4 / 3",
             "webpSrcset": "/home/cases/baltika/baltika-11-480.webp 480w, /home/cases/baltika/baltika-11-960.webp 960w, /home/cases/baltika/baltika-11-1440.webp 1440w, /home/cases/baltika/baltika-11-1920.webp 1920w, /home/cases/baltika/baltika-11-2760.webp 2760w",
             "avifSrcset": "/home/cases/baltika/baltika-11-480.avif 480w, /home/cases/baltika/baltika-11-960.avif 960w, /home/cases/baltika/baltika-11-1440.avif 1440w, /home/cases/baltika/baltika-11-1920.avif 1920w, /home/cases/baltika/baltika-11-2760.avif 2760w",
             "sizes": "(max-width: 767.98px) 100vw, min(83.333vw, 1440px)"
-          }
-        ],
-        "presentation": {
-          "spacing": "compact-disclosure"
         }
       },
       {
@@ -452,6 +440,13 @@
     }
   },
   "schmidt": {
+    "headerMedia": {
+      "src": "/home/cases/schmidt/schmidt-1.webp",
+      "width": 6000,
+      "height": 4000,
+      "webpSrcset": "/home/cases/schmidt/schmidt-1-480.webp 480w, /home/cases/schmidt/schmidt-1-960.webp 960w, /home/cases/schmidt/schmidt-1-1440.webp 1440w, /home/cases/schmidt/schmidt-1-1920.webp 1920w, /home/cases/schmidt/schmidt-1-2760.webp 2760w",
+      "avifSrcset": "/home/cases/schmidt/schmidt-1-480.avif 480w, /home/cases/schmidt/schmidt-1-960.avif 960w, /home/cases/schmidt/schmidt-1-1440.avif 1440w, /home/cases/schmidt/schmidt-1-1920.avif 1920w, /home/cases/schmidt/schmidt-1-2760.avif 2760w"
+    },
     "blocks": [
       {
         "type": "story",
@@ -459,37 +454,38 @@
         "layout": "feature",
         "media": [
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
+            "type": "video",
+            "src": "/home/cases/schmidt/main_1.mp4",
+            "mobileSrc": "/home/cases/schmidt/main_vertical.mp4",
+            "aspectRatio": "2 / 1",
+            "mobileAspectRatio": "4 / 5",
             "shape": "wide"
           }
         ],
         "presentation": {
+          "media": "motion",
           "statementGap": "medium"
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "schmidt-materials",
-        "layout": "disclosure",
-        "media": [
-          {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
-          }
-        ]
+        "media": {
+          "src": "/home/cases/schmidt/schmidt-3.webp",
+          "shape": "wide"
+        }
       },
       {
-        "type": "story",
+        "type": "intro-rail",
         "id": "schmidt-brand",
-        "layout": "split",
         "media": [
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
+            "src": "/home/cases/schmidt/schmidt-4.webp",
+            "shape": "portrait"
           },
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
+            "src": "/home/cases/schmidt/schmidt-5.webp",
+            "shape": "landscape"
           }
         ]
       },
@@ -499,63 +495,43 @@
         "layout": "gallery",
         "media": [
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
+            "src": "/home/cases/schmidt/schmidt-6.webp",
             "shape": "wide"
           },
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
+            "src": "/home/cases/schmidt/schmidt-7.webp",
             "shape": "wide"
           },
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
+            "src": "/home/cases/schmidt/schmidt-8.webp",
             "shape": "wide"
           },
           {
-            "src": "/home/cases/schmidt/schmidt.webp",
+            "src": "/home/cases/schmidt/schmidt-9.webp",
             "shape": "wide"
           }
         ],
+        "railSpeed": 1.28,
         "presentation": {
-          "media": "gallery-tight",
+          "media": "collection-rail",
           "statementGap": "small"
         }
       },
       {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "schmidt-flavours",
-        "layout": "disclosure",
-        "media": [
-          {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
-          }
-        ]
+        "media": {
+          "src": "/home/cases/schmidt/schmidt-10.webp",
+          "shape": "wide"
+        }
       },
       {
-        "type": "story",
-        "id": "schmidt-navigation",
-        "layout": "intro",
-        "media": [
-          {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
-          },
-          {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
-          }
-        ]
-      },
-      {
-        "type": "story",
+        "type": "disclosure-media",
         "id": "schmidt-responsive",
-        "layout": "disclosure",
-        "media": [
-          {
-            "src": "/home/cases/schmidt/schmidt.webp",
-            "shape": "wide"
-          }
-        ]
+        "media": {
+          "src": "/home/cases/schmidt/schmidt-11.webp",
+          "shape": "wide"
+        }
       },
       {
         "type": "final",
@@ -563,8 +539,13 @@
       }
     ],
     "closing": {
-      "src": "/home/cases/schmidt/schmidt.webp",
-      "shape": "wide"
+      "src": "/home/cases/schmidt/schmidt-end-960.webp",
+      "width": 2080,
+      "height": 1234,
+      "shape": "wide",
+      "webpSrcset": "/home/cases/schmidt/schmidt-end-480.webp 480w, /home/cases/schmidt/schmidt-end-960.webp 960w, /home/cases/schmidt/schmidt-end-1440.webp 1440w, /home/cases/schmidt/schmidt-end-1920.webp 1920w",
+      "avifSrcset": "/home/cases/schmidt/schmidt-end-480.avif 480w, /home/cases/schmidt/schmidt-end-960.avif 960w, /home/cases/schmidt/schmidt-end-1440.avif 1440w, /home/cases/schmidt/schmidt-end-1920.avif 1920w",
+      "sizes": "100vw"
     }
   }
 }
