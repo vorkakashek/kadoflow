@@ -15,24 +15,6 @@ export type HomeExperiencePhase =
   | 'detail-open'
   | 'detail-returning'
 
-export type HomeCaseSurfaceMedia = {
-  src: string
-  webpSrcset?: string
-  avifSrcset?: string
-  mobileSrc?: string
-  mobileWebpSrcset?: string
-  mobileAvifSrcset?: string
-  alt: string
-  wash: string
-  video?: {
-    webm: string
-    mp4: string
-    mobileWebm?: string
-    mobileMp4?: string
-    poster: string
-  }
-}
-
 type HomeExperienceState = {
   activeCaseId: string
   caseInverse: boolean
@@ -42,10 +24,7 @@ type HomeExperienceState = {
   surfaceDocked: boolean
   surfaceReturning: boolean
   surfaceReady: boolean
-  caseMediaReady: boolean
-  caseSurfaceMedia: HomeCaseSurfaceMedia | null
-  caseMediaPrepareRevision: number
-  caseMediaMorphRevision: number
+  caseMediaVisible: boolean
   homeReturnSurfacePending: boolean
   homeReturnMediaDocked: boolean
 }
@@ -68,10 +47,7 @@ export function useHomeExperience() {
     surfaceDocked: false,
     surfaceReturning: false,
     surfaceReady: false,
-    caseMediaReady: false,
-    caseSurfaceMedia: null,
-    caseMediaPrepareRevision: 0,
-    caseMediaMorphRevision: 0,
+    caseMediaVisible: false,
     homeReturnSurfacePending: false,
     homeReturnMediaDocked: false,
   }))
@@ -84,10 +60,7 @@ export function useHomeExperience() {
   const surfaceDocked = computed(() => state.value.surfaceDocked)
   const surfaceReturning = computed(() => state.value.surfaceReturning)
   const surfaceReady = computed(() => state.value.surfaceReady)
-  const caseMediaReady = computed(() => state.value.caseMediaReady)
-  const caseSurfaceMedia = computed(() => state.value.caseSurfaceMedia)
-  const caseMediaPrepareRevision = computed(() => state.value.caseMediaPrepareRevision)
-  const caseMediaMorphRevision = computed(() => state.value.caseMediaMorphRevision)
+  const caseMediaVisible = computed(() => state.value.caseMediaVisible)
   const homeReturnPending = computed(() => state.value.homeReturnSurfacePending)
   const homeReturnMediaDocked = computed(() => state.value.homeReturnMediaDocked)
   const phase = computed<HomeExperiencePhase>(() => {
@@ -107,24 +80,8 @@ export function useHomeExperience() {
     state.value.caseInverse = inverse
   }
 
-  function publishCaseMedia(media: HomeCaseSurfaceMedia | null) {
-    state.value.caseSurfaceMedia = media
-  }
-
-  function setCaseMediaReady(ready: boolean) {
-    state.value.caseMediaReady = ready
-  }
-
   function beginCaseSwitch() {
     state.value.casePhase = 'switching'
-  }
-
-  function prepareCaseMediaSwitch() {
-    state.value.caseMediaPrepareRevision += 1
-  }
-
-  function commitCaseMediaSwitch() {
-    state.value.caseMediaMorphRevision += 1
   }
 
   function completeCaseSwitch() {
@@ -154,6 +111,10 @@ export function useHomeExperience() {
 
   function setSurfaceReady(ready: boolean) {
     state.value.surfaceReady = ready
+  }
+
+  function setCaseMediaVisible(visible: boolean) {
+    state.value.caseMediaVisible = visible
   }
 
   function setSurfaceReturning(returning: boolean) {
@@ -213,23 +174,17 @@ export function useHomeExperience() {
     surfaceDocked,
     surfaceReturning,
     surfaceReady,
-    caseMediaReady,
-    caseSurfaceMedia,
-    caseMediaPrepareRevision,
-    caseMediaMorphRevision,
+    caseMediaVisible,
     homeReturnPending,
     homeReturnMediaDocked,
     selectCase,
     setCaseInverse,
-    publishCaseMedia,
-    setCaseMediaReady,
     beginCaseSwitch,
-    prepareCaseMediaSwitch,
-    commitCaseMediaSwitch,
     completeCaseSwitch,
     beginCasesEntry,
     setSurfaceDocked,
     setSurfaceReady,
+    setCaseMediaVisible,
     setSurfaceReturning,
     beginDetailOpen,
     completeDetailOpen,

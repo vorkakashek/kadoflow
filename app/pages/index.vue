@@ -37,7 +37,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <!-- Flow Surface sits under the page content and morphs into case media. -->
+  <!-- Flow Surface sits under the page content and travels through the case slot. -->
   <div class="relative isolate bg-sand text-ink">
     <div
       id="home-cases-bg-host"

@@ -28,12 +28,14 @@ function smallPreview(src: string) {
 defineExpose({ rootEl, surfaceEl })
 
 let frame = 0
+let lastPaintTime = 0
 let previewWidth = 0
 let previewHeight = 0
 let targetX = 0
 let targetY = 0
 let currentX = 0
 let currentY = 0
+const previewFollowResponseMs = 50
 
 function measurePreview() {
   const box = previewEl.value?.getBoundingClientRect()
@@ -43,34 +45,36 @@ function measurePreview() {
 }
 
 function resolvePreviewPosition(clientX: number, clientY: number) {
-  const gap = 28
-  const edge = 16
   const width = previewWidth || Math.min(window.innerWidth * 0.28, 512)
   const height = previewHeight || width
-  const placeLeft = clientX + gap + width > window.innerWidth - edge
   return {
-    x: Math.min(
-      window.innerWidth - width - edge,
-      Math.max(edge, placeLeft ? clientX - width - gap : clientX + gap),
-    ),
-    y: Math.min(
-      window.innerHeight - height - edge,
-      Math.max(edge, clientY - height * 0.48),
-    ),
+    x: clientX - width / 2,
+    y: clientY - height / 2,
   }
 }
 
-function paintPreview() {
+function paintPreview(timestamp: number) {
   frame = 0
   const el = previewEl.value
   if (!el) return
 
-  currentX += (targetX - currentX) * 0.3
-  currentY += (targetY - currentY) * 0.3
+  const elapsedMs = lastPaintTime
+    ? Math.min(timestamp - lastPaintTime, 32)
+    : 1000 / 60
+  const follow = reducedMotion
+    ? 1
+    : 1 - Math.exp(-elapsedMs / previewFollowResponseMs)
+  lastPaintTime = timestamp
+
+  currentX += (targetX - currentX) * follow
+  currentY += (targetY - currentY) * follow
   el.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`
 
   if (Math.abs(targetX - currentX) > 0.2 || Math.abs(targetY - currentY) > 0.2) {
     frame = requestAnimationFrame(paintPreview)
+  }
+  else {
+    lastPaintTime = 0
   }
 }
 
@@ -101,18 +105,28 @@ async function activate(index: number, event?: PointerEvent) {
 
 function onPointerMove(event: PointerEvent) {
   if (!hoverPreviewEnabled.value || !previewVisible.value) return
-  const target = event.target
-  if (!(target instanceof Element) || !target.closest('.work-formats__trigger')) {
-    onPointerLeave()
-    return
-  }
   setPointerTarget(event)
 }
 
-function onPointerLeave() {
+function onPointerLeave(event?: PointerEvent) {
   previewVisible.value = false
+
+  const list = event?.currentTarget
+  if (list instanceof HTMLElement) {
+    const bounds = list.getBoundingClientRect()
+    const position = resolvePreviewPosition(
+      Math.min(bounds.right, Math.max(bounds.left, event.clientX)),
+      Math.min(bounds.bottom, Math.max(bounds.top, event.clientY)),
+    )
+    targetX = position.x
+    targetY = position.y
+    schedulePreviewPaint()
+    return
+  }
+
   if (frame) cancelAnimationFrame(frame)
   frame = 0
+  lastPaintTime = 0
 }
 
 function onFocus(index: number) {
@@ -130,10 +144,13 @@ function onBlur(event: FocusEvent) {
 
 let hoverMedia: MediaQueryList | null = null
 let mobileThumbMedia: MediaQueryList | null = null
+let reducedMotionMedia: MediaQueryList | null = null
+let reducedMotion = false
 
 function syncHoverPreviewMode() {
   hoverPreviewEnabled.value = !!hoverMedia?.matches
   mobileThumbsEnabled.value = !!mobileThumbMedia?.matches
+  reducedMotion = !!reducedMotionMedia?.matches
   if (!hoverPreviewEnabled.value) previewVisible.value = false
 }
 
@@ -155,9 +172,11 @@ onDeactivated(() => {
 onMounted(() => {
   hoverMedia = window.matchMedia('(hover: hover) and (pointer: fine)')
   mobileThumbMedia = window.matchMedia('(max-width: 767.98px)')
+  reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
   syncHoverPreviewMode()
   hoverMedia.addEventListener('change', syncHoverPreviewMode)
   mobileThumbMedia.addEventListener('change', syncHoverPreviewMode)
+  reducedMotionMedia.addEventListener('change', syncHoverPreviewMode)
   window.addEventListener('resize', measurePreview, { passive: true })
 })
 
@@ -165,6 +184,7 @@ onUnmounted(() => {
   if (frame) cancelAnimationFrame(frame)
   hoverMedia?.removeEventListener('change', syncHoverPreviewMode)
   mobileThumbMedia?.removeEventListener('change', syncHoverPreviewMode)
+  reducedMotionMedia?.removeEventListener('change', syncHoverPreviewMode)
   window.removeEventListener('resize', measurePreview)
 })
 </script>
@@ -174,8 +194,6 @@ onUnmounted(() => {
     ref="rootEl"
     class="work-formats pointer-events-auto relative z-10 w-full"
     :aria-labelledby="'work-formats-title'"
-    @pointermove="onPointerMove"
-    @pointerleave="onPointerLeave"
   >
     <div class="work-formats__layout">
       <header class="work-formats__header">
@@ -198,6 +216,8 @@ onUnmounted(() => {
         <ol
           class="work-formats__list"
           :class="{ 'has-active': previewVisible }"
+          @pointermove="onPointerMove"
+          @pointerleave="onPointerLeave"
         >
           <li
             v-for="(item, index) in formats"
@@ -229,14 +249,16 @@ onUnmounted(() => {
                   >
                 </picture>
               </span>
-              <span class="work-formats__arrow" aria-hidden="true">
-                <svg viewBox="0 0 40 40" fill="none">
-                  <path d="M5 20h27M23 10l10 10-10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+              <span class="work-formats__marker">
+                <span class="work-formats__number">{{ String(index + 1).padStart(3, '0') }}</span>
+                <span class="work-formats__arrow" aria-hidden="true">
+                  <svg viewBox="0 0 40 40" fill="none">
+                    <path d="M5 20h27M23 10l10 10-10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
               </span>
               <span class="work-formats__copy">
                 <h3 class="work-formats__name">
-                  <span class="work-formats__number">{{ String(index + 1).padStart(3, '0') }}</span>
                   <span class="work-formats__name-text">{{ item.title }}</span>
                 </h3>
                 <span class="work-formats__description">{{ item.description }}</span>
@@ -255,19 +277,17 @@ onUnmounted(() => {
           :aria-label="activeFormat?.alt"
           aria-live="polite"
         >
-          <Transition name="work-formats-preview" mode="out-in">
-            <picture v-if="activeFormat" :key="activeFormat.preview" class="work-formats__picture">
-              <source type="image/avif" :srcset="activeFormat.previewAvif">
-              <img
-                :src="activeFormat.preview"
-                :alt="activeFormat.alt"
-                width="960"
-                height="960"
-                loading="lazy"
-                decoding="async"
-              >
-            </picture>
-          </Transition>
+          <picture v-if="activeFormat" :key="activeFormat.preview" class="work-formats__picture">
+            <source type="image/avif" :srcset="activeFormat.previewAvif">
+            <img
+              :src="activeFormat.preview"
+              :alt="activeFormat.alt"
+              width="960"
+              height="960"
+              loading="lazy"
+              decoding="async"
+            >
+          </picture>
         </div>
       </div>
     </div>
@@ -335,7 +355,6 @@ onUnmounted(() => {
 
 .work-formats__list {
   position: relative;
-  z-index: 40;
   display: flex;
   margin: 0;
   padding: 0;
@@ -345,8 +364,15 @@ onUnmounted(() => {
 }
 
 .work-formats__item {
+  position: relative;
+  z-index: 20;
   color: var(--palette-ink);
   transition: color 0.28s ease;
+}
+
+.work-formats__item.is-active,
+.work-formats__item:focus-within {
+  z-index: 40;
 }
 
 .work-formats__item + .work-formats__item {
@@ -358,6 +384,7 @@ onUnmounted(() => {
 }
 
 .work-formats__trigger {
+  position: relative;
   display: grid;
   width: 100%;
   padding: clamp(1rem, 2.2svh, 1.75rem) 0;
@@ -373,14 +400,30 @@ onUnmounted(() => {
   outline-offset: 8px;
 }
 
+.work-formats__marker {
+  position: relative;
+  display: grid;
+  width: 3ch;
+  height: 1.3em;
+  justify-self: start;
+  align-items: center;
+  overflow: hidden;
+  font-size: var(--type-lead);
+}
+
+.work-formats__number,
+.work-formats__arrow {
+  width: 100%;
+  height: 1em;
+  grid-area: 1 / 1;
+  transition: opacity 0.24s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .work-formats__arrow {
   display: flex;
-  width: clamp(1.75rem, 2.7vw, 2.5rem);
-  height: clamp(1.75rem, 2.7vw, 2.5rem);
   align-items: center;
   opacity: 0;
-  transform: translateX(-0.75rem);
-  transition: opacity 0.24s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateX(-100%);
 }
 
 .work-formats__thumb-slot {
@@ -414,12 +457,15 @@ onUnmounted(() => {
 }
 
 .work-formats__number {
-  display: inline-block;
-  margin-right: 0.45em;
-  font-size: var(--type-nav);
+  display: flex;
+  align-items: center;
+  font-size: inherit;
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
-  vertical-align: 0.12em;
+  line-height: 1.2;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .work-formats__description {
@@ -462,29 +508,26 @@ onUnmounted(() => {
   object-fit: cover;
 }
 
-.work-formats-preview-enter-active,
-.work-formats-preview-leave-active {
-  transition: opacity 0.16s ease;
-}
-
-.work-formats-preview-enter-from,
-.work-formats-preview-leave-to {
-  opacity: 0;
-}
-
 @media (min-width: 768px) {
   .work-formats__header,
   .work-formats__body {
     grid-column: 3 / span 8;
   }
 
+  .work-formats__description {
+    font-size: var(--type-lead);
+  }
+
+  .work-formats__item.is-active .work-formats__number,
+  .work-formats__item:focus-within .work-formats__number {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
   .work-formats__surface {
     /* The live FlowSurface occupies this slot after its first committed paint. */
   }
 
-  .work-formats__arrow {
-    justify-self: end;
-  }
 }
 
 @media (max-width: 767.98px) {
@@ -557,13 +600,23 @@ onUnmounted(() => {
     font-size: calc(var(--type-slogan) * 1.3);
   }
 
-  .work-formats__number {
+  .work-formats__marker {
     grid-column: 1;
     grid-row: 1;
     align-self: end;
     justify-self: start;
-    margin-right: 0;
-    vertical-align: baseline;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    font-size: var(--type-nav);
+    line-height: 1.1;
+  }
+
+  .work-formats__number {
+    width: auto;
+    height: auto;
+    opacity: 1;
+    transform: none;
   }
 
   .work-formats__name-text {
@@ -595,10 +648,9 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .work-formats__item,
+  .work-formats__number,
   .work-formats__arrow,
-  .work-formats__preview,
-  .work-formats-preview-enter-active,
-  .work-formats-preview-leave-active {
+  .work-formats__preview {
     transition: none;
   }
 }

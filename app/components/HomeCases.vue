@@ -2,8 +2,8 @@
 /**
  * Home cases — one viewport stage + left rail switcher.
  * Grid: full 12-column editorial stage with a compact navigation rail.
- * Desktop: figure is a pose slot; the case photo fills the Flow Surface.
- * Mobile: the figure remains the layout target; Flow Surface morphs into it.
+ * The figure owns the project media and its case-to-case transition.
+ * Flow Surface only uses the figure as a geometry target between sections.
  */
 import {
   homeCaseDetailPath,
@@ -23,7 +23,6 @@ const homeCases = useHomeCases()
 const rootEl = ref<HTMLElement | null>(null)
 const introEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
-const mediaImgFrontEl = ref<HTMLImageElement | null>(null)
 const bgTrackEl = ref<HTMLElement | null>(null)
 
 const stageEl = ref<HTMLElement | null>(null)
@@ -35,6 +34,7 @@ const gestureHintEl = ref<HTMLElement | null>(null)
 /** Avoid SSR Teleport into the page-local colour host. */
 const mountBgPortal = ref(false)
 const mobileCases = ref(false)
+const caseMediaReady = ref(false)
 /**
  * Freeze the largest mobile viewport once per page load. The browser toolbar can
  * then move without shrinking the Cases colour field or exposing the section
@@ -69,16 +69,12 @@ const {
   surfaceDocked: caseSurfaceDocked,
   surfaceReady: caseSurfaceReady,
   surfaceReturning: caseSurfaceReturning,
-  caseMediaReady,
+  caseMediaVisible,
   homeReturnMediaDocked,
   routePhase,
   selectCase: selectHomeCase,
   setCaseInverse,
-  publishCaseMedia,
-  setCaseMediaReady,
   beginCaseSwitch,
-  prepareCaseMediaSwitch,
-  commitCaseMediaSwitch,
   completeCaseSwitch,
 } = useHomeExperience()
 const switching = computed(() => casePhase.value === 'switching')
@@ -99,6 +95,10 @@ const caseDetailHomeReturnActive = computed(() => routePhase.value === 'returnin
 const hideCaseCopyDuringDetailReturn = computed(() => (
   caseDetailHomeReturnActive.value
   && !homeReturnMediaDocked.value
+))
+const showLocalCaseMedia = computed(() => (
+  (caseMediaVisible.value || homeReturnMediaDocked.value)
+  && (!caseDetailHomeReturnActive.value || homeReturnMediaDocked.value)
 ))
 
 const activeCase = computed(
@@ -126,7 +126,9 @@ function openCaseDetailFromMedia(item: HomeCase) {
   if (!media) return
   const rect = media.getBoundingClientRect()
   if (rect.width < 2 || rect.height < 2) return
-  const paintedImage = mediaImgFrontEl.value ?? media.querySelector<HTMLImageElement>('img')
+  const paintedImage = media.querySelector<HTMLImageElement>(
+    `[data-case-layer="${item.id}"] img`,
+  ) ?? media.querySelector<HTMLImageElement>('img')
   openCaseDetail({
     to: homeCaseDetailPath(item),
     origin: 'home',
@@ -343,28 +345,9 @@ function captureMobileCasesHeight() {
   probe.remove()
 }
 
-function publishSurfaceMedia(item: HomeCase | undefined) {
-  if (!item) {
-    publishCaseMedia(null)
-    return
-  }
-  publishCaseMedia({
-    src: item.media.src,
-    webpSrcset: item.media.webpSrcset,
-    avifSrcset: item.media.avifSrcset,
-    mobileSrc: item.media.mobileSrc,
-    mobileWebpSrcset: item.media.mobileWebpSrcset,
-    mobileAvifSrcset: item.media.mobileAvifSrcset,
-    alt: item.media.alt,
-    wash: item.wash,
-    video: item.media.video,
-  })
-}
-
 watch(
   activeCase,
   (item) => {
-    publishSurfaceMedia(item)
     setCaseInverse(!!item?.inverse)
   },
   { immediate: true },
@@ -375,10 +358,11 @@ watch(switching, (active) => {
   if (!active) scheduleMobileStageCollapse()
 })
 
-let firstCaseWarmImage: HTMLImageElement | null = null
-let firstCaseWarmScheduled = false
+let initialCaseWarmImage: HTMLImageElement | null = null
+let initialCaseWarmScheduled = false
 let firstCaseNear = false
 let firstCaseObserver: IntersectionObserver | null = null
+const warmedCaseMedia = new Map<string, HTMLImageElement>()
 
 function isColdCasesHashEntry() {
   return typeof window !== 'undefined'
@@ -387,46 +371,55 @@ function isColdCasesHashEntry() {
     && !caseDetailHomeReturnActive.value
 }
 
-function warmFirstCaseMedia(priority = false) {
-  if (caseMediaReady.value || firstCaseWarmImage) return
-  const src = homeCases.value[0]?.media.src
-  if (!src) return
+function warmInitialCaseMedia(priority = false) {
+  if (caseMediaReady.value || initialCaseWarmImage) return
+  const initial = activeCase.value ?? homeCases.value[0]
+  if (!initial) return
 
-  const image = new Image()
-  firstCaseWarmImage = image
-  if (priority) image.fetchPriority = 'high'
-  image.srcset = homeCases.value[0]?.media.avifSrcset ?? homeCases.value[0]?.media.webpSrcset ?? ''
-  image.sizes = '(max-width: 767px) 92vw, 42vw'
-  image.src = src
+  const image = warmCaseMedia(initial, priority)
+  initialCaseWarmImage = image
   const finish = () => {
     void image.decode().catch(() => undefined).finally(() => {
-      setCaseMediaReady(true)
+      caseMediaReady.value = true
     })
   }
   if (image.complete) finish()
   else image.addEventListener('load', finish, { once: true })
   image.addEventListener('error', () => {
-    setCaseMediaReady(true)
+    caseMediaReady.value = true
   }, { once: true })
+}
+
+function warmCaseMedia(item: HomeCase, priority = false) {
+  const cached = warmedCaseMedia.get(item.media.src)
+  if (cached) return cached
+
+  const image = new Image()
+  warmedCaseMedia.set(item.media.src, image)
+  if (priority) image.fetchPriority = 'high'
+  image.srcset = item.media.avifSrcset ?? item.media.webpSrcset ?? ''
+  image.sizes = '(max-width: 767px) 92vw, 42vw'
+  image.src = item.media.src
+  return image
 }
 
 function scheduleFirstCaseWarm() {
   const directCasesEntry = isColdCasesHashEntry()
   if (
-    firstCaseWarmScheduled
+    initialCaseWarmScheduled
     || (!directCasesEntry && (!preload.revealed.value || !firstCaseNear))
   ) return
-  firstCaseWarmScheduled = true
+  initialCaseWarmScheduled = true
   // At /#cases this image is in the initial viewport, not a later enhancement.
   // Start it now instead of waiting for the Hero-oriented idle budget.
   if (directCasesEntry) {
-    warmFirstCaseMedia(true)
+    warmInitialCaseMedia(true)
     return
   }
   const warm = () => {
     const firstCase = homeCases.value[0]
     if (firstCase) warmCaseDetail(firstCase)
-    warmFirstCaseMedia()
+    warmInitialCaseMedia()
   }
   if ('requestIdleCallback' in window) {
     window.requestIdleCallback(warm, { timeout: 1200 })
@@ -978,6 +971,8 @@ let switchGen = 0
 let targetCaseId = activeId.value
 let heightTl: { kill: () => void } | null = null
 let railPositionTl: { kill: () => void } | null = null
+let mediaGeometryTl: { kill: () => void } | null = null
+const CASE_MEDIA_GEOMETRY_DURATION = 0.9
 
 function clearCaseArrow() {
   showCaseArrow.value = false
@@ -1006,9 +1001,7 @@ watch([caseSurfaceReady, switching], ([ready, isSwitching]) => {
 watch(activeId, () => clearCaseArrow())
 
 function onMediaLayoutReady() {
-  if (!caseSurfaceDocked.value) return
   requestAnimationFrame(() => {
-    commitCaseMediaSwitch()
     scheduleMobileStageCollapse()
   })
 }
@@ -1027,7 +1020,7 @@ function tweenSectionHeight(
   heightTl?.kill()
   gsap.set(el, { height: fromH })
   // Let the colour field settle with the content instead of snapping after the
-  // surface changes pose. Larger geometry changes get a little more time, while
+  // media changes pose. Larger geometry changes get a little more time, while
   // small switches still feel responsive.
   const duration = sectionHeightDuration(fromH, toH)
 
@@ -1100,16 +1093,82 @@ function tweenStoppedRailPosition(
   })
 }
 
+/**
+ * The case figure owns its own FLIP now. The Surface can remain hidden and
+ * parked while the selected project changes layout independently beneath it.
+ */
+function tweenCaseMediaGeometry(
+  gsap: typeof import('gsap').default,
+  from: DOMRect | null,
+) {
+  const media = mediaEl.value
+  const localMedia = media?.querySelector<HTMLElement>('[data-case-local-media]')
+  if (!media || !localMedia || !from) return
+  const to = media.getBoundingClientRect()
+  if (from.width < 2 || from.height < 2 || to.width < 2 || to.height < 2) return
+
+  const x = from.left - to.left
+  const y = from.top - to.top
+  const scaleX = from.width / to.width
+  const scaleY = from.height / to.height
+  if (
+    Math.abs(x) < 0.5
+    && Math.abs(y) < 0.5
+    && Math.abs(scaleX - 1) < 0.002
+    && Math.abs(scaleY - 1) < 0.002
+  ) return
+
+  mediaGeometryTl?.kill()
+  media.setAttribute('data-case-media-resize', '')
+  // Translate the figure itself so its position follows a compositor-backed
+  // FLIP. Resize only the crop window; scaling the figure would squash the
+  // screenshot whenever the incoming case has another aspect ratio.
+  gsap.set(media, {
+    x,
+    y,
+    transformOrigin: '0 0',
+  })
+  gsap.set(localMedia, {
+    inset: 'auto',
+    left: 0,
+    top: 0,
+    right: 'auto',
+    bottom: 'auto',
+    width: from.width,
+    height: from.height,
+  })
+  const timeline = gsap.timeline({
+    onComplete: () => {
+      mediaGeometryTl = null
+      media.removeAttribute('data-case-media-resize')
+    },
+  })
+  timeline.to(media, {
+    x: 0,
+    y: 0,
+    duration: CASE_MEDIA_GEOMETRY_DURATION,
+    ease: 'power3.inOut',
+    clearProps: 'transform,transformOrigin',
+  }, 0)
+  timeline.to(localMedia, {
+    width: to.width,
+    height: to.height,
+    duration: CASE_MEDIA_GEOMETRY_DURATION,
+    ease: 'power3.inOut',
+    clearProps: 'inset,left,top,right,bottom,width,height',
+  }, 0)
+  mediaGeometryTl = timeline
+}
+
 async function selectCase(item: HomeCase) {
   if (targetCaseId === item.id) return
   targetCaseId = item.id
+  warmCaseMedia(item)
 
   const gsap = await ensureGsap()
 
   if (prefersReduce()) {
     selectHomeCase(item.id, !!item.inverse)
-    publishSurfaceMedia(item)
-    if (caseSurfaceDocked.value) commitCaseMediaSwitch()
     await nextTick()
     measureMobileStageCollapse()
     scheduleMobileStageCollapse()
@@ -1134,6 +1193,18 @@ async function selectCase(item: HomeCase) {
   heightTl = null
   railPositionTl?.kill()
   railPositionTl = null
+  mediaGeometryTl?.kill()
+  mediaGeometryTl = null
+  mediaEl.value?.removeAttribute('data-case-media-resize')
+  if (mediaEl.value) {
+    gsap.set(mediaEl.value, { clearProps: 'transform,transformOrigin' })
+  }
+  const localMedia = mediaEl.value?.querySelector<HTMLElement>('[data-case-local-media]')
+  if (localMedia) {
+    gsap.set(localMedia, {
+      clearProps: 'inset,left,top,right,bottom,width,height',
+    })
+  }
 
   // On mobile, move the rail before activating the incoming link.
   await tweenRailToCase(gsap, item.id)
@@ -1147,15 +1218,11 @@ async function selectCase(item: HomeCase) {
   await waitTimeline(out)
   if (gen !== switchGen) return
 
-  // 3. Freeze the parked surface in its current box before the DOM card changes
-  // dimensions. FlowSurface then has a real from→to geometry to interpolate.
-  prepareCaseMediaSwitch()
-  await nextTick()
-  if (gen !== switchGen) return
-
-  // 4. Update case ID & DOM
+  // Update the case DOM. The outgoing/incoming rasters and the figure geometry
+  // transition locally; FlowSurface is no longer part of this timeline.
   const root = rootEl.value
   const rail = railEl.value
+  const mediaRectBeforeLayout = mediaEl.value?.getBoundingClientRect() ?? null
   const wasRailBottomStopped = !!rail && railIsBottomStopped(rail)
   const railTopBeforeLayout = rail?.getBoundingClientRect().top ?? null
   const fromH = root?.offsetHeight ?? 0
@@ -1165,10 +1232,7 @@ async function selectCase(item: HomeCase) {
   if (gen !== switchGen) return
   measureMobileStageCollapse()
   revealActiveCaseUnderline()
-  // The figure now has its next dimensions. Only now start the photo handoff,
-  // so the surface can resize before the outgoing image is wiped.
-  publishSurfaceMedia(item)
-  commitCaseMediaSwitch()
+  tweenCaseMediaGeometry(gsap, mediaRectBeforeLayout)
   if (root && fromH) {
     root.style.height = 'auto'
     const toH = root.offsetHeight
@@ -1222,10 +1286,6 @@ onMounted(async () => {
     scheduleFirstCaseWarm()
   }
   syncColorPlate()
-  const first = activeCase.value
-  if (first) {
-    publishSurfaceMedia(first)
-  }
   await setupIntroMotion()
   await setupRailMotion()
   await setupEnterMotion()
@@ -1263,6 +1323,9 @@ onBeforeUnmount(() => {
   heightTl = null
   railPositionTl?.kill()
   railPositionTl = null
+  mediaGeometryTl?.kill()
+  mediaGeometryTl = null
+  mediaEl.value?.removeAttribute('data-case-media-resize')
   enterTl?.kill()
   enterTl = null
   introCtx?.revert()
@@ -1409,6 +1472,9 @@ onBeforeUnmount(() => {
               }"
               :aria-pressed="item.id === activeId"
               :aria-busy="switching"
+              @pointerenter="warmCaseMedia(item)"
+              @focus="warmCaseMedia(item)"
+              @pointerdown="warmCaseMedia(item)"
               @click="onRailBtnClick(item)"
             >
               <span class="cases-rail__label">{{ item.label }}</span>
@@ -1443,50 +1509,94 @@ onBeforeUnmount(() => {
             ]"
             :style="{ aspectRatio: caseMediaAspectRatio(activeCase) }"
           >
-            <picture v-if="caseMediaReady" class="cases-media__picture">
-              <source
-                v-if="activeCase.media.mobileAvifSrcset"
-                media="(max-width: 767.98px)"
-                type="image/avif"
-                :srcset="activeCase.media.mobileAvifSrcset"
-                sizes="92vw"
-              >
-              <source
-                v-if="activeCase.media.mobileWebpSrcset"
-                media="(max-width: 767.98px)"
-                type="image/webp"
-                :srcset="activeCase.media.mobileWebpSrcset"
-                sizes="92vw"
-              >
-              <source
-                v-if="activeCase.media.mobileSrc"
-                media="(max-width: 767.98px)"
-                :srcset="activeCase.media.mobileSrc"
-              >
-              <source
-                v-if="activeCase.media.avifSrcset"
-                type="image/avif"
-                :srcset="activeCase.media.avifSrcset"
-                sizes="(max-width: 767px) 92vw, 42vw"
-              >
-              <source
-                v-if="activeCase.media.webpSrcset"
-                type="image/webp"
-                :srcset="activeCase.media.webpSrcset"
-                sizes="(max-width: 767px) 92vw, 42vw"
-              >
-              <img
-                ref="mediaImgFrontEl"
-                :src="activeCase.media.src"
-                :width="activeCase.media.width"
-                :height="activeCase.media.height"
-                alt=""
-                class="cases-media__img cases-media__img--ghost"
-                aria-hidden="true"
-                decoding="async"
-                @load="onMediaLayoutReady"
-              >
-            </picture>
+            <div
+              data-case-local-media
+              class="cases-media__local"
+              :class="{
+                'cases-media__local--visible': showLocalCaseMedia,
+                'cases-media__local--return-docked': caseDetailHomeReturnActive && homeReturnMediaDocked,
+              }"
+              :aria-hidden="(!showLocalCaseMedia).toString()"
+            >
+              <Transition name="cases-media-swap">
+                <div
+                  v-if="caseMediaReady"
+                  :key="activeCase.id"
+                  class="cases-media__layer"
+                  :data-case-layer="activeCase.id"
+                >
+                  <picture class="cases-media__picture">
+                    <source
+                      v-if="activeCase.media.mobileAvifSrcset"
+                      media="(max-width: 767.98px)"
+                      type="image/avif"
+                      :srcset="activeCase.media.mobileAvifSrcset"
+                      sizes="92vw"
+                    >
+                    <source
+                      v-if="activeCase.media.mobileWebpSrcset"
+                      media="(max-width: 767.98px)"
+                      type="image/webp"
+                      :srcset="activeCase.media.mobileWebpSrcset"
+                      sizes="92vw"
+                    >
+                    <source
+                      v-if="activeCase.media.mobileSrc"
+                      media="(max-width: 767.98px)"
+                      :srcset="activeCase.media.mobileSrc"
+                    >
+                    <source
+                      v-if="activeCase.media.avifSrcset"
+                      type="image/avif"
+                      :srcset="activeCase.media.avifSrcset"
+                      sizes="(max-width: 767px) 92vw, 42vw"
+                    >
+                    <source
+                      v-if="activeCase.media.webpSrcset"
+                      type="image/webp"
+                      :srcset="activeCase.media.webpSrcset"
+                      sizes="(max-width: 767px) 92vw, 42vw"
+                    >
+                    <img
+                      :src="activeCase.media.src"
+                      :width="activeCase.media.width"
+                      :height="activeCase.media.height"
+                      :alt="activeCase.media.alt"
+                      class="cases-media__img"
+                      :class="{ 'cases-media__img--behind-video': !!activeCase.media.video }"
+                      decoding="async"
+                      @load="onMediaLayoutReady"
+                    >
+                  </picture>
+                  <video
+                    v-if="activeCase.media.video"
+                    class="cases-media__img cases-media__video"
+                    autoplay
+                    muted
+                    loop
+                    playsinline
+                    preload="metadata"
+                    :poster="activeCase.media.video.poster"
+                    aria-hidden="true"
+                  >
+                    <source
+                      v-if="activeCase.media.video.mobileWebm"
+                      media="(max-width: 767.98px)"
+                      :src="activeCase.media.video.mobileWebm"
+                      type="video/webm"
+                    >
+                    <source
+                      v-if="activeCase.media.video.mobileMp4"
+                      media="(max-width: 767.98px)"
+                      :src="activeCase.media.video.mobileMp4"
+                      type="video/mp4"
+                    >
+                    <source :src="activeCase.media.video.webm" type="video/webm">
+                    <source :src="activeCase.media.video.mp4" type="video/mp4">
+                  </video>
+                </div>
+              </Transition>
+            </div>
             <span
               class="cases-case-link__icon"
               :class="{ 'is-visible': showCaseArrow }"
@@ -2276,9 +2386,14 @@ onBeforeUnmount(() => {
   position: relative;
   margin: 0;
   min-width: 0;
-  /* Desktop: empty pose slot — surface (z-5) shows through; photo lives inside it. */
+  /* The shared Surface only targets this box; project media is rendered here. */
   isolation: isolate;
   overflow: hidden;
+}
+
+.cases-media[data-case-media-flight],
+.cases-media[data-case-media-resize] {
+  overflow: visible;
 }
 
 .cases-case-link {
@@ -2328,29 +2443,100 @@ onBeforeUnmount(() => {
 }
 
 .cases-media__picture {
-  display: contents;
+  position: absolute;
+  inset: 0;
+  display: block;
 }
 
-.cases-media__img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 2px;
-  object-fit: cover;
-  clip-path: inset(0 0 0 0);
+.cases-media__local {
+  --cases-media-swap-delay: 0.18s;
+  --cases-media-swap-enter-duration: 0.9s;
+  --cases-media-swap-leave-duration: 1.05s;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s linear;
+  will-change: opacity;
+}
+
+.cases-media__local--visible {
+  opacity: 1;
+  transition-duration: 0s;
+}
+
+.cases-media__layer {
+  position: absolute;
+  z-index: 2;
+  /* Bleed beneath the only rounded mask. Nested rounded clips rasterize their
+     edge independently and let the gray Surface show through as a hairline. */
+  inset: -1px;
+  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 0.62s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: clip-path;
 }
 
-.cases-media__img--back {
-  position: absolute;
-  inset: 0;
+.cases-media__local--visible .cases-media__layer {
+  clip-path: inset(0 0 0 0);
 }
 
-.cases-media__img--ghost {
-  opacity: 0 !important;
-  clip-path: inset(0 0 0 0) !important;
-  pointer-events: none;
-  user-select: none;
+.cases-media__local--return-docked .cases-media__layer {
+  transition: none;
+}
+
+.cases-media-swap-enter-active,
+.cases-media-swap-leave-active {
+  will-change: clip-path, transform;
+}
+
+.cases-media-swap-enter-active {
+  z-index: 3;
+  transition:
+    clip-path var(--cases-media-swap-enter-duration) cubic-bezier(0.22, 1, 0.36, 1) var(--cases-media-swap-delay),
+    transform var(--cases-media-swap-enter-duration) cubic-bezier(0.22, 1, 0.36, 1) var(--cases-media-swap-delay);
+}
+
+.cases-media-swap-leave-active {
+  z-index: 1;
+  transition:
+    transform var(--cases-media-swap-leave-duration) cubic-bezier(0.16, 1, 0.3, 1) var(--cases-media-swap-delay);
+}
+
+.cases-media__local--visible .cases-media-swap-enter-from {
+  clip-path: inset(0 100% 0 0);
+  transform: translate3d(-3%, 0, 0);
+}
+
+.cases-media__local--visible .cases-media-swap-enter-to,
+.cases-media__local--visible .cases-media-swap-leave-from {
+  clip-path: inset(0 0 0 0);
+  transform: translate3d(0, 0, 0);
+}
+
+.cases-media__local--visible .cases-media-swap-leave-to {
+  clip-path: inset(0 0 0 0);
+  transform: translate3d(5%, 0, 0);
+}
+
+.cases-media__img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.cases-media__img--behind-video {
+  opacity: 0;
 }
 
 .cases-media--landscape .cases-media__img {
@@ -2366,6 +2552,15 @@ onBeforeUnmount(() => {
 .cases-media--video .cases-media__img {
   height: 100%;
   object-fit: cover;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cases-media__local,
+  .cases-media__layer,
+  .cases-media-swap-enter-active,
+  .cases-media-swap-leave-active {
+    transition: none;
+  }
 }
 
 /* Keys Store stays centred in its grid slot, but its Surface is 20% smaller. */

@@ -30,6 +30,7 @@ const props = withDefaults(
   defineProps<{
     mode?: 'window' | 'panel'
     toneClass?: string
+    toneColor?: string
     toneOpacity?: number
     paintFill?: boolean
     active?: boolean
@@ -37,6 +38,7 @@ const props = withDefaults(
   {
     mode: 'panel',
     toneClass: 'bg-stone',
+    toneColor: '',
     toneOpacity: 1,
     paintFill: true,
     active: true,
@@ -1090,7 +1092,10 @@ const slotInsetStyle = computed(() => {
       <div
         class="absolute inset-0"
         :class="props.toneClass"
-        :style="{ opacity: props.toneOpacity }"
+        :style="{
+          opacity: props.toneOpacity,
+          backgroundColor: props.toneColor || undefined,
+        }"
       />
       <div
         ref="grainEl"
@@ -1124,7 +1129,10 @@ const slotInsetStyle = computed(() => {
       <div
         class="absolute inset-0"
         :class="props.toneClass"
-        :style="{ opacity: props.toneOpacity }"
+        :style="{
+          opacity: props.toneOpacity,
+          backgroundColor: props.toneColor || undefined,
+        }"
       />
       <div
         ref="grainEl"
