@@ -30,12 +30,28 @@ export function preloadHomeMotionBundles() {
   )
 }
 
-/** Cache the compact desktop Hero environment while the iris covers the page. */
-export function preloadHomeSceneAssets() {
+/** Cache the matching compact Hero environment before the live scene mounts. */
+export function preloadHomeSceneAssets(modeOrEvent?: 'desktop' | 'mobile' | Event) {
   void preloadHomeMotionBundles()
   if (typeof window === 'undefined') return
-  if (window.innerWidth < 1200) return
-  void fetch('/env/studio_small_09_256.hdr', {
+
+  const connection = (navigator as Navigator & {
+    connection?: { effectiveType?: string; saveData?: boolean }
+  }).connection
+  if (
+    connection?.saveData
+    || connection?.effectiveType === 'slow-2g'
+    || connection?.effectiveType === '2g'
+  ) return
+
+  const requestedMode = typeof modeOrEvent === 'string' ? modeOrEvent : undefined
+  const mobile = requestedMode
+    ? requestedMode === 'mobile'
+    : window.innerWidth < 768 || window.matchMedia('(pointer: coarse)').matches
+  const environmentUrl = mobile
+    ? '/env/studio_small_03_256.hdr'
+    : '/env/studio_small_09_256.hdr'
+  void fetch(environmentUrl, {
     credentials: 'same-origin',
   }).catch(() => undefined)
 }

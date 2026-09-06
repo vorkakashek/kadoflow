@@ -141,6 +141,8 @@ const CHAOS_POP_FORCE = 0.012
 const SETTLE_MS = 700
 /** Intro: place balls this far out (× ringRadius), then spring home. */
 const ENTRY_SCATTER_RATIO = 2.25
+/** Mobile starts near the final outer silhouette so its entrance is visible immediately. */
+const ENTRY_SCATTER_RATIO_MOBILE = 1.55
 /** Debounce real window resizes before a full scene reboot. */
 const REBOOT_MS = 320
 const MOTION_INTRO_COOKIE = 'kado_motion_intro'
@@ -1183,7 +1185,8 @@ async function bootScene() {
         .normalize()
         .negate()
       const n = balls.length
-      const scatterR = Math.max(ringRadius * ENTRY_SCATTER_RATIO, balls[0]?.radius * 6 || 1)
+      const scatterRatio = lite ? ENTRY_SCATTER_RATIO_MOBILE : ENTRY_SCATTER_RATIO
+      const scatterR = Math.max(ringRadius * scatterRatio, balls[0]?.radius * 6 || 1)
       const depthMax = ringRadius * LITE_DEPTH_MAX_RATIO
       for (let i = 0; i < n; i++) {
         const ball = balls[i]

@@ -6,7 +6,7 @@
  */
 import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfaceMask'
 import { useBrandPreload } from '~/composables/useBrandPreload'
-import { preloadThreeBundle } from '~/utils/preloadHomeMotion'
+import { preloadHomeSceneAssets, preloadThreeBundle } from '~/utils/preloadHomeMotion'
 import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
 
 const { locale, t, tm } = useI18n()
@@ -456,6 +456,8 @@ let removeSwarmIntent: (() => void) | null = null
 let removeSwarmPreboot: (() => void) | null = null
 let stageUnmounted = false
 let swarmIntentPending = false
+let mobileSwarmDeferred = false
+let requestSwarmMount: (() => void) | null = null
 
 function scheduleSwarmMount(fromNavigation: boolean) {
   const mount = () => {
@@ -471,6 +473,7 @@ function scheduleSwarmMount(fromNavigation: boolean) {
     removeSwarmIntent = null
     if (!stageUnmounted) swarmMount.value = true
   }
+  requestSwarmMount = mount
   if (fromNavigation) {
     requestAnimationFrame(mount)
     return
@@ -484,22 +487,15 @@ function scheduleSwarmMount(fromNavigation: boolean) {
   const connection = (navigator as Navigator & {
     connection?: { effectiveType?: string; saveData?: boolean }
   }).connection
-  // `effectiveType` is a rolling latency/downlink estimate and can briefly
-  // report 3g on a desktop connection. Treating that estimate as authoritative
-  // made a fast PC postpone WebGL for 5 seconds.
-  // Honour explicit Save-Data everywhere; use the noisy network estimate only
-  // for the lightweight mobile/coarse-pointer path it was intended to protect.
+  // `effectiveType` is a rolling estimate and often reports 3g transiently on
+  // capable phones. It must not insert a five-second hole between copy and 3D.
+  // Keep the strong defer only for explicit Save-Data and genuinely slow links.
   const constrained = Boolean(
     connection?.saveData
-    || (
-      mobileLite.value
-      && (
-        connection?.effectiveType === 'slow-2g'
-        || connection?.effectiveType === '2g'
-        || connection?.effectiveType === '3g'
-      )
-    ),
+    || connection?.effectiveType === 'slow-2g'
+    || connection?.effectiveType === '2g',
   )
+  mobileSwarmDeferred = mobileLite.value && constrained
   // A warm desktop reload can create its WebGL context while the preloader is
   // motionless at 99%. The preloader raises this flag only after its orbit has
   // settled, so the measured context-creation task cannot hitch either motion.
@@ -520,6 +516,26 @@ function scheduleSwarmMount(fromNavigation: boolean) {
         },
       )
     }
+  }
+
+  if (mobileLite.value && !mobileSwarmDeferred) {
+    // Fetch/parse the motion graph and current mobile HDR while the compact
+    // brand screen is still covering the page. Do not mount WebGL here:
+    // Android can discard a canvas below visibility:hidden. The intro timeline
+    // mounts it as soon as the media layer becomes paintable.
+    const warmMobileScene = () => {
+      swarmIdleId = null
+      if (!stageUnmounted) preloadHomeSceneAssets('mobile')
+    }
+    if ('requestIdleCallback' in window) {
+      swarmIdleId = window.requestIdleCallback(warmMobileScene, { timeout: 320 })
+    } else {
+      swarmFallbackTimer = globalThis.setTimeout(() => {
+        swarmFallbackTimer = 0
+        warmMobileScene()
+      }, 120)
+    }
+    return
   }
 
   const scheduleUpgrade = () => {
@@ -621,12 +637,11 @@ watch(
   { immediate: true },
 )
 
-/** Mobile: once GL is lit and preload is done, show the swarm — don’t depend only on iris revealT. */
+/** Mobile: lift the lid only when both the copy entrance and HDR-lit scene are ready. */
 watch(
-  [swarmLit, () => preload.revealed.value],
-  ([lit, rev]) => {
-    if (!lit || !rev || !mobileLite.value) return
-    swarmLoopReady.value = true
+  [swarmLit, () => preload.revealed.value, heroIntroSettled],
+  ([lit, rev, introSettled]) => {
+    if (!lit || !rev || !introSettled || !mobileLite.value) return
     coverMayLift.value = true
   },
 )
@@ -730,25 +745,18 @@ onMounted(() => {
         if (mediaEl.value) {
           tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.65 }, 0)
         }
-        // `let` — immediate watch can fire before assignment (SPA return, revealT≈1).
-        let stopRevealWatch: (() => void) | undefined
-        const armSwarm = () => {
-          if (gen !== introGen) return
-          swarmLoopReady.value = true
-          coverMayLift.value = true
-          stopRevealWatch?.()
-          stopRevealWatch = undefined
+        if (!mobileSwarmDeferred) {
+          // Resources were warmed under the brand screen. Mount only after the
+          // media layer is visible, then let HDR/PMREM and shader compilation run
+          // under the opaque stone lid while the copy finishes its entrance.
+          tl.call(() => requestSwarmMount?.(), [], 0.08)
         }
-        stopRevealWatch = watch(
-          () => preload.revealT.value,
-          (t) => {
-            if (t < 0.97) return
-            armSwarm()
-          },
-          { immediate: true },
-        )
-        // iOS: if iris progress never hits 0.97, don't leave an empty stone forever.
-        window.setTimeout(armSwarm, 1600)
+        // Start the gather under the opaque lid during the slogan entrance.
+        // At reveal time the nearest silhouettes are already crossing the frame,
+        // instead of beginning 2.25 ring radii away on a blank visible canvas.
+        tl.call(() => {
+          if (gen === introGen) swarmLoopReady.value = true
+        }, [], 0.58)
       } else {
         // Desktop: run GL under the stone lid first, then fade media + lift lid.
         swarmLoopReady.value = true
@@ -807,6 +815,7 @@ onUnmounted(() => {
   removeSwarmIntent = null
   removeSwarmPreboot?.()
   removeSwarmPreboot = null
+  requestSwarmMount = null
   introGen += 1
   introTl?.kill()
   introTl = null

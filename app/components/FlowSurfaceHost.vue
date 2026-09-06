@@ -5,7 +5,7 @@
  * directions via ScrollTrigger onUpdate). Media wipes in over the final 10%.
  * Mobile: scrub hero→stone with a light lag (not 1:1), box+morph on one live P
  * so stage glue / copy / GL stay in phase; then hop to term/word and continue
- * directly from Kadoflow into Cases with one reversible timed transition.
+ * through Cases into work formats with reversible timed transitions.
  */
 import {
   applyBox,
@@ -78,6 +78,9 @@ const CASE_SCRUB_START = 'top 60%'
 const CASE_SCRUB_END = 'top 18%'
 /** Desktop scroll-follow softness for the final Kado → case-media approach. */
 const CASE_SCRUB_LAG = 0.13
+/** Cases → work formats: release the project image into the next surface slot. */
+const FORMATS_SCRUB_START = 'top 82%'
+const FORMATS_SCRUB_END = 'top 35%'
 /**
  * Desktop scroll-driven surface morph limit, in normalized morph segments/sec.
  * Mobile uses a much shorter tail below to stay close to native touch scroll.
@@ -92,6 +95,8 @@ const MOBILE_CASE_HOP_REVERSE = 'top 90%'
 const MOBILE_CASE_HOP_DURATION = 0.9
 const MOBILE_CASE_HOP_EASE = 'sine.inOut'
 const MOBILE_CASE_HOP_MIN_DURATION = 0.08
+const MOBILE_FORMATS_HOP_DURATION = 0.72
+const MOBILE_FORMATS_TRIGGER = 'top 78%'
 const MOBILE_CASE_DIRECTION_REVERSAL_PX = 10
 const MOBILE_CASE_PHOTO_FADE_OUT_DURATION = 0.14
 const MOBILE_CASE_PHOTO_REVEAL_DURATION = 0.75
@@ -124,6 +129,10 @@ const props = withDefaults(
     caseSectionEl?: HTMLElement | null
     /** Case mockup figure — scrub destination (surface occupies this box). */
     caseMediaEl?: HTMLElement | null
+    /** Work-formats section — desktop trigger for the next continuous segment. */
+    formatsSectionEl?: HTMLElement | null
+    /** Plain surface slot at the left of the work-formats list. */
+    formatsSurfaceEl?: HTMLElement | null
     plan?: SurfaceMorphPlan
     toneClass?: string
   }>(),
@@ -136,6 +145,8 @@ const props = withDefaults(
     bodyEl: null,
     caseSectionEl: null,
     caseMediaEl: null,
+    formatsSectionEl: null,
+    formatsSurfaceEl: null,
     plan: () => heroToKadoPlan,
     toneClass: 'bg-stone',
   },
@@ -250,6 +261,7 @@ const heroSectionEl = computed(() => {
 
 let trigger: { kill: () => void; progress: number } | null = null
 let caseTrigger: { kill: () => void; progress: number } | null = null
+let formatsTrigger: { kill: () => void; progress: number } | null = null
 let mobileTriggers: { kill: () => void }[] = []
 let hopTween: { kill: () => void } | null = null
 let caseMediaMorphTween: { kill: () => void } | null = null
@@ -357,6 +369,10 @@ let caseSettleTween: { kill: () => void } | null = null
 let caseHopGen = 0
 let caseHopDirection: 'forward' | 'reverse' | null = null
 let caseHopOppositePx = 0
+let formatsSettleTween: { kill: () => void } | null = null
+let formatsHopGen = 0
+let formatsHopDirection: 'forward' | 'reverse' | null = null
+let mobileFormatsArrived = false
 /** Stays latched across case layout refreshes; clears only on a real reverse. */
 let mobileCaseArrived = false
 /** Smooth bridge from a skipped mobile waypoint back into the Hero scrub. */
@@ -606,6 +622,10 @@ function caseMediaPose(): SurfaceBox | null {
   return lastCaseDoc ? docToViewport(lastCaseDoc) : null
 }
 
+function formatsSurfacePose(): SurfaceBox | null {
+  return readBox(props.formatsSurfaceEl)
+}
+
 /** Live kado stone box — tracks element bounding box in viewport. */
 function kadoLivePose(): SurfaceBox | null {
   return (
@@ -616,6 +636,9 @@ function kadoLivePose(): SurfaceBox | null {
 }
 
 function computeDesktopTarget(): number {
+  if (formatsTrigger && formatsTrigger.progress > 0) {
+    return 2 + Math.min(1, Math.max(0, formatsTrigger.progress))
+  }
   if (caseTrigger && caseTrigger.progress > 0) {
     return 1 + Math.min(1, Math.max(0, caseTrigger.progress))
   }
@@ -711,6 +734,35 @@ function paintKadoToCasesSegment(t: number) {
   setSurfaceReady(false)
   if (caseFramePinned()) unpinFrame()
   // t===1 -> live photo; t===0 -> live stone. Same path both ways, no seam.
+  paintBox(lerpBox(from, to, t), 1)
+}
+
+function paintCasesToFormatsSegment(t: number) {
+  const from = caseMediaPose()
+  const to = formatsSurfacePose()
+  if (!from && !to) return
+
+  if (t > 0.02) {
+    if (showCaseFill.value && !casePhotoFadeTween) hideCasePhoto(true)
+    if (caseMediaActive) {
+      caseMediaActive = false
+      setSurfaceDocked(false)
+      setSurfaceReady(false)
+    }
+  } else if (!showCaseFill.value && caseSurfaceMedia.value) {
+    revealCasePhoto()
+    caseMediaActive = true
+    setSurfaceDocked(true)
+  }
+
+  if (!to) {
+    paintBox(from!, 1)
+    return
+  }
+  if (!from) {
+    paintBox(to, 1)
+    return
+  }
   paintBox(lerpBox(from, to, t), 1)
 }
 
@@ -889,7 +941,9 @@ function settleMobileCaseFrame(
       paintBox(dest, 1)
       pinCaseFrame()
       void nextTick(() => {
-        if (mobileCaseArrived && caseFramePinned()) {
+        if (mobileFormatsShouldBeActive()) {
+          enterMobileFormatsFrame()
+        } else if (mobileCaseArrived && caseFramePinned()) {
           revealCasePhoto()
         }
       })
@@ -1041,6 +1095,115 @@ function leaveMobileCaseFrame() {
   else startReverse()
 }
 
+function mobileFormatsShouldBeActive() {
+  const section = props.formatsSectionEl
+  if (!section) return false
+  return section.getBoundingClientRect().top
+    <= stableMobileTriggerViewportHeight() * 0.78
+}
+
+function killFormatsSettleTween() {
+  formatsSettleTween?.kill()
+  formatsSettleTween = null
+  formatsHopDirection = null
+}
+
+/** Cases → formats: remove the case raster and fly the same Surface behind the list. */
+function enterMobileFormatsFrame() {
+  if (!gsapMod || !frame.value || !mobileCaseArrived || mobileFormatsArrived) return
+  if (formatsHopDirection === 'forward' && formatsSettleTween) return
+  const dest = formatsSurfacePose()
+  const from = readBox(frame.value) ?? liveBox
+  if (!dest || !from) return
+
+  const gen = ++formatsHopGen
+  killFormatsSettleTween()
+  formatsHopDirection = 'forward'
+  const wasPinned = !!pinTo.value
+  unpinFrame()
+  hideCasePhoto(true)
+  caseMediaActive = false
+  setSurfaceDocked(false)
+  setSurfaceReady(false)
+
+  const startForward = () => {
+    if (gen !== formatsHopGen || !gsapMod) return
+    let fallbackDest = { ...dest }
+    const start = { ...from }
+    const proxy = { t: 0 }
+    formatsSettleTween = gsapMod.default.to(proxy, {
+      t: 1,
+      duration: systemReducedMotion() ? 0 : MOBILE_FORMATS_HOP_DURATION,
+      ease: MOBILE_CASE_HOP_EASE,
+      onUpdate: () => {
+        const liveDest = formatsSurfacePose()
+        if (liveDest) fallbackDest = { ...liveDest }
+        paintBox(lerpBox(start, fallbackDest, proxy.t), 1)
+      },
+      onComplete: () => {
+        formatsSettleTween = null
+        formatsHopDirection = null
+        mobileFormatsArrived = true
+        hideCasePhoto(false)
+        paintBox(formatsSurfacePose() ?? fallbackDest, 1)
+        pinFormatsFrame()
+      },
+    })
+  }
+
+  if (wasPinned) void nextTick(startForward)
+  else startForward()
+}
+
+/** Formats → Cases: restore the Surface to the live case card, then reveal its raster. */
+function leaveMobileFormatsFrame() {
+  if (!gsapMod || !frame.value) return
+  if (!mobileFormatsArrived && !formatsSettleTween) return
+  if (formatsHopDirection === 'reverse' && formatsSettleTween) return
+  const dest = caseMediaPose()
+  const from = readBox(frame.value) ?? liveBox
+  if (!dest || !from) return
+
+  const gen = ++formatsHopGen
+  killFormatsSettleTween()
+  formatsHopDirection = 'reverse'
+  mobileFormatsArrived = false
+  const wasPinned = !!pinTo.value
+  unpinFrame()
+  setSurfaceReady(false)
+
+  const startReverse = () => {
+    if (gen !== formatsHopGen || !gsapMod) return
+    let fallbackDest = { ...dest }
+    const start = { ...from }
+    const proxy = { t: 0 }
+    formatsSettleTween = gsapMod.default.to(proxy, {
+      t: 1,
+      duration: systemReducedMotion() ? 0 : MOBILE_FORMATS_HOP_DURATION,
+      ease: MOBILE_CASE_HOP_EASE,
+      onUpdate: () => {
+        const liveDest = caseMediaPose()
+        if (liveDest) fallbackDest = { ...liveDest }
+        paintBox(lerpBox(start, fallbackDest, proxy.t), 1)
+      },
+      onComplete: () => {
+        formatsSettleTween = null
+        formatsHopDirection = null
+        caseMediaActive = true
+        setSurfaceDocked(true)
+        paintBox(caseMediaPose() ?? fallbackDest, 1)
+        pinCaseFrame()
+        void nextTick(() => {
+          if (caseFramePinned()) revealCasePhoto()
+        })
+      },
+    })
+  }
+
+  if (wasPinned) void nextTick(startReverse)
+  else startReverse()
+}
+
 function killCaseSettleTween() {
   caseSettleTween?.kill()
   caseSettleTween = null
@@ -1060,8 +1223,10 @@ function paintDesktop(s = desktopLiveS) {
   // Case<->case morph in flight — onUpdate owns paint.
   if (hopTween || caseMediaMorphTween) return
 
-  const { segmentIndex, localT } = resolveCorridorSegment(s, 2)
-  if (segmentIndex === 1) {
+  const { segmentIndex, localT } = resolveCorridorSegment(s, 3)
+  if (segmentIndex === 2) {
+    paintCasesToFormatsSegment(localT)
+  } else if (segmentIndex === 1) {
     paintKadoToCasesSegment(localT)
   } else {
     paintHeroToKadoSegment(localT)
@@ -1350,6 +1515,38 @@ function pinCaseFrame() {
     syncPinnedMask()
     setSurfaceReady(pinTo.value === host)
   })
+}
+
+function formatsFramePinned() {
+  return !!props.formatsSurfaceEl && pinTo.value === props.formatsSurfaceEl
+}
+
+/** Attach the settled mobile surface to the slot behind the formats list. */
+function pinFormatsFrame() {
+  const host = props.formatsSurfaceEl
+  const el = frame.value
+  if (!host || !el) return
+  if (pinTo.value === host) {
+    syncPinnedMask()
+    return
+  }
+
+  unpinFrame()
+  pinHost = host
+  el.style.position = 'absolute'
+  el.style.top = '0px'
+  el.style.left = '0px'
+  el.style.width = '100%'
+  el.style.height = '100%'
+  el.style.right = 'auto'
+  el.style.bottom = 'auto'
+  el.style.transform = ''
+  pinTo.value = host
+
+  pinRo?.disconnect()
+  pinRo = new ResizeObserver(() => syncPinnedMask())
+  pinRo.observe(host)
+  void nextTick(() => syncPinnedMask())
 }
 
 function unpinFrame() {
@@ -1773,6 +1970,21 @@ function reconcileFromScroll() {
   const scrollingDown = scrollDelta > 1
   lastScrollY = y
 
+  const formatsActive = mobileFormatsShouldBeActive()
+  if (formatsActive) {
+    if (
+      mobileCaseArrived
+      && !mobileFormatsArrived
+      && formatsHopDirection !== 'forward'
+    ) {
+      enterMobileFormatsFrame()
+    }
+    if (mobileFormatsArrived || formatsSettleTween) return
+  } else if (mobileFormatsArrived || formatsSettleTween) {
+    leaveMobileFormatsFrame()
+    return
+  }
+
   // While the timed handoff is running, accumulate intentional movement in the
   // opposite direction. This ignores 1px native-scroll jitter but still
   // reverses promptly from the currently painted geometry.
@@ -1931,10 +2143,13 @@ function ensureTick() {
 
 function killMorph() {
   caseHopGen += 1
+  formatsHopGen += 1
   trigger?.kill()
   trigger = null
   caseTrigger?.kill()
   caseTrigger = null
+  formatsTrigger?.kill()
+  formatsTrigger = null
   desktopTargetS = 0
   desktopLiveS = 0
   mobileCaseProgress = 0
@@ -1960,6 +2175,8 @@ function killMorph() {
   caseMediaMorphTween?.kill()
   caseMediaMorphTween = null
   killCaseSettleTween()
+  killFormatsSettleTween()
+  mobileFormatsArrived = false
   unpinFrame()
   pinRo?.disconnect()
   pinRo = null
@@ -1977,6 +2194,8 @@ let lastToEl: HTMLElement | null = null
 let lastPlan: SurfaceMorphPlan | null = null
 let lastCaseSectionEl: HTMLElement | null = null
 let lastCaseMediaEl: HTMLElement | null = null
+let lastFormatsSectionEl: HTMLElement | null = null
+let lastFormatsSurfaceEl: HTMLElement | null = null
 
 /** Prevent re-entrant buildMorph ↔ ScrollTrigger.refresh softlocks (SPA return to `/`). */
 let morphGen = 0
@@ -2099,6 +2318,24 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
     }),
   )
 
+  if (props.formatsSectionEl && props.formatsSurfaceEl) {
+    mobileTriggers.push(
+      ScrollTrigger.create({
+        trigger: props.formatsSectionEl,
+        start: MOBILE_FORMATS_TRIGGER,
+        invalidateOnRefresh: true,
+        onEnter: () => {
+          if (!stageChangesAllowed()) return
+          enterMobileFormatsFrame()
+        },
+        onLeaveBack: () => {
+          if (!stageChangesAllowed()) return
+          leaveMobileFormatsFrame()
+        },
+      }),
+    )
+  }
+
   lastScrollY = window.scrollY
   paintHeroRest()
   mobileStage = 'scrub'
@@ -2154,7 +2391,16 @@ function buildMorph() {
       if (mobileActive) {
         const handoffY = mobileCaseHandoffBounds()?.forwardY
           ?? Number.POSITIVE_INFINITY
-        if (props.caseMediaEl && window.scrollY >= handoffY) {
+        if (props.formatsSurfaceEl && mobileFormatsShouldBeActive()) {
+          mobileCaseProgress = 1
+          mobileCaseArrived = true
+          mobileFormatsArrived = true
+          caseMediaActive = false
+          setCaseSurfaceDocked(false)
+          const dest = formatsSurfacePose()
+          if (dest) paintBox(dest, 1)
+          requestAnimationFrame(() => pinFormatsFrame())
+        } else if (props.caseMediaEl && window.scrollY >= handoffY) {
           mobileCaseProgress = 1
           mobileCaseArrived = true
           caseMediaActive = true
@@ -2222,6 +2468,8 @@ function buildMorph() {
       lastPlan = props.plan ?? null
       lastCaseSectionEl = props.caseSectionEl ?? null
       lastCaseMediaEl = props.caseMediaEl ?? null
+      lastFormatsSectionEl = props.formatsSectionEl ?? null
+      lastFormatsSurfaceEl = props.formatsSurfaceEl ?? null
       return
     }
 
@@ -2263,6 +2511,24 @@ function buildMorph() {
       caseTrigger = null
     }
 
+    if (props.formatsSectionEl && props.formatsSurfaceEl) {
+      formatsTrigger = ScrollTrigger.create({
+        trigger: props.formatsSectionEl,
+        start: FORMATS_SCRUB_START,
+        end: FORMATS_SCRUB_END,
+        invalidateOnRefresh: true,
+        onUpdate: () => {
+          ensureTick()
+        },
+        onRefresh: () => {
+          if (morphBooting) return
+          ensureTick()
+        },
+      })
+    } else {
+      formatsTrigger = null
+    }
+
     const s = computeDesktopTarget()
     desktopTargetS = s
     desktopLiveS = s
@@ -2283,6 +2549,8 @@ function buildMorph() {
     lastPlan = props.plan ?? null
     lastCaseSectionEl = props.caseSectionEl ?? null
     lastCaseMediaEl = props.caseMediaEl ?? null
+    lastFormatsSectionEl = props.formatsSectionEl ?? null
+    lastFormatsSurfaceEl = props.formatsSurfaceEl ?? null
   } finally {
     if (gen === morphGen) {
       beginMorphQuiet(1800)
@@ -2297,6 +2565,16 @@ function onResize() {
   if (isMobileChromeHeightOnlyResize()) return
   capturePoses()
   if (mobileActive) {
+    if (mobileFormatsArrived || formatsSettleTween) {
+      if (formatsSettleTween) return
+      if (formatsFramePinned()) syncPinnedMask()
+      else {
+        const dest = formatsSurfacePose()
+        if (dest) paintBox(dest, 1)
+        if (mobileFormatsArrived) pinFormatsFrame()
+      }
+      return
+    }
     if (mobileCaseProgress > 0.005) {
       if (caseSettleTween) return
       if (caseFramePinned()) syncPinnedMask()
@@ -2324,7 +2602,7 @@ function onCaseMediaScroll() {
   if (!keepAliveActive) return
   if (mobileActive) {
     if (stageChangesAllowed()) reconcileFromScroll()
-    if (caseFramePinned()) syncPinnedMask()
+    if (formatsFramePinned() || caseFramePinned()) syncPinnedMask()
     return
   }
   if (caseFramePinned()) {
@@ -2393,6 +2671,8 @@ onUnmounted(() => {
   lastPlan = null
   lastCaseSectionEl = null
   lastCaseMediaEl = null
+  lastFormatsSectionEl = null
+  lastFormatsSurfaceEl = null
   fontsResyncBound = false
   captureFailCount = 0
   if (morphWatchTimer) window.clearTimeout(morphWatchTimer)
@@ -2436,6 +2716,8 @@ watch(
       props.bodyEl,
       props.caseSectionEl,
       props.caseMediaEl,
+      props.formatsSectionEl,
+      props.formatsSurfaceEl,
       props.plan,
     ] as const,
   () => {
@@ -2453,6 +2735,8 @@ watch(
         && plan === lastPlan
         && props.caseSectionEl === lastCaseSectionEl
         && props.caseMediaEl === lastCaseMediaEl
+        && props.formatsSectionEl === lastFormatsSectionEl
+        && props.formatsSurfaceEl === lastFormatsSurfaceEl
       if (sameCorridor) {
         // Stone/term/body often arrive a tick later — soft resync, not kill+rebuild.
         resyncAfterLayout()

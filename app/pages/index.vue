@@ -9,6 +9,7 @@ definePageMeta({ keepalive: true })
 const hero = useTemplateRef('hero')
 const kado = useTemplateRef('kado')
 const cases = useTemplateRef('cases')
+const formats = useTemplateRef('formats')
 const surfaceReady = ref(false)
 
 const fromEl = computed(() => hero.value?.surfaceSlot ?? null)
@@ -19,6 +20,8 @@ const wordEl = computed(() => kado.value?.kadoflowWord ?? null)
 const bodyEl = computed(() => kado.value?.bodyFocusEl ?? null)
 const caseSectionEl = computed(() => cases.value?.rootEl ?? null)
 const caseMediaEl = computed(() => cases.value?.mediaEl ?? null)
+const formatsSectionEl = computed(() => formats.value?.rootEl ?? null)
+const formatsSurfaceEl = computed(() => formats.value?.surfaceEl ?? null)
 
 /**
  * Yield one frame so router paint commits, then mount the surface.
@@ -51,6 +54,8 @@ onMounted(() => {
       :body-el="bodyEl"
       :case-section-el="caseSectionEl"
       :case-media-el="caseMediaEl"
+      :formats-section-el="formatsSectionEl"
+      :formats-surface-el="formatsSurfaceEl"
       :plan="heroToKadoPlan"
       @ready="surfaceReady = true"
     />
@@ -58,11 +63,7 @@ onMounted(() => {
       <HomeHero ref="hero" :surface-ready="surfaceReady" />
       <HomeKado ref="kado" />
       <HomeCases ref="cases" />
-      <section
-        class="w-full"
-        style="min-height: var(--app-screen)"
-        aria-hidden="true"
-      />
+      <HomeFormats ref="formats" :surface-ready="surfaceReady" />
     </main>
   </div>
 </template>

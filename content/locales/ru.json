@@ -71,6 +71,40 @@
       "gestureLabel": "Свайпайте для перелистывания. Тапните, чтобы закрыть подсказку.",
       "gestureSwipe": "Свайпайте для перелистывания.",
       "gestureDismiss": "Тапните, чтобы закрыть подсказку."
+    },
+    "formats": {
+      "title": "Форматы работы.",
+      "intro": "Можно прийти с идеей, готовым дизайном или уже работающим сайтом.",
+      "items": [
+        {
+          "title": "Сайт под ключ",
+          "description": "Когда проект нужно собрать целиком: от задачи и структуры до запуска.",
+          "preview": "/home/cases/audience/audience-cover-960.webp",
+          "previewAvif": "/home/cases/audience/audience-cover-960.avif",
+          "alt": "Сайт Audience как пример проекта под ключ"
+        },
+        {
+          "title": "Дизайн и арт-дирекция",
+          "description": "Когда продукту нужен собственный визуальный язык и цельная система интерфейсов.",
+          "preview": "/home/cases/schmidt/schmidt-3-960.webp",
+          "previewAvif": "/home/cases/schmidt/schmidt-3-960.avif",
+          "alt": "Интерфейс SCHMIDT как пример арт-дирекции и веб-дизайна"
+        },
+        {
+          "title": "Разработка и motion",
+          "description": "Когда готовый дизайн нужно точно перенести в браузер и оживить движением.",
+          "preview": "/home/cases/baltika/baltika-1-960.webp",
+          "previewAvif": "/home/cases/baltika/baltika-1-960.avif",
+          "alt": "Проект Балтика Brew как пример разработки и motion-дизайна"
+        },
+        {
+          "title": "Развитие после запуска",
+          "description": "Когда работающему сайту нужны новые разделы, обновления и поддержка.",
+          "preview": "/home/cases/audience/audience-admin-large-960.webp",
+          "previewAvif": "/home/cases/audience/audience-admin-large-960.avif",
+          "alt": "Система управления Audience как пример развития сайта после запуска"
+        }
+      ]
     }
   },
   "projects": {
