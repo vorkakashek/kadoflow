@@ -12,6 +12,7 @@ defineProps<{ surfaceReady?: boolean }>()
 const rootEl = ref<HTMLElement | null>(null)
 const surfaceEl = ref<HTMLElement | null>(null)
 const previewEl = ref<HTMLElement | null>(null)
+const headerEl = ref<HTMLElement | null>(null)
 const activeIndex = ref(0)
 const previewVisible = ref(false)
 const hoverPreviewEnabled = ref(false)
@@ -20,6 +21,10 @@ const { open: pageCanvasOpen, busy: pageCanvasBusy } = usePageCanvas()
 
 const formats = computed(() => tm('home.formats.items') as WorkFormat[])
 const activeFormat = computed(() => formats.value[activeIndex.value] ?? formats.value[0])
+const formatsTitle = computed(() => t('home.formats.title'))
+const formatsTitleWords = computed(() => (
+  formatsTitle.value.trim().split(/\s+/).map((word) => Array.from(word))
+))
 
 function smallPreview(src: string) {
   return src.replace('-960.', '-480.')
@@ -146,6 +151,43 @@ let hoverMedia: MediaQueryList | null = null
 let mobileThumbMedia: MediaQueryList | null = null
 let reducedMotionMedia: MediaQueryList | null = null
 let reducedMotion = false
+let titleMotionCtx: { revert: () => void } | null = null
+
+async function setupTitleMotion() {
+  titleMotionCtx?.revert()
+  titleMotionCtx = null
+
+  const header = headerEl.value
+  if (!header) return
+
+  const gsap = (await import('gsap')).default
+  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
+  gsap.registerPlugin(ScrollTrigger)
+
+  const chars = Array.from(
+    header.querySelectorAll<HTMLElement>('.work-formats__title-char'),
+  )
+  if (!chars.length) return
+  if (reducedMotion) {
+    gsap.set(chars, { clearProps: 'transform' })
+    return
+  }
+
+  titleMotionCtx = gsap.context(() => {
+    gsap.set(chars, { yPercent: 115 })
+    gsap.to(chars, {
+      yPercent: 0,
+      duration: 1.1,
+      stagger: 0.055,
+      ease: 'power4.out',
+      scrollTrigger: {
+        trigger: header,
+        start: mobileThumbsEnabled.value ? 'top 88%' : 'bottom bottom',
+        toggleActions: 'play none none reverse',
+      },
+    })
+  }, header)
+}
 
 function syncHoverPreviewMode() {
   hoverPreviewEnabled.value = !!hoverMedia?.matches
@@ -169,7 +211,7 @@ onDeactivated(() => {
   onPointerLeave()
 })
 
-onMounted(() => {
+onMounted(async () => {
   hoverMedia = window.matchMedia('(hover: hover) and (pointer: fine)')
   mobileThumbMedia = window.matchMedia('(max-width: 767.98px)')
   reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -178,9 +220,12 @@ onMounted(() => {
   mobileThumbMedia.addEventListener('change', syncHoverPreviewMode)
   reducedMotionMedia.addEventListener('change', syncHoverPreviewMode)
   window.addEventListener('resize', measurePreview, { passive: true })
+  await setupTitleMotion()
 })
 
 onUnmounted(() => {
+  titleMotionCtx?.revert()
+  titleMotionCtx = null
   if (frame) cancelAnimationFrame(frame)
   hoverMedia?.removeEventListener('change', syncHoverPreviewMode)
   mobileThumbMedia?.removeEventListener('change', syncHoverPreviewMode)
@@ -196,9 +241,26 @@ onUnmounted(() => {
     :aria-labelledby="'work-formats-title'"
   >
     <div class="work-formats__layout">
-      <header class="work-formats__header">
-        <h2 id="work-formats-title" class="work-formats__title">
-          {{ t('home.formats.title') }}
+      <header ref="headerEl" class="work-formats__header">
+        <h2
+          id="work-formats-title"
+          class="work-formats__title"
+          :aria-label="formatsTitle"
+        >
+          <span
+            v-for="(word, wordIndex) in formatsTitleWords"
+            :key="`${word.join('')}-${wordIndex}`"
+            class="work-formats__title-word-mask"
+            aria-hidden="true"
+          >
+            <span class="work-formats__title-word-reveal">
+              <span
+                v-for="(char, charIndex) in word"
+                :key="`${char}-${charIndex}`"
+                class="work-formats__title-char"
+              >{{ char }}</span>
+            </span>
+          </span>
         </h2>
         <p class="work-formats__intro">
           {{ t('home.formats.intro') }}
@@ -316,11 +378,33 @@ onUnmounted(() => {
 }
 
 .work-formats__title {
+  --work-formats-title-size: clamp(3.25rem, 8.5vw, 8rem);
   margin: 0;
-  font-size: var(--type-display);
-  font-weight: 600;
-  letter-spacing: -0.04em;
-  line-height: 0.98;
+  font-size: var(--work-formats-title-size);
+  font-weight: 400;
+  letter-spacing: -0.065em;
+  line-height: 0.88;
+}
+
+.work-formats__title-word-mask {
+  display: inline-block;
+  overflow: hidden;
+  padding-top: 0.08em;
+  padding-right: 0.04em;
+  vertical-align: bottom;
+}
+
+.work-formats__title-word-mask:not(:last-child) {
+  margin-right: 0.22em;
+}
+
+.work-formats__title-word-reveal,
+.work-formats__title-char {
+  display: inline-block;
+}
+
+.work-formats__title-char {
+  will-change: transform;
 }
 
 .work-formats__intro {
@@ -533,6 +617,10 @@ onUnmounted(() => {
 @media (max-width: 767.98px) {
   .work-formats {
     padding-block: calc(var(--space-section) * 0.75);
+  }
+
+  .work-formats__title {
+    --work-formats-title-size: clamp(3.5rem, 17vw, 5.75rem);
   }
 
   .work-formats__body {

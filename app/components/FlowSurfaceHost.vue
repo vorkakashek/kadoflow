@@ -10,6 +10,7 @@
  */
 import {
   applyBox,
+  applyBoxTransform,
   docToViewport,
   heroToKadoPlan,
   lerpBox,
@@ -78,6 +79,9 @@ const CASE_SCRUB_LAG = 0.13
 /** Cases → work formats: release the project image into the next surface slot. */
 const FORMATS_SCRUB_START = 'top 82%'
 const FORMATS_SCRUB_END = 'top 35%'
+/** Work formats → author block: the stone surface settles into its dark panel. */
+const ABOUT_SCRUB_START = 'top 82%'
+const ABOUT_SCRUB_END = 'top 35%'
 /**
  * Desktop scroll-driven surface morph limit, in normalized morph segments/sec.
  * Mobile uses a much shorter tail below to stay close to native touch scroll.
@@ -100,6 +104,8 @@ const MOBILE_CASE_HOP_EASE = 'sine.inOut'
 const MOBILE_CASE_HOP_MIN_DURATION = 0.08
 const MOBILE_FORMATS_HOP_DURATION = 0.72
 const MOBILE_FORMATS_TRIGGER = 'top 78%'
+const MOBILE_ABOUT_HOP_DURATION = 0.72
+const MOBILE_ABOUT_TRIGGER = 'top 78%'
 const MOBILE_CASE_DIRECTION_REVERSAL_PX = 10
 /** Pin only at the true endpoint; pinning at 96% caused a visible 4% jump. */
 const CASE_PIN_P = 0.999
@@ -132,6 +138,12 @@ const props = withDefaults(
     formatsSectionEl?: HTMLElement | null
     /** Plain surface slot at the left of the work-formats list. */
     formatsSurfaceEl?: HTMLElement | null
+    /** Author section — final continuous surface segment. */
+    aboutSectionEl?: HTMLElement | null
+    /** Dark surface destination behind the author heading and portrait. */
+    aboutSurfaceEl?: HTMLElement | null
+    /** Heading whose light copy is clipped to the live surface overlap. */
+    aboutTitleEl?: HTMLElement | null
     plan?: SurfaceMorphPlan
     toneClass?: string
   }>(),
@@ -146,6 +158,9 @@ const props = withDefaults(
     caseMediaEl: null,
     formatsSectionEl: null,
     formatsSurfaceEl: null,
+    aboutSectionEl: null,
+    aboutSurfaceEl: null,
+    aboutTitleEl: null,
     plan: () => heroToKadoPlan,
     toneClass: 'bg-stone',
   },
@@ -204,6 +219,7 @@ const heroSectionEl = computed(() => {
 let trigger: { kill: () => void; progress: number } | null = null
 let caseTrigger: { kill: () => void; progress: number } | null = null
 let formatsTrigger: { kill: () => void; progress: number } | null = null
+let aboutTrigger: { kill: () => void; progress: number } | null = null
 let mobileTriggers: { kill: () => void }[] = []
 let hopTween: { kill: () => void } | null = null
 let target = { h: 0, v: 0 }
@@ -211,6 +227,7 @@ let live = { h: 0, v: 0 }
 let fromDoc: SurfaceBox | null = null
 let toDoc: SurfaceBox | null = null
 let lastCaseDoc: SurfaceBox | null = null
+let lastFormatsDoc: SurfaceBox | null = null
 let fromPose: SurfaceBox | null = null
 let toPose: SurfaceBox | null = null
 let desktopTargetS = 0
@@ -313,7 +330,12 @@ let caseHopOppositePx = 0
 let formatsSettleTween: { kill: () => void } | null = null
 let formatsHopGen = 0
 let formatsHopDirection: 'forward' | 'reverse' | null = null
+let formatsHopOppositePx = 0
 let mobileFormatsArrived = false
+let aboutSettleTween: { kill: () => void } | null = null
+let aboutHopGen = 0
+let aboutHopDirection: 'forward' | 'reverse' | null = null
+let mobileAboutArrived = false
 /** Stays latched across case layout refreshes; clears only on a real reverse. */
 let mobileCaseArrived = false
 /** Smooth bridge from a skipped mobile waypoint back into the Hero scrub. */
@@ -333,11 +355,17 @@ let mobileTriggerViewportWidth = 0
 let mobileCaseHandoffY: { forwardY: number } | null = null
 /** Reverse fires only after the Cases section has entered, then crossed 90% upward. */
 let mobileCaseReverseArmed = false
+let caseReverseIntentPx = 0
 let lastCaseSectionTop: number | null = null
 /** Scroll scrub progress target / live (lagged) — 0…1 along hero→stone. */
 let scrubTargetP = 0
 let scrubLiveP = 0
 let liveBox: SurfaceBox | null = null
+/** Fixed layout basis while mobile hops animate through compositor transforms. */
+let mobileTransformBasis: SurfaceBox | null = null
+/** Formats uses one fixed viewport frame; only its compositor clip follows scroll. */
+let formatsViewportClipActive = false
+let formatsViewportFrame: SurfaceBox | null = null
 /** Snapshot used as hop tween start (destination tracks live each frame). */
 let hopFromBox: SurfaceBox | null = null
 let hopProgress = 0
@@ -469,6 +497,8 @@ function captureMobilePoses() {
 
   const wordDoc = readDocBox(props.wordEl)
   if (wordDoc) lastWordDoc = wordDoc
+  const formatsDoc = readDocBox(props.formatsSurfaceEl)
+  if (formatsDoc) lastFormatsDoc = formatsDoc
   mobileCaseHandoffY = null
 
   mobileActive = true
@@ -534,8 +564,45 @@ function writeMaskBox(box: SurfaceBox, morph: number) {
   applyFlowSurfaceLive(flowSurfaceLiveFromMorph(morph, IDLE_EPS))
 }
 
+function disableFormatsViewportClip(materialize = false) {
+  const el = frame.value
+  if (!el || !formatsViewportClipActive) return
+  formatsViewportClipActive = false
+  formatsViewportFrame = null
+  el.style.removeProperty('clip-path')
+  el.style.removeProperty('-webkit-clip-path')
+  el.style.removeProperty('will-change')
+  if (materialize && liveBox && !pinTo.value) applyBox(el, liveBox)
+}
+
+function beginMobileTransformPaint(basis: SurfaceBox) {
+  disableFormatsViewportClip(true)
+  if (mobileTransformBasis) endMobileTransformPaint(true)
+  mobileTransformBasis = { ...basis }
+}
+
+function endMobileTransformPaint(materialize = true) {
+  const el = frame.value
+  const box = liveBox ? { ...liveBox } : null
+  mobileTransformBasis = null
+  if (materialize && el && box && !pinTo.value) applyBox(el, box)
+}
+
+function scrollAdjustedBox(
+  box: SurfaceBox,
+  originScrollY: number,
+  originScrollX: number,
+): SurfaceBox {
+  return {
+    ...box,
+    top: box.top - (window.scrollY - originScrollY),
+    left: box.left - (window.scrollX - originScrollX),
+  }
+}
+
 function paintBox(box: SurfaceBox, morph: number) {
   if (!frame.value || pinTo.value) return
+  disableFormatsViewportClip(false)
   const next = morphBox(box)
   if (
     liveBox
@@ -546,8 +613,50 @@ function paintBox(box: SurfaceBox, morph: number) {
   }
   liveBox = next
   writeMaskBox(next, morph)
-  applyBox(frame.value, next)
+  if (mobileActive && mobileTransformBasis) {
+    applyBoxTransform(frame.value, next, mobileTransformBasis)
+  } else {
+    applyBox(frame.value, next)
+  }
   flushFlowSurfacePath(next)
+}
+
+/**
+ * Once Formats owns the mobile Surface, keep a stable viewport-sized layer and
+ * reveal only the live intersection. Changing clip-path avoids layout/RO work
+ * on every native-scroll frame, which made the upper edge visibly judder.
+ */
+function paintFormatsViewportBox(box: SurfaceBox) {
+  const el = frame.value
+  if (!el || pinTo.value || !isNarrowViewport()) {
+    paintBox(box, 1)
+    return
+  }
+
+  endMobileTransformPaint(false)
+  const edge = Math.max(8, box.left)
+  const viewportBottom = stableMobileTriggerViewportHeight() - edge
+  const full = morphBox({
+    top: edge,
+    left: box.left,
+    width: box.width,
+    height: Math.max(1, viewportBottom - edge),
+  })
+  const next = morphBox(box)
+  const insetTop = Math.max(0, next.top - full.top)
+  const insetBottom = Math.max(0, (full.top + full.height) - (next.top + next.height))
+  const clip = `inset(${insetTop.toFixed(2)}px 0 ${insetBottom.toFixed(2)}px 0 round 12px)`
+
+  liveBox = next
+  writeMaskBox(next, 1)
+  if (!formatsViewportFrame || !boxesNear(formatsViewportFrame, full)) {
+    applyBox(el, full)
+    formatsViewportFrame = full
+  }
+  formatsViewportClipActive = true
+  el.style.willChange = 'clip-path'
+  el.style.clipPath = clip
+  el.style.setProperty('-webkit-clip-path', clip)
 }
 
 function heroLivePose(): SurfaceBox | null {
@@ -557,7 +666,12 @@ function heroLivePose(): SurfaceBox | null {
 function caseMediaPose(): SurfaceBox | null {
   const box = readBox(props.caseMediaEl)
   if (box) {
-    lastCaseDoc = readDocBox(props.caseMediaEl)
+    lastCaseDoc = {
+      top: box.top + window.scrollY,
+      left: box.left + window.scrollX,
+      width: box.width,
+      height: box.height,
+    }
     return box
   }
   return lastCaseDoc ? docToViewport(lastCaseDoc) : null
@@ -634,6 +748,7 @@ function clearCaseMediaFlight() {
   const host = props.caseMediaEl
   const ownsInlineGeometry = host?.hasAttribute('data-case-media-flight') ?? false
   host?.removeAttribute('data-case-media-flight')
+  host?.removeAttribute('data-case-media-source-fade')
   if (!ownsInlineGeometry) return
   const media = getCaseMediaFlightEl()
   if (!media) return
@@ -683,8 +798,134 @@ function paintCaseMediaFlight(
   media.style.transition = 'none'
 }
 
+/** Mobile departure keeps the raster in its case slot and fades only opacity. */
+function paintCaseMediaFadeAtSource(opacity: number) {
+  const media = getCaseMediaFlightEl()
+  const host = props.caseMediaEl
+  const alpha = clampUnit(opacity)
+  const visible = alpha > 0.002
+  setCaseMediaVisible(visible)
+  if (!media || !host || !visible) {
+    clearCaseMediaFlight()
+    return
+  }
+
+  if (!host.hasAttribute('data-case-media-source-fade')) {
+    clearCaseMediaFlight()
+    host.setAttribute('data-case-media-flight', '')
+    host.setAttribute('data-case-media-source-fade', '')
+  }
+  media.style.opacity = `${alpha}`
+  media.style.transition = 'none'
+}
+
 function formatsSurfacePose(): SurfaceBox | null {
-  return readBox(props.formatsSurfaceEl)
+  if (!props.formatsSurfaceEl) return null
+  if (!isNarrowViewport()) return readBox(props.formatsSurfaceEl)
+  if (!lastFormatsDoc) lastFormatsDoc = readDocBox(props.formatsSurfaceEl)
+  const raw = lastFormatsDoc
+    ? docToViewport(lastFormatsDoc)
+    : readBox(props.formatsSurfaceEl)
+  if (!raw) return null
+
+  // The element remains a document-space track around the whole list. The
+  // live Surface is its viewport intersection: it grows upward to the top
+  // margin, keeps a bottom margin, then yields to the list's real bottom.
+  const edge = Math.max(8, raw.left)
+  const viewportBottom = stableMobileTriggerViewportHeight() - edge
+  const trackBottom = raw.top + raw.height
+  const top = Math.max(edge, raw.top)
+  const bottom = Math.min(viewportBottom, trackBottom)
+  if (bottom <= top + 1) {
+    const bridgeHeight = Math.min(raw.height, stableMobileTriggerViewportHeight() * 0.22)
+    if (raw.top >= viewportBottom) {
+      return {
+        top: viewportBottom - bridgeHeight,
+        left: raw.left,
+        width: raw.width,
+        height: bridgeHeight,
+      }
+    }
+    return {
+      top: edge,
+      left: raw.left,
+      width: raw.width,
+      height: bridgeHeight,
+    }
+  }
+
+  return {
+    top,
+    left: raw.left,
+    width: raw.width,
+    height: bottom - top,
+  }
+}
+
+function aboutSurfacePose(): SurfaceBox | null {
+  return readBox(props.aboutSurfaceEl)
+}
+
+let lastAboutTitleClip = ''
+
+function clearAboutTitleContrast() {
+  const el = props.aboutTitleEl
+  const clip = 'inset(0 100% 0 0)'
+  if (!el || lastAboutTitleClip === clip) return
+  lastAboutTitleClip = clip
+  el.style.setProperty('--about-title-clip', clip)
+}
+
+/**
+ * Reveal the light duplicate only where the live Surface intersects the title.
+ * This keeps both halves legible while the moving edge is still crossing text.
+ */
+function paintAboutTitleContrast(surface: SurfaceBox) {
+  const el = props.aboutTitleEl
+  const title = readBox(el)
+  if (!el || !title) {
+    clearAboutTitleContrast()
+    return
+  }
+
+  const surfaceRight = surface.left + surface.width
+  const surfaceBottom = surface.top + surface.height
+  const titleRight = title.left + title.width
+  const titleBottom = title.top + title.height
+  const left = Math.max(title.left, surface.left)
+  const top = Math.max(title.top, surface.top)
+  const right = Math.min(titleRight, surfaceRight)
+  const bottom = Math.min(titleBottom, surfaceBottom)
+
+  if (right <= left || bottom <= top) {
+    clearAboutTitleContrast()
+    return
+  }
+
+  const clip = `inset(${Math.max(0, top - title.top).toFixed(1)}px ${Math.max(0, titleRight - right).toFixed(1)}px ${Math.max(0, titleBottom - bottom).toFixed(1)}px ${Math.max(0, left - title.left).toFixed(1)}px)`
+  if (clip === lastAboutTitleClip) return
+  lastAboutTitleClip = clip
+  el.style.setProperty('--about-title-clip', clip)
+}
+
+function paintAboutSurfaceTone(progress: number) {
+  const el = frame.value
+  if (!el) return
+  const mix = clampUnit(progress)
+  if (mix <= 0.001) {
+    if (lastCaseToneCss) el.style.removeProperty('--flow-surface-tone')
+    lastCaseToneCss = ''
+    return
+  }
+
+  const inkPercent = Math.round(mix * 1000) / 10
+  const stonePercent = Math.round((100 - inkPercent) * 10) / 10
+  const css = inkPercent >= 99.9
+    ? 'var(--palette-ink)'
+    : `color-mix(in srgb, var(--palette-stone) ${stonePercent}%, var(--palette-ink) ${inkPercent}%)`
+  if (css === lastCaseToneCss) return
+  lastCaseToneCss = css
+  el.style.setProperty('--flow-surface-tone', css)
 }
 
 /** Live kado stone box — tracks element bounding box in viewport. */
@@ -697,6 +938,9 @@ function kadoLivePose(): SurfaceBox | null {
 }
 
 function computeDesktopTarget(): number {
+  if (aboutTrigger && aboutTrigger.progress > 0) {
+    return 3 + Math.min(1, Math.max(0, aboutTrigger.progress))
+  }
   if (formatsTrigger && formatsTrigger.progress > 0) {
     return 2 + Math.min(1, Math.max(0, formatsTrigger.progress))
   }
@@ -710,6 +954,7 @@ function computeDesktopTarget(): number {
 }
 
 function paintHeroToKadoSegment(t: number) {
+  clearAboutTitleContrast()
   if (
     caseSurfaceDocked.value
     || caseMediaActive
@@ -745,6 +990,7 @@ function paintHeroToKadoSegment(t: number) {
 }
 
 function paintKadoToCasesSegment(t: number) {
+  clearAboutTitleContrast()
   const docked = t >= CASE_PARK_P
   if (docked !== caseMediaActive) {
     caseMediaActive = docked
@@ -788,6 +1034,7 @@ function paintKadoToCasesSegment(t: number) {
 }
 
 function paintCasesToFormatsSegment(t: number) {
+  clearAboutTitleContrast()
   const from = caseMediaPose()
   const to = formatsSurfacePose()
   if (!from && !to) return
@@ -828,6 +1075,28 @@ function paintCasesToFormatsSegment(t: number) {
   }
 }
 
+function paintFormatsToAboutSegment(t: number) {
+  const from = formatsSurfacePose()
+  const to = aboutSurfacePose()
+  if (!from && !to) {
+    clearAboutTitleContrast()
+    return
+  }
+
+  caseMediaActive = false
+  if (caseSurfaceDocked.value) setSurfaceDocked(false)
+  if (caseSurfaceReady.value) setSurfaceReady(false)
+  setCaseMediaVisible(false)
+  clearCaseMediaFlight()
+
+  const box = from && to
+    ? lerpBox(from, to, t)
+    : (to ?? from)!
+  paintAboutSurfaceTone(t)
+  paintBox(box, 1)
+  paintAboutTitleContrast(box)
+}
+
 function finishHeroEntryReveal() {
   if (heroEntryTimer) window.clearTimeout(heroEntryTimer)
   heroEntryTimer = 0
@@ -860,9 +1129,12 @@ function settleMobileCaseFrame(
   if (!gsapMod || !frame.value || caseSettleTween || caseFramePinned()) return
 
   const start = liveBox ? { ...liveBox } : { ...initialDest }
+  const startScrollY = window.scrollY
+  const startScrollX = window.scrollX
   let fallbackDest = { ...initialDest }
   const proxy = { t: 0 }
   setSurfaceReady(false)
+  beginMobileTransformPaint(start)
   caseSettleTween = gsapMod.default.to(proxy, {
     t: 1,
     duration: systemReducedMotion()
@@ -873,14 +1145,11 @@ function settleMobileCaseFrame(
       const liveDest = caseMediaPose()
       if (liveDest) fallbackDest = { ...liveDest }
       mobileCaseProgress = startProgress + (1 - startProgress) * proxy.t
-      const box = lerpBox(start, fallbackDest, proxy.t)
+      const liveStart = scrollAdjustedBox(start, startScrollY, startScrollX)
+      const box = lerpBox(liveStart, fallbackDest, proxy.t)
       const mediaOpacity = caseMediaApproachOpacity(mobileCaseProgress)
       paintSurfaceUnderCaseMedia(box, mediaOpacity)
-      paintCaseMediaFlight(
-        box,
-        fallbackDest,
-        mediaOpacity,
-      )
+      paintCaseMediaFadeAtSource(mediaOpacity)
     },
     onComplete: () => {
       caseSettleTween = null
@@ -894,9 +1163,11 @@ function settleMobileCaseFrame(
         : null
       mobileCaseReverseArmed = lastCaseSectionTop != null
         && lastCaseSectionTop <= stableMobileTriggerViewportHeight() * 0.9
+      caseReverseIntentPx = 0
       caseMediaActive = true
       setSurfaceDocked(true)
       const dest = caseMediaPose() ?? fallbackDest
+      endMobileTransformPaint(false)
       paintBox(dest, 1)
       pinCaseFrame()
       setCaseMediaVisible(true)
@@ -927,6 +1198,7 @@ function dockMobileCaseFrameUnderDetailReturn(dest: SurfaceBox) {
   mobileCaseProgress = 1
   mobileCaseArrived = true
   mobileCaseReverseArmed = false
+  caseReverseIntentPx = 0
   lastCaseSectionTop = null
   caseMediaActive = true
   setSurfaceReturning(false)
@@ -957,7 +1229,7 @@ function enterMobileCaseFrame() {
     MOBILE_CASE_HOP_MIN_DURATION,
     MOBILE_CASE_HOP_DURATION * (1 - startProgress),
   )
-  const current = readBox(frame.value) ?? liveBox
+  const current = liveBox ? { ...liveBox } : readBox(frame.value)
   const wasPinned = !!pinTo.value
   const gen = ++caseHopGen
   killHopTween()
@@ -965,6 +1237,7 @@ function enterMobileCaseFrame() {
   caseHopDirection = 'forward'
   setSurfaceReturning(false)
   mobileCaseReverseArmed = false
+  caseReverseIntentPx = 0
   lastCaseSectionTop = null
   caseHopOppositePx = 0
   unpinFrame()
@@ -988,7 +1261,7 @@ function enterMobileCaseFrame() {
 
 /** Reverse threshold hop: detach from Cases and return directly to Kadoflow. */
 function leaveMobileCaseFrame() {
-  if (!gsapMod || !frame.value || !wordPose()) return
+  if (!gsapMod || !frame.value || !caseReturnPose()) return
   if (caseHopDirection === 'reverse' && caseSettleTween) return
   const startProgress = mobileCaseArrived
     ? 1
@@ -998,7 +1271,7 @@ function leaveMobileCaseFrame() {
     MOBILE_CASE_HOP_MIN_DURATION,
     MOBILE_CASE_HOP_DURATION * startProgress,
   )
-  const from = readBox(frame.value) ?? liveBox
+  const from = liveBox ? { ...liveBox } : readBox(frame.value)
   if (!from) return
 
   const gen = ++caseHopGen
@@ -1006,6 +1279,7 @@ function leaveMobileCaseFrame() {
   caseHopDirection = 'reverse'
   setSurfaceReturning(true)
   mobileCaseReverseArmed = false
+  caseReverseIntentPx = 0
   caseHopOppositePx = 0
   const wasPinned = caseFramePinned()
   unpinFrame()
@@ -1017,7 +1291,10 @@ function leaveMobileCaseFrame() {
     if (gen !== caseHopGen) return
     if (!gsapMod || !frame.value) return
     const start = { ...from }
+    const startScrollY = window.scrollY
+    const startScrollX = window.scrollX
     const proxy = { t: 0 }
+    beginMobileTransformPaint(start)
     caseSettleTween = gsapMod.default.to(proxy, {
       t: 1,
       duration: systemReducedMotion()
@@ -1025,19 +1302,13 @@ function leaveMobileCaseFrame() {
         : duration,
       ease: MOBILE_CASE_HOP_EASE,
       onUpdate: () => {
-        const dest = wordPose() ?? start
+        const dest = caseReturnPose() ?? start
         mobileCaseProgress = startProgress * (1 - proxy.t)
-        const box = lerpBox(start, dest, proxy.t)
-        const caseBox = caseMediaPose()
+        const liveStart = scrollAdjustedBox(start, startScrollY, startScrollX)
+        const box = lerpBox(liveStart, dest, proxy.t)
         const mediaOpacity = caseMediaApproachOpacity(mobileCaseProgress)
         paintSurfaceUnderCaseMedia(box, mediaOpacity)
-        if (caseBox) {
-          paintCaseMediaFlight(
-            box,
-            caseBox,
-            mediaOpacity,
-          )
-        }
+        paintCaseMediaFadeAtSource(mediaOpacity)
       },
       onComplete: () => {
         caseSettleTween = null
@@ -1048,7 +1319,8 @@ function leaveMobileCaseFrame() {
         setSurfaceDocked(false)
         setCaseMediaVisible(false)
         clearCaseMediaFlight()
-        const dest = wordPose()
+        const dest = caseReturnPose()
+        endMobileTransformPaint(false)
         if (dest) paintBox(dest, 1)
         mobileStage = 'word'
         const next = stageChangesAllowed() ? stageFromScroll() : 'word'
@@ -1064,16 +1336,20 @@ function leaveMobileCaseFrame() {
 }
 
 function mobileFormatsShouldBeActive() {
-  const section = props.formatsSectionEl
-  if (!section) return false
-  return section.getBoundingClientRect().top
-    <= stableMobileTriggerViewportHeight() * 0.78
+  if (!lastFormatsDoc) lastFormatsDoc = readDocBox(props.formatsSurfaceEl)
+  const box = lastFormatsDoc ? docToViewport(lastFormatsDoc) : null
+  if (!box) return false
+  const edge = Math.max(8, box.left)
+  return box.top <= stableMobileTriggerViewportHeight() * 0.78
+    && box.top + box.height > edge
 }
 
 function killFormatsSettleTween() {
   formatsSettleTween?.kill()
   formatsSettleTween = null
   formatsHopDirection = null
+  formatsHopOppositePx = 0
+  endMobileTransformPaint(true)
 }
 
 /** Cases → formats: reveal and fly the same Surface behind the list. */
@@ -1081,12 +1357,13 @@ function enterMobileFormatsFrame() {
   if (!gsapMod || !frame.value || !mobileCaseArrived || mobileFormatsArrived) return
   if (formatsHopDirection === 'forward' && formatsSettleTween) return
   const dest = formatsSurfacePose()
-  const from = readBox(frame.value) ?? liveBox
+  const from = liveBox ? { ...liveBox } : readBox(frame.value)
   if (!dest || !from) return
 
   const gen = ++formatsHopGen
   killFormatsSettleTween()
   formatsHopDirection = 'forward'
+  formatsHopOppositePx = 0
   const wasPinned = !!pinTo.value
   setSurfaceReady(false)
   unpinFrame()
@@ -1097,7 +1374,10 @@ function enterMobileFormatsFrame() {
     if (gen !== formatsHopGen || !gsapMod) return
     let fallbackDest = { ...dest }
     const start = { ...from }
+    const startScrollY = window.scrollY
+    const startScrollX = window.scrollX
     const proxy = { t: 0 }
+    beginMobileTransformPaint(start)
     formatsSettleTween = gsapMod.default.to(proxy, {
       t: 1,
       duration: systemReducedMotion() ? 0 : MOBILE_FORMATS_HOP_DURATION,
@@ -1105,13 +1385,11 @@ function enterMobileFormatsFrame() {
       onUpdate: () => {
         const liveDest = formatsSurfacePose()
         if (liveDest) fallbackDest = { ...liveDest }
-        const box = lerpBox(start, fallbackDest, proxy.t)
-        const caseBox = caseMediaPose()
+        const liveStart = scrollAdjustedBox(start, startScrollY, startScrollX)
+        const box = lerpBox(liveStart, fallbackDest, proxy.t)
         const mediaOpacity = caseMediaExitOpacity(proxy.t)
         paintSurfaceUnderCaseMedia(box, mediaOpacity)
-        if (caseBox) {
-          paintCaseMediaFlight(box, caseBox, mediaOpacity)
-        }
+        paintCaseMediaFadeAtSource(mediaOpacity)
       },
       onComplete: () => {
         formatsSettleTween = null
@@ -1119,8 +1397,11 @@ function enterMobileFormatsFrame() {
         mobileFormatsArrived = true
         setCaseMediaVisible(false)
         clearCaseMediaFlight()
-        paintBox(formatsSurfacePose() ?? fallbackDest, 1)
+        endMobileTransformPaint(false)
         pinFormatsFrame()
+        void nextTick(() => {
+          if (mobileAboutShouldBeActive()) enterMobileAboutFrame()
+        })
       },
     })
   }
@@ -1132,15 +1413,17 @@ function enterMobileFormatsFrame() {
 /** Formats → Cases: restore the Surface beneath the local case media. */
 function leaveMobileFormatsFrame() {
   if (!gsapMod || !frame.value) return
+  if (mobileAboutArrived || aboutSettleTween) return
   if (!mobileFormatsArrived && !formatsSettleTween) return
   if (formatsHopDirection === 'reverse' && formatsSettleTween) return
   const dest = caseMediaPose()
-  const from = readBox(frame.value) ?? liveBox
+  const from = liveBox ? { ...liveBox } : readBox(frame.value)
   if (!dest || !from) return
 
   const gen = ++formatsHopGen
   killFormatsSettleTween()
   formatsHopDirection = 'reverse'
+  formatsHopOppositePx = 0
   mobileFormatsArrived = false
   const wasPinned = !!pinTo.value
   unpinFrame()
@@ -1150,7 +1433,10 @@ function leaveMobileFormatsFrame() {
     if (gen !== formatsHopGen || !gsapMod) return
     let fallbackDest = { ...dest }
     const start = { ...from }
+    const startScrollY = window.scrollY
+    const startScrollX = window.scrollX
     const proxy = { t: 0 }
+    beginMobileTransformPaint(start)
     formatsSettleTween = gsapMod.default.to(proxy, {
       t: 1,
       duration: systemReducedMotion() ? 0 : MOBILE_FORMATS_HOP_DURATION,
@@ -1158,24 +1444,132 @@ function leaveMobileFormatsFrame() {
       onUpdate: () => {
         const liveDest = caseMediaPose()
         if (liveDest) fallbackDest = { ...liveDest }
-        const box = lerpBox(start, fallbackDest, proxy.t)
+        const liveStart = scrollAdjustedBox(start, startScrollY, startScrollX)
+        const box = lerpBox(liveStart, fallbackDest, proxy.t)
         const mediaOpacity = caseMediaExitOpacity(1 - proxy.t)
         paintSurfaceUnderCaseMedia(box, mediaOpacity)
-        paintCaseMediaFlight(
-          box,
-          fallbackDest,
-          mediaOpacity,
-        )
+        paintCaseMediaFadeAtSource(mediaOpacity)
       },
       onComplete: () => {
         formatsSettleTween = null
         formatsHopDirection = null
         caseMediaActive = true
         setSurfaceDocked(true)
+        endMobileTransformPaint(false)
         paintBox(caseMediaPose() ?? fallbackDest, 1)
         pinCaseFrame()
         setCaseMediaVisible(true)
         clearCaseMediaFlight()
+      },
+    })
+  }
+
+  if (wasPinned) void nextTick(startReverse)
+  else startReverse()
+}
+
+function mobileAboutShouldBeActive() {
+  const section = props.aboutSectionEl
+  if (!section) return false
+  return section.getBoundingClientRect().top
+    <= stableMobileTriggerViewportHeight() * 0.78
+}
+
+function killAboutSettleTween() {
+  aboutSettleTween?.kill()
+  aboutSettleTween = null
+  aboutHopDirection = null
+}
+
+/** Formats → author: expand the stone slot into the dark author panel. */
+function enterMobileAboutFrame() {
+  if (!gsapMod || !frame.value || !mobileFormatsArrived || mobileAboutArrived) return
+  if (aboutSettleTween) return
+  const dest = aboutSurfacePose()
+  const from = liveBox ? { ...liveBox } : readBox(frame.value)
+  if (!dest || !from) return
+
+  const gen = ++aboutHopGen
+  killAboutSettleTween()
+  aboutHopDirection = 'forward'
+  const wasPinned = !!pinTo.value
+  disableFormatsViewportClip(true)
+  unpinFrame()
+
+  const startForward = () => {
+    if (gen !== aboutHopGen || !gsapMod) return
+    let fallbackDest = { ...dest }
+    const start = { ...from }
+    const proxy = { t: 0 }
+    aboutSettleTween = gsapMod.default.to(proxy, {
+      t: 1,
+      duration: systemReducedMotion() ? 0 : MOBILE_ABOUT_HOP_DURATION,
+      ease: MOBILE_CASE_HOP_EASE,
+      onUpdate: () => {
+        const liveDest = aboutSurfacePose()
+        if (liveDest) fallbackDest = { ...liveDest }
+        const box = lerpBox(start, fallbackDest, proxy.t)
+        paintAboutSurfaceTone(proxy.t)
+        paintBox(box, 1)
+        paintAboutTitleContrast(box)
+      },
+      onComplete: () => {
+        aboutSettleTween = null
+        aboutHopDirection = null
+        mobileAboutArrived = true
+        const box = aboutSurfacePose() ?? fallbackDest
+        paintAboutSurfaceTone(1)
+        paintBox(box, 1)
+        paintAboutTitleContrast(box)
+        pinAboutFrame()
+      },
+    })
+  }
+
+  if (wasPinned) void nextTick(startForward)
+  else startForward()
+}
+
+/** Author → formats: reverse the same path and restore the stone tone. */
+function leaveMobileAboutFrame() {
+  if (!gsapMod || !frame.value) return
+  if (!mobileAboutArrived && !aboutSettleTween) return
+  if (aboutSettleTween) return
+  const dest = formatsSurfacePose()
+  const from = liveBox ? { ...liveBox } : readBox(frame.value)
+  if (!dest || !from) return
+
+  const gen = ++aboutHopGen
+  killAboutSettleTween()
+  aboutHopDirection = 'reverse'
+  mobileAboutArrived = false
+  const wasPinned = !!pinTo.value
+  unpinFrame()
+
+  const startReverse = () => {
+    if (gen !== aboutHopGen || !gsapMod) return
+    let fallbackDest = { ...dest }
+    const start = { ...from }
+    const proxy = { t: 0 }
+    aboutSettleTween = gsapMod.default.to(proxy, {
+      t: 1,
+      duration: systemReducedMotion() ? 0 : MOBILE_ABOUT_HOP_DURATION,
+      ease: MOBILE_CASE_HOP_EASE,
+      onUpdate: () => {
+        const liveDest = formatsSurfacePose()
+        if (liveDest) fallbackDest = { ...liveDest }
+        const box = lerpBox(start, fallbackDest, proxy.t)
+        paintAboutSurfaceTone(1 - proxy.t)
+        paintBox(box, 1)
+        paintAboutTitleContrast(box)
+      },
+      onComplete: () => {
+        aboutSettleTween = null
+        aboutHopDirection = null
+        paintAboutSurfaceTone(0)
+        clearAboutTitleContrast()
+        pinFormatsFrame()
+        void nextTick(() => reconcileFromScroll())
       },
     })
   }
@@ -1202,8 +1596,10 @@ function paintDesktop(s = desktopLiveS) {
   if (mobileActive) return
   if (hopTween) return
 
-  const { segmentIndex, localT } = resolveCorridorSegment(s, 3)
-  if (segmentIndex === 2) {
+  const { segmentIndex, localT } = resolveCorridorSegment(s, 4)
+  if (segmentIndex === 3) {
+    paintFormatsToAboutSegment(localT)
+  } else if (segmentIndex === 2) {
     paintCasesToFormatsSegment(localT)
   } else if (segmentIndex === 1) {
     paintKadoToCasesSegment(localT)
@@ -1340,19 +1736,32 @@ function pinCaseFrame() {
   })
 }
 
-function formatsFramePinned() {
-  return !!props.formatsSurfaceEl && pinTo.value === props.formatsSurfaceEl
+/** Keep formats in the fixed shell so its viewport-clipped track can resize. */
+function pinFormatsFrame() {
+  const dest = formatsSurfacePose()
+  if (!dest || !frame.value) return
+  setCaseMediaVisible(false)
+  clearCaseMediaFlight()
+  if (pinTo.value) unpinFrame()
+  paintAboutSurfaceTone(0)
+  paintFormatsViewportBox(dest)
 }
 
-/** Attach the settled mobile surface to the slot behind the formats list. */
-function pinFormatsFrame() {
-  const host = props.formatsSurfaceEl
+function aboutFramePinned() {
+  return !!props.aboutSurfaceEl && pinTo.value === props.aboutSurfaceEl
+}
+
+/** Attach the settled mobile surface to the author panel. */
+function pinAboutFrame() {
+  const host = props.aboutSurfaceEl
   const el = frame.value
   if (!host || !el) return
   setCaseMediaVisible(false)
   clearCaseMediaFlight()
   if (pinTo.value === host) {
     syncPinnedMask()
+    const box = aboutSurfacePose()
+    if (box) paintAboutTitleContrast(box)
     return
   }
 
@@ -1369,9 +1778,17 @@ function pinFormatsFrame() {
   pinTo.value = host
 
   pinRo?.disconnect()
-  pinRo = new ResizeObserver(() => syncPinnedMask())
+  pinRo = new ResizeObserver(() => {
+    syncPinnedMask()
+    const box = aboutSurfacePose()
+    if (box) paintAboutTitleContrast(box)
+  })
   pinRo.observe(host)
-  void nextTick(() => syncPinnedMask())
+  void nextTick(() => {
+    syncPinnedMask()
+    const box = aboutSurfacePose()
+    if (box) paintAboutTitleContrast(box)
+  })
 }
 
 function unpinFrame() {
@@ -1440,12 +1857,23 @@ function wordPose(): SurfaceBox | null {
   const slot = pinSlot('word')
   const live = readBox(slot)
   if (live) {
-    const doc = readDocBox(slot)
-    if (doc) lastWordDoc = doc
+    lastWordDoc = {
+      top: live.top + window.scrollY,
+      left: live.left + window.scrollX,
+      width: live.width,
+      height: live.height,
+    }
     return live
   }
   if (lastWordDoc) return docToViewport(lastWordDoc)
   return null
+}
+
+/** A missing late-created word ref must never strand the Surface in Cases. */
+function caseReturnPose(): SurfaceBox | null {
+  return wordPose()
+    ?? readBox(props.toEl)
+    ?? readBox(props.stoneEl)
 }
 
 /** Live viewport box for the hop destination. */
@@ -1656,16 +2084,30 @@ function crossedMobileCaseReverseMarker(
   // this native scroll delta so the first large upward step cannot skip 90%.
   const previousTop = lastCaseSectionTop ?? (top + scrollDelta)
 
+  if (scrollingUp) {
+    caseReverseIntentPx += Math.max(0, -scrollDelta)
+  } else if (scrollDelta > 1) {
+    caseReverseIntentPx = 0
+  }
   if (top <= line) mobileCaseReverseArmed = true
   lastCaseSectionTop = top
 
-  return !!(
+  const crossedArmedLine = !!(
     scrollingUp
     && mobileCaseReverseArmed
     && previousTop != null
     && previousTop < line
     && top >= line
   )
+  const deliberateReturnAboveLine = scrollingUp
+    && top >= line
+    && caseReverseIntentPx >= MOBILE_CASE_DIRECTION_REVERSAL_PX
+
+  if (crossedArmedLine || deliberateReturnAboveLine) {
+    caseReverseIntentPx = 0
+    return true
+  }
+  return false
 }
 
 function syncMobileStage(animate: boolean) {
@@ -1752,7 +2194,23 @@ function resyncAfterLayout() {
   if (mobileActive) {
     suppressStageCallbacks = true
     // Paint only — pin/Teleport here re-enters ST refresh and freezes the tab.
-    if (mobileCaseProgress > 0.005) {
+    if (mobileAboutArrived || aboutSettleTween) {
+      if (aboutSettleTween) {
+        // The active hop already tracks its live destination.
+      } else if (aboutFramePinned()) {
+        syncPinnedMask()
+        const dest = aboutSurfacePose()
+        if (dest) paintAboutTitleContrast(dest)
+      }
+    } else if (mobileFormatsArrived || formatsSettleTween) {
+      if (!formatsSettleTween) {
+        const dest = formatsSurfacePose()
+        if (dest) {
+          paintAboutSurfaceTone(0)
+          paintFormatsViewportBox(dest)
+        }
+      }
+    } else if (mobileCaseProgress > 0.005) {
       if (caseSettleTween) {
         // The active hop already tracks its live destination.
       } else if (caseFramePinned()) syncPinnedMask()
@@ -1795,7 +2253,44 @@ function reconcileFromScroll() {
   const scrollingDown = scrollDelta > 1
   lastScrollY = y
 
+  const aboutActive = mobileAboutShouldBeActive()
+  if (aboutActive) {
+    if (
+      mobileFormatsArrived
+      && !mobileAboutArrived
+      && aboutHopDirection !== 'forward'
+    ) {
+      enterMobileAboutFrame()
+    }
+    if (mobileAboutArrived || aboutSettleTween) return
+  } else if (mobileAboutArrived || aboutSettleTween) {
+    leaveMobileAboutFrame()
+    return
+  }
+
   const formatsActive = mobileFormatsShouldBeActive()
+  if (formatsSettleTween && formatsHopDirection) {
+    const reversingForward = formatsHopDirection === 'forward'
+      && !formatsActive
+      && scrollingUp
+    const reversingBackward = formatsHopDirection === 'reverse'
+      && formatsActive
+      && scrollingDown
+    if (reversingForward || reversingBackward) {
+      formatsHopOppositePx += Math.abs(scrollDelta)
+    } else if (
+      (formatsHopDirection === 'forward' && scrollingDown)
+      || (formatsHopDirection === 'reverse' && scrollingUp)
+    ) {
+      formatsHopOppositePx = 0
+    }
+
+    if (formatsHopOppositePx >= MOBILE_CASE_DIRECTION_REVERSAL_PX) {
+      if (formatsHopDirection === 'forward') leaveMobileFormatsFrame()
+      else enterMobileFormatsFrame()
+    }
+    return
+  }
   if (formatsActive) {
     if (
       mobileCaseArrived
@@ -1969,18 +2464,22 @@ function ensureTick() {
 function killMorph() {
   caseHopGen += 1
   formatsHopGen += 1
+  aboutHopGen += 1
   trigger?.kill()
   trigger = null
   caseTrigger?.kill()
   caseTrigger = null
   formatsTrigger?.kill()
   formatsTrigger = null
+  aboutTrigger?.kill()
+  aboutTrigger = null
   desktopTargetS = 0
   desktopLiveS = 0
   mobileCaseProgress = 0
   mobileCaseArrived = false
   mobileCaseHandoffY = null
   mobileCaseReverseArmed = false
+  caseReverseIntentPx = 0
   lastCaseSectionTop = null
   mobileScrubBridge = null
   caseMediaActive = false
@@ -1996,7 +2495,13 @@ function killMorph() {
   killHopTween()
   killCaseSettleTween()
   killFormatsSettleTween()
+  killAboutSettleTween()
+  disableFormatsViewportClip(true)
+  endMobileTransformPaint(true)
+  formatsHopOppositePx = 0
   mobileFormatsArrived = false
+  mobileAboutArrived = false
+  clearAboutTitleContrast()
   unpinFrame()
   pinRo?.disconnect()
   pinRo = null
@@ -2016,6 +2521,9 @@ let lastCaseSectionEl: HTMLElement | null = null
 let lastCaseMediaEl: HTMLElement | null = null
 let lastFormatsSectionEl: HTMLElement | null = null
 let lastFormatsSurfaceEl: HTMLElement | null = null
+let lastAboutSectionEl: HTMLElement | null = null
+let lastAboutSurfaceEl: HTMLElement | null = null
+let lastAboutTitleEl: HTMLElement | null = null
 
 /** Prevent re-entrant buildMorph ↔ ScrollTrigger.refresh softlocks (SPA return to `/`). */
 let morphGen = 0
@@ -2141,16 +2649,34 @@ function buildMobileMorph(gsap: typeof import('gsap').default, ScrollTrigger: ty
   if (props.formatsSectionEl && props.formatsSurfaceEl) {
     mobileTriggers.push(
       ScrollTrigger.create({
-        trigger: props.formatsSectionEl,
+        trigger: props.formatsSurfaceEl,
         start: MOBILE_FORMATS_TRIGGER,
         invalidateOnRefresh: true,
         onEnter: () => {
           if (!stageChangesAllowed()) return
-          enterMobileFormatsFrame()
+          reconcileFromScroll()
         },
         onLeaveBack: () => {
           if (!stageChangesAllowed()) return
-          leaveMobileFormatsFrame()
+          reconcileFromScroll()
+        },
+      }),
+    )
+  }
+
+  if (props.aboutSectionEl && props.aboutSurfaceEl) {
+    mobileTriggers.push(
+      ScrollTrigger.create({
+        trigger: props.aboutSectionEl,
+        start: MOBILE_ABOUT_TRIGGER,
+        invalidateOnRefresh: true,
+        onEnter: () => {
+          if (!stageChangesAllowed()) return
+          reconcileFromScroll()
+        },
+        onLeaveBack: () => {
+          if (!stageChangesAllowed()) return
+          reconcileFromScroll()
         },
       }),
     )
@@ -2211,14 +2737,28 @@ function buildMorph() {
       if (mobileActive) {
         const handoffY = mobileCaseHandoffBounds()?.forwardY
           ?? Number.POSITIVE_INFINITY
-        if (props.formatsSurfaceEl && mobileFormatsShouldBeActive()) {
+        if (props.aboutSurfaceEl && mobileAboutShouldBeActive()) {
+          mobileCaseProgress = 1
+          mobileCaseArrived = true
+          mobileFormatsArrived = true
+          mobileAboutArrived = true
+          caseMediaActive = false
+          setCaseSurfaceDocked(false)
+          const dest = aboutSurfacePose()
+          if (dest) {
+            paintAboutSurfaceTone(1)
+            paintBox(dest, 1)
+            paintAboutTitleContrast(dest)
+          }
+          requestAnimationFrame(() => pinAboutFrame())
+        } else if (props.formatsSurfaceEl && mobileFormatsShouldBeActive()) {
           mobileCaseProgress = 1
           mobileCaseArrived = true
           mobileFormatsArrived = true
           caseMediaActive = false
           setCaseSurfaceDocked(false)
           const dest = formatsSurfacePose()
-          if (dest) paintBox(dest, 1)
+          if (dest) paintFormatsViewportBox(dest)
           requestAnimationFrame(() => pinFormatsFrame())
         } else if (props.caseMediaEl && window.scrollY >= handoffY) {
           mobileCaseProgress = 1
@@ -2288,6 +2828,9 @@ function buildMorph() {
       lastCaseMediaEl = props.caseMediaEl ?? null
       lastFormatsSectionEl = props.formatsSectionEl ?? null
       lastFormatsSurfaceEl = props.formatsSurfaceEl ?? null
+      lastAboutSectionEl = props.aboutSectionEl ?? null
+      lastAboutSurfaceEl = props.aboutSurfaceEl ?? null
+      lastAboutTitleEl = props.aboutTitleEl ?? null
       return
     }
 
@@ -2347,6 +2890,24 @@ function buildMorph() {
       formatsTrigger = null
     }
 
+    if (props.aboutSectionEl && props.aboutSurfaceEl) {
+      aboutTrigger = ScrollTrigger.create({
+        trigger: props.aboutSectionEl,
+        start: ABOUT_SCRUB_START,
+        end: ABOUT_SCRUB_END,
+        invalidateOnRefresh: true,
+        onUpdate: () => {
+          ensureTick()
+        },
+        onRefresh: () => {
+          if (morphBooting) return
+          ensureTick()
+        },
+      })
+    } else {
+      aboutTrigger = null
+    }
+
     const s = computeDesktopTarget()
     desktopTargetS = s
     desktopLiveS = s
@@ -2369,6 +2930,9 @@ function buildMorph() {
     lastCaseMediaEl = props.caseMediaEl ?? null
     lastFormatsSectionEl = props.formatsSectionEl ?? null
     lastFormatsSurfaceEl = props.formatsSurfaceEl ?? null
+    lastAboutSectionEl = props.aboutSectionEl ?? null
+    lastAboutSurfaceEl = props.aboutSurfaceEl ?? null
+    lastAboutTitleEl = props.aboutTitleEl ?? null
   } finally {
     if (gen === morphGen) {
       beginMorphQuiet(1800)
@@ -2383,13 +2947,26 @@ function onResize() {
   if (isMobileChromeHeightOnlyResize()) return
   capturePoses()
   if (mobileActive) {
+    if (mobileAboutArrived || aboutSettleTween) {
+      if (aboutSettleTween) return
+      if (aboutFramePinned()) syncPinnedMask()
+      else {
+        const dest = aboutSurfacePose()
+        if (dest) {
+          paintAboutSurfaceTone(1)
+          paintBox(dest, 1)
+          paintAboutTitleContrast(dest)
+        }
+        if (mobileAboutArrived) pinAboutFrame()
+      }
+      return
+    }
     if (mobileFormatsArrived || formatsSettleTween) {
       if (formatsSettleTween) return
-      if (formatsFramePinned()) syncPinnedMask()
-      else {
-        const dest = formatsSurfacePose()
-        if (dest) paintBox(dest, 1)
-        if (mobileFormatsArrived) pinFormatsFrame()
+      const dest = formatsSurfacePose()
+      if (dest) {
+        paintAboutSurfaceTone(0)
+        paintFormatsViewportBox(dest)
       }
       return
     }
@@ -2420,7 +2997,20 @@ function onCaseMediaScroll() {
   if (!keepAliveActive) return
   if (mobileActive) {
     if (stageChangesAllowed()) reconcileFromScroll()
-    if (formatsFramePinned() || caseFramePinned()) syncPinnedMask()
+    if (
+      mobileFormatsArrived
+      && !mobileAboutArrived
+      && !formatsSettleTween
+      && !aboutSettleTween
+    ) {
+      const dest = formatsSurfacePose()
+      if (dest) {
+        paintAboutSurfaceTone(0)
+        paintFormatsViewportBox(dest)
+      }
+    } else if (aboutFramePinned() || caseFramePinned()) {
+      syncPinnedMask()
+    }
     return
   }
   if (caseFramePinned()) {
@@ -2491,6 +3081,9 @@ onUnmounted(() => {
   lastCaseMediaEl = null
   lastFormatsSectionEl = null
   lastFormatsSurfaceEl = null
+  lastAboutSectionEl = null
+  lastAboutSurfaceEl = null
+  lastAboutTitleEl = null
   fontsResyncBound = false
   captureFailCount = 0
   if (morphWatchTimer) window.clearTimeout(morphWatchTimer)
@@ -2536,6 +3129,9 @@ watch(
       props.caseMediaEl,
       props.formatsSectionEl,
       props.formatsSurfaceEl,
+      props.aboutSectionEl,
+      props.aboutSurfaceEl,
+      props.aboutTitleEl,
       props.plan,
     ] as const,
   () => {
@@ -2555,6 +3151,9 @@ watch(
         && props.caseMediaEl === lastCaseMediaEl
         && props.formatsSectionEl === lastFormatsSectionEl
         && props.formatsSurfaceEl === lastFormatsSurfaceEl
+        && props.aboutSectionEl === lastAboutSectionEl
+        && props.aboutSurfaceEl === lastAboutSurfaceEl
+        && props.aboutTitleEl === lastAboutTitleEl
       if (sameCorridor) {
         // Stone/term/body often arrive a tick later — soft resync, not kill+rebuild.
         resyncAfterLayout()

@@ -18,6 +18,11 @@ export const imageRecipes = [
     outputStem: 'public/home/rock',
     widths: [320, 480, 640, 854, 1088],
   },
+  ...[1, 2, 3, 4].map(number => ({
+    source: `public/home/work/${String(number).padStart(3, '0')}.png`,
+    outputStem: `public/home/work/${String(number).padStart(3, '0')}`,
+    widths: [480, 960],
+  })),
   {
     source: 'public/home/cases/keys-store/keys-1.png',
     outputStem: 'public/home/cases/keys-store/keys-1',
