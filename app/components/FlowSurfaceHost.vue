@@ -47,7 +47,6 @@ import {
 import {
   isAppleTouchDevice,
   isCoarsePointer,
-  isMobileChromeHeightOnlyResize,
   isNarrowViewport,
 } from '~/utils/mobileViewport'
 
@@ -81,8 +80,8 @@ const CASE_SCRUB_LAG = 0.13
 const FORMATS_SCRUB_START = 'top 82%'
 const FORMATS_SCRUB_END = 'top 35%'
 /** Work formats → author block: the stone surface settles into its dark panel. */
-const ABOUT_SCRUB_START = 'top 82%'
-const ABOUT_SCRUB_END = 'top 35%'
+const ABOUT_SCRUB_START = 'top 92%'
+const ABOUT_SCRUB_END = 'top 25%'
 /** Global scroll-driven surface limit, in normalized morph segments/sec. */
 const SURFACE_MORPH_MAX_VELOCITY = 1.55
 const SURFACE_MORPH_EPSILON = 0.0008
@@ -132,11 +131,16 @@ const MOBILE_CASE_SCROLL_SPAN_VH = 0.62
 const MOBILE_CASE_MEDIA_EXIT_SPAN_VH = 0.24
 /** Let Formats enter the lower viewport after the project raster has left. */
 const MOBILE_CASE_SURFACE_HOLD_VH = 0.24
+/** Direction-independent parked runway before Projects releases to Formats. */
+const MOBILE_CASE_TO_FORMATS_HOLD_PX = 200
 /** Tail morphs must never collapse to a one-pixel range after layout shifts. */
 const MOBILE_FORMATS_SCROLL_SPAN_VH = 0.62
 const MOBILE_ABOUT_SCROLL_SPAN_VH = 0.3
+/** Stretch Formats ↔ Biography equally at both ends of the reversible range. */
+const MOBILE_ABOUT_ENTRY_LEAD_PX = 80
+const MOBILE_ABOUT_EXIT_RUNWAY_PX = 80
 /** Mobile Biography reaches its dark tone before the geometry finishes. */
-const MOBILE_ABOUT_TONE_END_P = 0.45
+const MOBILE_ABOUT_TONE_END_P = 0.85
 /** Preserve descenders that extend below the heading's tight line box. */
 const MOBILE_ABOUT_TITLE_CLIP_BLEED_PX = 3
 const props = withDefaults(
@@ -397,6 +401,8 @@ let scrubEndY = 0
 /** Frozen to the stable 100svh Hero height; mobile browser chrome must not move thresholds. */
 let mobileTriggerViewportHeight = 0
 let mobileTriggerViewportWidth = 0
+/** Per-host width guard: browser chrome may emit height-only resize events. */
+let surfaceViewportWidth = 0
 let mobileCaseHandoffY: { forwardY: number } | null = null
 /** Reverse fires only after the Cases section has entered, then crossed 90% upward. */
 let mobileCaseReverseArmed = false
@@ -631,9 +637,8 @@ function captureMobileScrollBounds() {
     viewportHeight * MOBILE_CASE_MEDIA_EXIT_SPAN_VH,
   )
   const caseMediaEnd = caseEnd + caseMediaExitSpan
-  // Down begins just before Formats enters the bottom of the screen.
-  // The old case-photo centre/top marker fired only after the next section was
-  // already well underway. Keep the accepted upward marker on the list itself.
+  // Base case-exit markers. Directional runway is applied while painting so
+  // entering the case keeps its accepted timing in either direction.
   const formatsMediaStart = Math.max(
     caseMediaEnd,
     formatsSectionDoc.top - viewportHeight * 1.1,
@@ -652,7 +657,7 @@ function captureMobileScrollBounds() {
   // the full-viewport Formats panel and snapping to the slot much later.
   const aboutStart = Math.max(
     formatsEnd,
-    aboutSectionDoc.top - viewportHeight,
+    aboutSectionDoc.top - viewportHeight - MOBILE_ABOUT_ENTRY_LEAD_PX,
   )
   const aboutSpan = Math.max(
     1,
@@ -661,7 +666,7 @@ function captureMobileScrollBounds() {
   const aboutEnd = Math.max(
     aboutStart + aboutSpan,
     aboutSectionDoc.top - viewportHeight * 0.7,
-  )
+  ) + MOBILE_ABOUT_EXIT_RUNWAY_PX
 
   mobileScrollBounds = {
     termStart,
@@ -1659,15 +1664,35 @@ const MOBILE_CORRIDOR_IDS = [
 ] as const
 type MobileCorridorId = typeof MOBILE_CORRIDOR_IDS[number]
 
+function mobileCaseExitBounds(
+  bounds: MobileScrollBounds,
+) {
+  const formatsStart = Math.min(
+    bounds.formatsEnd - 1,
+    bounds.formatsStart + MOBILE_CASE_TO_FORMATS_HOLD_PX,
+  )
+
+  return {
+    caseEnd: bounds.caseEnd,
+    caseMediaEnd: bounds.caseMediaEnd,
+    formatsMediaStart: Math.min(
+      formatsStart,
+      bounds.formatsMediaStart + MOBILE_CASE_TO_FORMATS_HOLD_PX,
+    ),
+    formatsStart,
+  }
+}
+
 function mobileCorridorRanges(
   bounds: MobileScrollBounds,
 ): ScrollCorridorRange<MobileCorridorId>[] {
+  const exits = mobileCaseExitBounds(bounds)
   return [
     { id: 'hero-stone', start: scrubStartY, end: bounds.termStart },
     { id: 'stone-term', start: bounds.termStart, end: bounds.termEnd },
     { id: 'term-word', start: bounds.wordStart, end: bounds.wordEnd },
-    { id: 'word-cases', start: bounds.caseStart, end: bounds.caseEnd },
-    { id: 'cases-formats', start: bounds.formatsStart, end: bounds.formatsEnd },
+    { id: 'word-cases', start: bounds.caseStart, end: exits.caseEnd },
+    { id: 'cases-formats', start: exits.formatsStart, end: bounds.formatsEnd },
     { id: 'formats-about', start: bounds.aboutStart, end: bounds.aboutEnd },
   ]
 }
@@ -1745,13 +1770,16 @@ function paintMobileScrollCorridor(
   )
   const segmentId = ranges[segmentIndex]!.id
   const t = smoothUnit(localT)
+  const exits = mobileCaseExitBounds(bounds)
+  const wordCasesRange = ranges[3]!
+  const casesFormatsRange = ranges[4]!
   const stoneAtTermStart = poseAtScrollY(bounds.stoneDoc, bounds.termStart)
   const termAtTermEnd = poseAtScrollY(bounds.termDoc, bounds.termEnd)
   const termAtWordStart = poseAtScrollY(bounds.termDoc, bounds.wordStart)
   const wordAtWordEnd = poseAtScrollY(bounds.wordDoc, bounds.wordEnd)
-  const wordAtCaseStart = poseAtScrollY(bounds.wordDoc, bounds.caseStart)
-  const caseAtCaseEnd = poseAtScrollY(bounds.caseDoc, bounds.caseEnd)
-  const caseAtFormatsStart = poseAtScrollY(bounds.caseDoc, bounds.formatsStart)
+  const wordAtCaseStart = poseAtScrollY(bounds.wordDoc, wordCasesRange.start)
+  const caseAtCaseEnd = poseAtScrollY(bounds.caseDoc, wordCasesRange.end)
+  const caseAtFormatsStart = poseAtScrollY(bounds.caseDoc, casesFormatsRange.start)
   const formatsAtEnd = mobileFormatsSettledBox(
     poseAtScrollY(bounds.formatsDoc, bounds.formatsEnd),
   )
@@ -1796,11 +1824,11 @@ function paintMobileScrollCorridor(
       parkMobileKadoWaypoint('word', docToViewport(bounds.wordDoc))
       return
     }
-    if (scrollY >= bounds.caseEnd && scrollY < bounds.formatsStart) {
+    if (scrollY >= exits.caseEnd && scrollY < exits.formatsStart) {
       const leavingTowardKado = mobileCorridorDirection === 'reverse'
-        && scrollY < bounds.caseMediaEnd
+        && scrollY < exits.caseMediaEnd
       const leavingTowardFormats = mobileCorridorDirection === 'forward'
-        && scrollY >= bounds.formatsMediaStart
+        && scrollY >= exits.formatsMediaStart
       const mediaVisible = !leavingTowardKado && !leavingTowardFormats
       mobileStage = 'word'
       mobileCaseProgress = 1
@@ -1825,6 +1853,7 @@ function paintMobileScrollCorridor(
       scrollY >= bounds.aboutEnd
       || (
         aboutProxyParked
+        && mobileCorridorDirection !== 'reverse'
         && scrollY >= bounds.aboutEnd - MOBILE_TAIL_TRIGGER_HYSTERESIS_PX
       )
     ) {
@@ -2787,6 +2816,10 @@ function buildMobileMorph(ScrollTrigger: typeof import('gsap/ScrollTrigger').Scr
       },
       onRefresh: () => {
         if (morphBooting) return
+        if (mobileViewportHeightOnlyChange()) {
+          paintMobileScrollCorridor()
+          return
+        }
         captureMobilePoses()
         paintMobileScrollCorridor()
       },
@@ -3007,9 +3040,16 @@ function buildMorph() {
   }
 }
 
+function mobileViewportHeightOnlyChange() {
+  const width = window.innerWidth
+  const previousWidth = surfaceViewportWidth
+  surfaceViewportWidth = width
+  return useMobileCorridor() && previousWidth > 0 && width === previousWidth
+}
+
 function onResize() {
   if (!keepAliveActive) return
-  if (isMobileChromeHeightOnlyResize()) return
+  if (mobileViewportHeightOnlyChange()) return
   capturePoses()
   if (mobileActive) {
     paintMobileScrollCorridor()
@@ -3067,6 +3107,7 @@ onMounted(async () => {
   // Paint the real Hero surface and copy before loading the scroll engine.
   // This hands off the SSR primer without putting GSAP on the LCP path.
   ensureHeroRestPlaceholder()
+  surfaceViewportWidth = window.innerWidth
   window.addEventListener('resize', onResize, { passive: true })
   window.addEventListener('scroll', onCaseMediaScroll, { passive: true })
   if (coldDirectEntry && !useMobileCorridor()) scheduleColdMotionBoot()
@@ -3096,6 +3137,7 @@ onUnmounted(() => {
   lastAboutSectionEl = null
   lastAboutSurfaceEl = null
   lastAboutTitleEl = null
+  surfaceViewportWidth = 0
   fontsResyncBound = false
   captureFailCount = 0
   if (morphWatchTimer) window.clearTimeout(morphWatchTimer)
@@ -3236,7 +3278,7 @@ watch(
   <div
     ref="shellEl"
     data-flow-surface-host
-    class="pointer-events-none fixed inset-0 z-[5]"
+    class="pointer-events-none fixed inset-x-0 top-0 z-[5] h-[var(--app-screen)]"
   >
     <svg
       width="0"

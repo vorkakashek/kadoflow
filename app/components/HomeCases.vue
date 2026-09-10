@@ -35,6 +35,7 @@ const gestureHintEl = ref<HTMLElement | null>(null)
 const mountBgPortal = ref(false)
 const mobileCases = ref(false)
 const caseMediaReady = ref(false)
+let mobileCasesViewportWidth = 0
 /**
  * Freeze the largest mobile viewport once per page load. The browser toolbar can
  * then move without shrinking the Cases colour field or exposing the section
@@ -332,7 +333,11 @@ function isMobileCases() {
 }
 
 function refreshMobileCases() {
-  mobileCases.value = isMobileCases()
+  const width = window.innerWidth
+  const nextMobile = isMobileCases()
+  if (width === mobileCasesViewportWidth && nextMobile === mobileCases.value) return
+  mobileCasesViewportWidth = width
+  mobileCases.value = nextMobile
   scheduleMobileStageCollapse()
 }
 
@@ -1631,13 +1636,7 @@ onBeforeUnmount(() => {
     - (var(--layout-surface-top) + var(--space-section))
     - var(--space-section)
   );
-  --cases-stage-h: calc(
-    100dvh + var(--layout-surface-top)
-    - (var(--layout-surface-top) + var(--space-section))
-    - var(--space-section)
-  );
   min-height: calc(100svh + var(--layout-surface-top));
-  min-height: calc(100dvh + var(--layout-surface-top));
   background: transparent;
   overflow-anchor: none;
 }
@@ -2720,12 +2719,7 @@ onBeforeUnmount(() => {
       (100svh + var(--layout-surface-top)) * 0.5
       - var(--cases-inner-pad-block)
     );
-    --cases-rail-center: calc(
-      (100dvh + var(--layout-surface-top)) * 0.5
-      - var(--cases-inner-pad-block)
-    );
     min-height: calc(100svh + var(--layout-surface-top));
-    min-height: calc(100dvh + var(--layout-surface-top));
     box-sizing: border-box;
     align-items: center;
   }
