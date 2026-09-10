@@ -57,8 +57,8 @@ defineExpose({ rootEl, surfaceEl, titleEl })
             <img
               src="/home/me.png"
               alt="Антон, основатель КАДОФЛОУ"
-              width="2344"
-              height="2736"
+              width="1801"
+              height="2048"
               loading="lazy"
               decoding="async"
             >
@@ -120,7 +120,7 @@ defineExpose({ rootEl, surfaceEl, titleEl })
   right: 0;
   left: 0;
   height: clamp(35rem, 39vw, 46rem);
-  border-radius: var(--radius-surface);
+  border-radius: var(--flow-surface-radius, 12px);
   background: var(--palette-ink);
 }
 

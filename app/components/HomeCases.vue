@@ -1507,7 +1507,9 @@ onBeforeUnmount(() => {
               `cases-media--${activeCase.media.orientation ?? 'portrait'}`,
               { 'cases-media--video': !!activeCase.media.video },
             ]"
-            :style="{ aspectRatio: caseMediaAspectRatio(activeCase) }"
+            :style="{
+              aspectRatio: caseMediaAspectRatio(activeCase),
+            }"
           >
             <div
               data-case-local-media
@@ -2389,6 +2391,38 @@ onBeforeUnmount(() => {
   /* The shared Surface only targets this box; project media is rendered here. */
   isolation: isolate;
   overflow: hidden;
+}
+
+.cases-media::before,
+.cases-media::after {
+  position: absolute;
+  z-index: 0;
+  /* Keep the parked Surface safely beneath the raster's rounded edge. */
+  inset: 1px;
+  border-radius: var(--flow-surface-radius, 12px);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cases-media::before {
+  background: var(--palette-stone);
+}
+
+.cases-media::after {
+  background-image: var(--home-surface-grain);
+  background-position: 0 0;
+  background-repeat: repeat;
+  background-size: 56px 56px;
+  mix-blend-mode: overlay;
+}
+
+.cases-media[data-flow-surface-proxy-active]::before {
+  opacity: 1;
+}
+
+.cases-media[data-flow-surface-proxy-active]::after {
+  opacity: 0.22;
 }
 
 .cases-media[data-case-media-flight],

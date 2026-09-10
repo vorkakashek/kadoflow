@@ -211,25 +211,28 @@ export function applyBox(el: HTMLElement, box: SurfaceBox) {
   el.style.height = `${box.height}px`
   el.style.transform = ''
   el.style.transformOrigin = ''
+  el.style.removeProperty('--flow-surface-visual-width')
+  el.style.removeProperty('--flow-surface-visual-height')
 }
 
 /**
- * Compositor-friendly morph paint: fixed basis size + translate/scale.
- * Avoids per-frame width/height layout thrash on mobile scroll morph.
+ * Compositor-friendly mobile flight: keep the observed root at one fixed size,
+ * translate it as a layer, and resize only its cheap visual crop. Scaling the
+ * entire root distorted the rounded silhouette and grain beneath case media.
  */
-export function applyBoxTransform(
+export function applyBoxVisualTransform(
   el: HTMLElement,
   box: SurfaceBox,
   basis: SurfaceBox,
 ) {
-  const bw = Math.max(1, basis.width)
-  const bh = Math.max(1, basis.height)
   el.style.top = '0px'
   el.style.left = '0px'
-  el.style.width = `${bw}px`
-  el.style.height = `${bh}px`
+  el.style.width = `${Math.max(1, basis.width)}px`
+  el.style.height = `${Math.max(1, basis.height)}px`
   el.style.transformOrigin = '0 0'
-  el.style.transform = `translate3d(${box.left}px, ${box.top}px, 0) scale(${box.width / bw}, ${box.height / bh})`
+  el.style.transform = `translate3d(${box.left}px, ${box.top}px, 0)`
+  el.style.setProperty('--flow-surface-visual-width', `${Math.max(1, box.width)}px`)
+  el.style.setProperty('--flow-surface-visual-height', `${Math.max(1, box.height)}px`)
 }
 
 /**

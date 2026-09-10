@@ -40,6 +40,8 @@
   Hover links: opacity → .7 over .3s. Larger layout morphs: .5s.
 */
 :root {
+  /* Shared by the live FlowSurface crop and its cheap resting backplates. */
+  --flow-surface-radius: 12px;
   --motion-fast: 0.2s;
   --motion-base: 0.3s;
   --motion-layout: 0.5s;

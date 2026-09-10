@@ -90,15 +90,14 @@ const RETURN = 0.000022
 const DAMPING = 0.982
 /** Base cursor push (continuous while near). */
 const CURSOR_FORCE = 0.004
-/** Extra scale on the first enter knock. */
-const CURSOR_IMPULSE = 1.3
+/** Immediate momentum transfer when a moving pointer reaches the silhouette. */
+const CURSOR_STRIKE_MIN = 0.018
+const CURSOR_STRIKE_MAX = 0.046
 /** Ongoing push while the cursor stays over / sweeps through a ball. */
 const CURSOR_HOLD = 0.32
-/** Extra hit padding around projected ball radius (px). */
-const CURSOR_HIT_PAD_PX = 36
-/** Screen-radius scale vs projected ball (1 = silhouette). */
-const CURSOR_HIT_SCALE = 1.12
-/** Min pointer travel per event (px) to count as a strong swipe. */
+/** 4px cursor radius + a small antialiasing tolerance at the silhouette. */
+const CURSOR_CONTACT_PAD_PX = 6
+/** Min 60fps-normalized pointer travel (px) to count as a swipe. */
 const CURSOR_SPEED_MIN_PX = 0.6
 /** Even slow cursor still applies a fraction of hold force. */
 const CURSOR_IDLE_HOLD = 0.14
@@ -916,13 +915,16 @@ async function bootScene() {
 
   /**
    * Device motion (lite):
-   * — Tip (any edge lower): accelerate balls in that screen-space direction.
+   * — A fresh tip sends the balls in that screen-space direction.
+   * — A held pose becomes a temporary neutral so the swarm can spring home.
    * — Ignore alpha / rotation rate: Euler coupling during a tip must not add physics.
    */
   let gyroPitch = 0
   let gyroRoll = 0
   let gyroPitchT = 0
   let gyroRollT = 0
+  let gyroPhysicsRestPitch = 0
+  let gyroPhysicsRestRoll = 0
   let gyroArmed = false
   let tipFromGrav = false
   let tipGravStamp = 0
@@ -934,6 +936,11 @@ async function bootScene() {
   const GYRO_DEAD_ZONE = 0.075
   /** Time-based low-pass: stable feel at both 60 and 30 fps. */
   const GYRO_SMOOTH_MS = 180
+  /**
+   * Slow follower removes sustained gravity from ball physics. The camera still
+   * follows the absolute tip, while the balls receive a short high-pass impulse.
+   */
+  const GYRO_PHYSICS_RELEASE_MS = 500
   /** Visible camera travel on a vertical cylinder centred on the swarm. */
   const GYRO_CAMERA_ARC = 1.2
   const GYRO_CAMERA_LIFT = 0.56
@@ -1126,12 +1133,16 @@ async function bootScene() {
   const pointerVel = new Vector3()
   const pointerNdc = new Vector2()
   const pointerNdcPrev = new Vector2()
+  const pointerSweepStart = new Vector2()
+  const pointerSweepEnd = new Vector2()
   const raycaster = new Raycaster()
   const hitPlane = new Plane()
   const planeNormal = new Vector3()
   let pointerActive = false
   let pointerSampled = false
+  let pointerSweepPending = false
   let pointerSpeedPx = 0
+  let pointerSampleTime = 0
   let pointerIdleTimer = 0
   const POINTER_IDLE_MS = 280
   const size = { w: 1, h: 1 }
@@ -1306,33 +1317,47 @@ async function bootScene() {
     orbitLocked = true
   }
 
-  const clientToWorld = (clientX: number, clientY: number) => {
+  const clientToWorld = (clientX: number, clientY: number, sampleTime: number) => {
     const canvas = renderer?.domElement ?? host
     const rect = canvas.getBoundingClientRect()
+    const hadSample = pointerSampled
     pointerNdcPrev.copy(pointerNdc)
     pointerNdc.set(
       ((clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1,
       -((clientY - rect.top) / Math.max(rect.height, 1)) * 2 + 1,
     )
 
-    if (pointerSampled) {
+    if (hadSample) {
       const dx = ((pointerNdc.x - pointerNdcPrev.x) * rect.width) / 2
       const dy = ((pointerNdc.y - pointerNdcPrev.y) * rect.height) / 2
-      pointerSpeedPx = Math.hypot(dx, dy)
+      // Normalize for event rate: a 1000Hz mouse and a 60Hz mouse should
+      // transfer comparable momentum at the same physical cursor speed.
+      const elapsed = MathUtils.clamp(sampleTime - pointerSampleTime, 1, 50)
+      pointerSpeedPx = Math.hypot(dx, dy) * (16.67 / elapsed)
+      if (!pointerSweepPending) pointerSweepStart.copy(pointerNdcPrev)
+      pointerSweepEnd.copy(pointerNdc)
+      pointerSweepPending = pointerSweepStart.distanceToSquared(pointerSweepEnd) > 1e-10
     } else {
       pointerSpeedPx = 0
       pointerSampled = true
+      pointerSweepStart.copy(pointerNdc)
+      pointerSweepEnd.copy(pointerNdc)
     }
+    pointerSampleTime = sampleTime
 
     raycaster.setFromCamera(pointerNdc, camera)
     camera.getWorldDirection(planeNormal)
     hitPlane.setFromNormalAndCoplanarPoint(planeNormal.clone().negate(), anchor)
 
-    pointerPrev.copy(pointer)
+    if (hadSample) pointerPrev.copy(pointer)
     if (!raycaster.ray.intersectPlane(hitPlane, pointer)) {
       pointer.copy(anchor)
     }
-    pointerVel.copy(pointer).sub(pointerPrev)
+    if (hadSample) pointerVel.copy(pointer).sub(pointerPrev)
+    else {
+      pointerPrev.copy(pointer)
+      pointerVel.set(0, 0, 0)
+    }
   }
 
   const onPointerMove = (event: PointerEvent) => {
@@ -1367,7 +1392,7 @@ async function bootScene() {
       return
     }
     pointerActive = true
-    clientToWorld(event.clientX, event.clientY)
+    clientToWorld(event.clientX, event.clientY, event.timeStamp)
     bumpPointerIdle()
   }
   const onPointerDown = (event: PointerEvent) => {
@@ -1391,14 +1416,16 @@ async function bootScene() {
     pointerActive = true
     pointerSampled = false
     pointerSpeedPx = 0
-    clientToWorld(event.clientX, event.clientY)
+    clientToWorld(event.clientX, event.clientY, event.timeStamp)
     bumpPointerIdle()
   }
   const onPointerLeave = () => {
     pointerActive = false
     pointerSampled = false
+    pointerSweepPending = false
     pointerVel.set(0, 0, 0)
     pointerSpeedPx = 0
+    pointerSampleTime = 0
     if (pointerIdleTimer) {
       window.clearTimeout(pointerIdleTimer)
       pointerIdleTimer = 0
@@ -1515,7 +1542,6 @@ async function bootScene() {
 
     if (!reduced) {
       if (lite) {
-        // Tip holds from gravity/orient while an edge is lowered — no decay here.
         if (
           tipFromGrav &&
           performance.now() - tipGravStamp > 280
@@ -1525,6 +1551,12 @@ async function bootScene() {
         const gyroBlend = 1 - Math.exp(-dt / GYRO_SMOOTH_MS)
         gyroPitch += (gyroPitchT - gyroPitch) * gyroBlend
         gyroRoll += (gyroRollT - gyroRoll) * gyroBlend
+        const physicsReleaseBlend =
+          1 - Math.exp(-dt / GYRO_PHYSICS_RELEASE_MS)
+        gyroPhysicsRestPitch +=
+          (gyroPitch - gyroPhysicsRestPitch) * physicsReleaseBlend
+        gyroPhysicsRestRoll +=
+          (gyroRoll - gyroPhysicsRestRoll) * physicsReleaseBlend
       }
       ringTiltPhase += RING_TILT_SPEED * step
       ringEuler.set(
@@ -1548,6 +1580,14 @@ async function bootScene() {
       // Lowering the phone should pull the swarm toward the viewer / screen
       // bottom. Sensor pitch arrives in the opposite visual direction.
       const tipUp = motionActive ? -gyroPitch : 0
+      // Physics responds to the change in pose, then fades even if that pose is
+      // held. With the sustained pull gone, the existing seat springs recenter.
+      const physicsTipRight = motionActive
+        ? -(gyroRoll - gyroPhysicsRestRoll)
+        : 0
+      const physicsTipUp = motionActive
+        ? -(gyroPitch - gyroPhysicsRestPitch)
+        : 0
 
       if (!reduced) {
         const cameraArc = tipRight * GYRO_CAMERA_ARC
@@ -1625,11 +1665,11 @@ async function bootScene() {
           ball.velocity
             .addScaledVector(
               camRight,
-              tipRight * depthResponse * GYRO_ACCEL * step,
+              physicsTipRight * depthResponse * GYRO_ACCEL * step,
             )
             .addScaledVector(
               camUp,
-              tipUp * depthResponse * GYRO_ACCEL * step,
+              physicsTipUp * depthResponse * GYRO_ACCEL * step,
             )
         }
 
@@ -1751,7 +1791,13 @@ async function bootScene() {
     if (settling) settleLeft = Math.max(0, settleLeft - dt)
     hapticAlive.clear()
     const cursorMoving =
-      !settling && pointerActive && pointerSpeedPx >= CURSOR_SPEED_MIN_PX
+      !settling &&
+      pointerActive &&
+      pointerSweepPending &&
+      pointerSpeedPx >= CURSOR_SPEED_MIN_PX
+    // Consume every movement span once, after all balls have tested against it.
+    // This closes the gap between sparse pointer events and animation frames.
+    const pointerSwept = pointerSweepPending
 
     const halfW = size.w * 0.5
     const halfH = size.h * 0.5
@@ -1816,7 +1862,8 @@ async function bootScene() {
         leashSpring = ORBIT_LEASH_SPRING * stretch
       }
 
-      // Screen-space hit — enter knock + continuous hold while the cursor is near.
+      // Continuous screen-space collision: test the full cursor path since the
+      // previous rendered frame, then keep a softer response at the endpoint.
       let near = false
       tmp.copy(ball.position).project(camera)
       if (!settling && pointerActive && tmp.z < 1 && tmp.z > -1) {
@@ -1824,16 +1871,52 @@ async function bootScene() {
         const dy = (tmp.y - pointerNdc.y) * halfH
         const pixelDist = Math.hypot(dx, dy)
         const ballCamDist = camera.position.distanceTo(ball.position)
-        const screenRadius =
+        const ballScreenRadius =
           ((ball.radius / Math.max(ballCamDist, 0.001)) / tanHalfFov) *
-            halfH *
-            CURSOR_HIT_SCALE +
-          CURSOR_HIT_PAD_PX
-        near = pixelDist < screenRadius
+          halfH
+        const contactRadius = ballScreenRadius + CURSOR_CONTACT_PAD_PX
+        near = pixelDist < contactRadius
 
-        if (near) {
-          const falloff = 1 - pixelDist / Math.max(screenRadius, 1)
-          const entering = cursorMoving && !ball.pointerInside
+        let sweptHit = false
+        let hitNormalX = 0
+        let hitNormalY = 0
+        if (pointerSwept && cursorMoving) {
+          // Pointer segment in pixels relative to the projected ball centre.
+          const fromX = (pointerSweepStart.x - tmp.x) * halfW
+          const fromY = (pointerSweepStart.y - tmp.y) * halfH
+          const sweepX = (pointerSweepEnd.x - pointerSweepStart.x) * halfW
+          const sweepY = (pointerSweepEnd.y - pointerSweepStart.y) * halfH
+          const sweepLengthSq = sweepX * sweepX + sweepY * sweepY
+          if (sweepLengthSq > 1e-8) {
+            const b = 2 * (fromX * sweepX + fromY * sweepY)
+            const c = fromX * fromX + fromY * fromY - contactRadius * contactRadius
+            const discriminant = b * b - 4 * sweepLengthSq * c
+            let hitT = -1
+            if (c <= 0) hitT = ball.pointerInside ? -1 : 0
+            else if (discriminant >= 0) {
+              hitT = (-b - Math.sqrt(discriminant)) / (2 * sweepLengthSq)
+            }
+            if (hitT >= 0 && hitT <= 1) {
+              sweptHit = true
+              const contactX = fromX + sweepX * hitT
+              const contactY = fromY + sweepY * hitT
+              const normalLength = Math.hypot(contactX, contactY)
+              if (normalLength > 1e-5) {
+                // Ball moves away from the cursor at the actual impact point.
+                hitNormalX = -contactX / normalLength
+                hitNormalY = -contactY / normalLength
+              } else {
+                const sweepLength = Math.sqrt(sweepLengthSq)
+                hitNormalX = sweepX / sweepLength
+                hitNormalY = sweepY / sweepLength
+              }
+            }
+          }
+        }
+
+        if (near || sweptHit) {
+          const falloff = 1 - Math.min(pixelDist / Math.max(contactRadius, 1), 1)
+          const entering = cursorMoving && (sweptHit || !ball.pointerInside)
           const moving = cursorMoving || pointerSpeedPx >= CURSOR_SPEED_MIN_PX
           returnForce *= entering ? 0.02 : moving ? 0.08 : 0.22
 
@@ -1842,14 +1925,30 @@ async function bootScene() {
             2.2,
           )
 
-          let strength =
-            CURSOR_FORCE * (0.4 + 0.6 * falloff) * speedMul
-          if (entering) strength *= CURSOR_IMPULSE
-          else if (moving) strength *= CURSOR_HOLD
+          let strength = CURSOR_FORCE * (0.4 + 0.6 * falloff) * speedMul
+          if (entering) {
+            const strikeMix = MathUtils.clamp(
+              (pointerSpeedPx - CURSOR_SPEED_MIN_PX) / 24,
+              0,
+              1,
+            )
+            strength = MathUtils.lerp(
+              CURSOR_STRIKE_MIN,
+              CURSOR_STRIKE_MAX,
+              strikeMix,
+            )
+          } else if (moving) strength *= CURSOR_HOLD
           else strength *= CURSOR_IDLE_HOLD
 
           if (strength > 1e-8) {
-            if (pointerVel.lengthSq() > 1e-8) {
+            if (entering && (hitNormalX || hitNormalY)) {
+              camRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
+              camUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
+              push
+                .copy(camRight)
+                .multiplyScalar(hitNormalX * strength)
+                .addScaledVector(camUp, hitNormalY * strength)
+            } else if (pointerVel.lengthSq() > 1e-8) {
               push.copy(pointerVel).normalize().multiplyScalar(strength)
             } else {
               const awayX = tmp.x - pointerNdc.x
@@ -1866,6 +1965,28 @@ async function bootScene() {
               }
             }
             ball.velocity.add(push)
+          }
+
+          // If an event lands inside the silhouette, resolve part of that
+          // penetration immediately. The ball visibly yields on this frame
+          // instead of waiting for several velocity integrations to catch up.
+          if (moving && near && pixelDist < contactRadius) {
+            let correctionX = dx / Math.max(pixelDist, 1e-5)
+            let correctionY = dy / Math.max(pixelDist, 1e-5)
+            if (pixelDist < 1e-5 && (hitNormalX || hitNormalY)) {
+              correctionX = hitNormalX
+              correctionY = hitNormalY
+            }
+            const correctionWorld = Math.min(
+              ((contactRadius - pixelDist) / Math.max(ballScreenRadius, 1)) *
+                ball.radius,
+              ball.radius * 0.42,
+            )
+            camRight.set(1, 0, 0).applyQuaternion(camera.quaternion)
+            camUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
+            ball.position
+              .addScaledVector(camRight, correctionX * correctionWorld)
+              .addScaledVector(camUp, correctionY * correctionWorld)
           }
         }
       }
@@ -1912,6 +2033,10 @@ async function bootScene() {
     }
 
     swarmHapticPrune(hapticAlive)
+
+    pointerSweepPending = false
+    pointerSweepStart.copy(pointerNdc)
+    pointerSweepEnd.copy(pointerNdc)
 
     // Decay swipe speed so a stopped cursor ends the stroke
     pointerSpeedPx *= 0.88

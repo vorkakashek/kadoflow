@@ -759,14 +759,34 @@ onUnmounted(() => {
   overflow: visible;
 }
 
-.kado-surface-pin {
+:deep(.kado-surface-pin) {
   position: absolute;
   inset: 0;
   z-index: 0;
+  overflow: hidden;
+  border-radius: var(--flow-surface-radius, 12px);
+  background: var(--palette-stone);
+  opacity: 0;
   pointer-events: none;
 }
 
-.kado-surface-pin--pad {
+:deep(.kado-surface-pin)::after {
+  position: absolute;
+  inset: 0;
+  background-image: var(--home-surface-grain);
+  background-position: 0 0;
+  background-repeat: repeat;
+  background-size: 56px 56px;
+  content: '';
+  mix-blend-mode: overlay;
+  opacity: 0.22;
+}
+
+:deep(.kado-surface-pin[data-flow-surface-proxy-active]) {
+  opacity: 1;
+}
+
+:deep(.kado-surface-pin--pad) {
   inset: calc(-1 * var(--layout-margin));
 }
 

@@ -167,6 +167,7 @@ async function setupTitleMotion() {
   const chars = Array.from(
     header.querySelectorAll<HTMLElement>('.work-formats__title-char'),
   )
+  const title = header.querySelector<HTMLElement>('.work-formats__title')
   if (!chars.length) return
   if (reducedMotion) {
     gsap.set(chars, { clearProps: 'transform' })
@@ -181,8 +182,8 @@ async function setupTitleMotion() {
       stagger: 0.055,
       ease: 'power4.out',
       scrollTrigger: {
-        trigger: header,
-        start: mobileThumbsEnabled.value ? 'top 88%' : 'bottom bottom',
+        trigger: title ?? header,
+        start: 'center bottom',
         toggleActions: 'play none none reverse',
       },
     })
@@ -429,12 +430,33 @@ onUnmounted(() => {
   inset-block: 0;
   left: calc(-1 * (var(--layout-column) + var(--layout-gutter)));
   width: var(--layout-span-4);
-  border-radius: var(--radius-surface);
+  overflow: hidden;
+  border-radius: var(--flow-surface-radius, 12px);
   background: var(--palette-stone);
 }
 
 .work-formats__surface.is-surface-ready {
   background: transparent;
+}
+
+.work-formats__surface[data-flow-surface-proxy-active] {
+  background: var(--palette-stone);
+}
+
+.work-formats__surface::after {
+  position: absolute;
+  inset: 0;
+  background-image: var(--home-surface-grain);
+  background-position: 0 0;
+  background-repeat: repeat;
+  background-size: 56px 56px;
+  content: '';
+  mix-blend-mode: overlay;
+  opacity: 0;
+}
+
+.work-formats__surface[data-flow-surface-proxy-active]::after {
+  opacity: 0.22;
 }
 
 .work-formats__list {

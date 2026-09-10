@@ -1215,6 +1215,7 @@ onUnmounted(() => {
       <NuxtLink
         v-if="mobileScrollMarkVisible && !canvasSurface"
         to="/"
+        data-home-top
         class="mobile-scroll-mark pointer-events-auto"
         :class="{ 'mobile-scroll-mark--inverted': mobileScrollMarkInverted }"
         :style="fabStyle"
