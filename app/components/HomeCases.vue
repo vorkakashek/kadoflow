@@ -1503,6 +1503,7 @@ onBeforeUnmount(() => {
             ref="mediaEl"
             class="cases-media"
             :data-case-media="activeCase.media.src"
+            :data-case-surface-ready="caseSurfaceReady ? '' : undefined"
             :class="[
               `cases-media--${activeCase.media.orientation ?? 'portrait'}`,
               { 'cases-media--video': !!activeCase.media.video },
@@ -2417,11 +2418,13 @@ onBeforeUnmount(() => {
   mix-blend-mode: overlay;
 }
 
-.cases-media[data-flow-surface-proxy-active]::before {
+.cases-media[data-flow-surface-proxy-active]::before,
+.cases-media[data-case-surface-ready]::before {
   opacity: 1;
 }
 
-.cases-media[data-flow-surface-proxy-active]::after {
+.cases-media[data-flow-surface-proxy-active]::after,
+.cases-media[data-case-surface-ready]::after {
   opacity: 0.22;
 }
 
@@ -2519,6 +2522,17 @@ onBeforeUnmount(() => {
 
 .cases-media__local--visible .cases-media__layer {
   clip-path: inset(0 0 0 0);
+}
+
+@media (max-width: 767.98px) {
+  .cases-media__local {
+    transition-duration: 0.28s;
+  }
+
+  .cases-media__layer {
+    transition-delay: 0.15s;
+    transition-duration: 1.24s;
+  }
 }
 
 .cases-media__local--return-docked .cases-media__layer {

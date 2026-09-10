@@ -155,6 +155,7 @@ defineExpose({ rootEl, surfaceEl, titleEl })
   inset: 0;
   color: var(--palette-sand);
   clip-path: var(--about-title-clip);
+  opacity: var(--about-title-inverse-opacity, 1);
   pointer-events: none;
   will-change: clip-path;
 }

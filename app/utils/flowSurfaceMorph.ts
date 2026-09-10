@@ -258,6 +258,35 @@ export type CorridorWaypoint = {
   pose: () => SurfaceBox | null
 }
 
+export type ScrollCorridorRange<Id extends string = string> = {
+  id: Id
+  start: number
+  end: number
+}
+
+/**
+ * Map document scroll to one continuous segment clock.
+ *
+ * Each range owns one morph segment. Gaps between ranges are intentional holds
+ * at the preceding waypoint. The caller decides whether the returned clock is
+ * rendered directly (native touch) or followed with bounded velocity.
+ */
+export function scrollTargetFromCorridor(
+  scrollY: number,
+  ranges: readonly ScrollCorridorRange[],
+): number {
+  for (let index = 0; index < ranges.length; index += 1) {
+    const range = ranges[index]!
+    if (scrollY < range.start) return index
+    if (scrollY <= range.end) {
+      const span = Math.max(1, range.end - range.start)
+      const progress = Math.min(1, Math.max(0, (scrollY - range.start) / span))
+      return index + progress
+    }
+  }
+  return ranges.length
+}
+
 export type ContinuousLagOptions = {
   lag: number
   /** Max units/sec (e.g. 3.0 segments/sec) — guarantees sweeping through waypoints on fast fling */

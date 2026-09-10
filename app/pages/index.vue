@@ -72,6 +72,13 @@ onMounted(() => {
       <HomeCases ref="cases" />
       <HomeFormats ref="formats" :surface-ready="surfaceReady" />
       <HomeAbout ref="about" :surface-ready="surfaceReady" />
+      <section class="home-scroll-tail" aria-hidden="true" />
     </main>
   </div>
 </template>
+
+<style scoped>
+.home-scroll-tail {
+  min-height: 150svh;
+}
+</style>
