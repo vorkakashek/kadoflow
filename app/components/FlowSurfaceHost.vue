@@ -125,14 +125,16 @@ const MOBILE_SCRUB_BRIDGE_MAX_VELOCITY = 4.5
 const MOBILE_KADO_MORPH_SPAN_VH = 0.18
 const MOBILE_KADO_HOLD_VH = 0.18
 const MOBILE_WORD_MORPH_SPAN_VH = 0.24
-const MOBILE_WORD_HOLD_VH = 0.28
+const MOBILE_WORD_HOLD_VH = 0.12
 /** Minimum finger travel for Kadoflow → Projects; prevents a near-zero span. */
 const MOBILE_CASE_SCROLL_SPAN_VH = 0.62
 /** Scroll runway where case media exits while the Surface remains parked. */
 const MOBILE_CASE_MEDIA_EXIT_SPAN_VH = 0.24
+/** Let Formats enter the lower viewport after the project raster has left. */
+const MOBILE_CASE_SURFACE_HOLD_VH = 0.24
 /** Tail morphs must never collapse to a one-pixel range after layout shifts. */
 const MOBILE_FORMATS_SCROLL_SPAN_VH = 0.62
-const MOBILE_ABOUT_SCROLL_SPAN_VH = 0.65
+const MOBILE_ABOUT_SCROLL_SPAN_VH = 0.3
 /** Mobile Biography reaches its dark tone before the geometry finishes. */
 const MOBILE_ABOUT_TONE_END_P = 0.45
 /** Preserve descenders that extend below the heading's tight line box. */
@@ -560,9 +562,11 @@ function captureMobileScrollBounds() {
   const wordDoc = readDocBox(pinSlot('word')) ?? readDocBox(props.wordEl) ?? lastWordDoc
   const caseDoc = readDocBox(props.caseMediaEl) ?? lastCaseDoc
   const caseSectionDoc = readDocBox(props.caseSectionEl)
-  const formatsDoc = readDocBox(props.formatsSurfaceEl) ?? lastFormatsDoc
-  const formatsListDoc = readDocBox(formatsListElement())
-  const aboutDoc = readDocBox(props.aboutSurfaceEl)
+  const formatsSectionDocRaw = readDocBox(props.formatsSectionEl)
+  const formatsDocRaw = readDocBox(props.formatsSurfaceEl) ?? lastFormatsDoc
+  const formatsListDocRaw = readDocBox(formatsListElement())
+  const aboutSectionDocRaw = readDocBox(props.aboutSectionEl)
+  const aboutDocRaw = readDocBox(props.aboutSurfaceEl)
   if (
     !stoneMark
     || !stoneDoc
@@ -570,13 +574,32 @@ function captureMobileScrollBounds() {
     || !wordDoc
     || !caseDoc
     || !caseSectionDoc
-    || !formatsDoc
-    || !formatsListDoc
-    || !aboutDoc
+    || !formatsSectionDocRaw
+    || !formatsDocRaw
+    || !formatsListDocRaw
+    || !aboutSectionDocRaw
+    || !aboutDocRaw
   ) {
     mobileScrollBounds = null
     return false
   }
+
+  // HomeCases removes this spacer as the project leaves. Capture every later
+  // waypoint in its final document position now; otherwise Formats/About keep
+  // stale pre-collapse coordinates and fire hundreds of pixels too late.
+  const collapsingTail = props.caseSectionEl?.querySelector<HTMLElement>(
+    '.cases-stage__mobile-tail',
+  )
+  const collapsingTailHeight = readBox(collapsingTail)?.height ?? 0
+  const afterCaseCollapse = (box: SurfaceBox): SurfaceBox => ({
+    ...box,
+    top: box.top - collapsingTailHeight,
+  })
+  const formatsSectionDoc = afterCaseCollapse(formatsSectionDocRaw)
+  const formatsDoc = afterCaseCollapse(formatsDocRaw)
+  const formatsListDoc = afterCaseCollapse(formatsListDocRaw)
+  const aboutSectionDoc = afterCaseCollapse(aboutSectionDocRaw)
+  const aboutDoc = afterCaseCollapse(aboutDocRaw)
 
   const viewportHeight = stableMobileTriggerViewportHeight()
   const termStart = scrubEndY
@@ -596,7 +619,7 @@ function captureMobileScrollBounds() {
     viewportHeight * MOBILE_WORD_MORPH_SPAN_VH,
   )
   const caseStart = Math.max(
-    wordDoc.top - viewportHeight * 0.3,
+    wordDoc.top - viewportHeight * 0.45,
     wordEnd + viewportHeight * MOBILE_WORD_HOLD_VH,
   )
   const caseEnd = Math.max(
@@ -608,30 +631,37 @@ function captureMobileScrollBounds() {
     viewportHeight * MOBILE_CASE_MEDIA_EXIT_SPAN_VH,
   )
   const caseMediaEnd = caseEnd + caseMediaExitSpan
-  // Exact user-defined tail markers: down starts at case-photo centre/top;
-  // up starts reversing when formats-list top + 200px reaches viewport bottom.
+  // Down begins just before Formats enters the bottom of the screen.
+  // The old case-photo centre/top marker fired only after the next section was
+  // already well underway. Keep the accepted upward marker on the list itself.
   const formatsMediaStart = Math.max(
     caseMediaEnd,
-    caseDoc.top + caseDoc.height * 0.5,
+    formatsSectionDoc.top - viewportHeight * 1.1,
   )
-  const formatsStart = formatsMediaStart + caseMediaExitSpan
+  const formatsSurfaceHold = Math.max(
+    56,
+    viewportHeight * MOBILE_CASE_SURFACE_HOLD_VH,
+  )
+  const formatsStart = formatsMediaStart + formatsSurfaceHold
   const formatsEnd = Math.max(
     formatsStart + viewportHeight * MOBILE_FORMATS_SCROLL_SPAN_VH,
     formatsListDoc.top + MOBILE_FORMATS_REVERSE_OFFSET_PX - viewportHeight,
   )
-  // Finish exactly when the real Biography slot reaches the same top inset as
-  // the settled Formats panel. The previous section-based endpoint left the
-  // calculated target far below its DOM slot, then reconciled much later.
-  const aboutSettleTop = Math.max(8, formatsDoc.left)
+  // Hand Biography to its DOM slot while the section is still entering. From
+  // then on the dark plate scrolls with the title/photo instead of lingering as
+  // the full-viewport Formats panel and snapping to the slot much later.
+  const aboutStart = Math.max(
+    formatsEnd,
+    aboutSectionDoc.top - viewportHeight,
+  )
   const aboutSpan = Math.max(
     1,
     viewportHeight * MOBILE_ABOUT_SCROLL_SPAN_VH,
   )
   const aboutEnd = Math.max(
-    formatsEnd + aboutSpan,
-    aboutDoc.top - aboutSettleTop,
+    aboutStart + aboutSpan,
+    aboutSectionDoc.top - viewportHeight * 0.7,
   )
-  const aboutStart = aboutEnd - aboutSpan
 
   mobileScrollBounds = {
     termStart,
@@ -1789,7 +1819,15 @@ function paintMobileScrollCorridor(
       setCaseMediaVisible(mediaVisible)
       return
     }
-    if (scrollY >= bounds.aboutEnd) {
+    const aboutProxyParked = proxyKind === 'about'
+      && proxyHost === props.aboutSurfaceEl
+    if (
+      scrollY >= bounds.aboutEnd
+      || (
+        aboutProxyParked
+        && scrollY >= bounds.aboutEnd - MOBILE_TAIL_TRIGGER_HYSTERESIS_PX
+      )
+    ) {
       mobileCaseProgress = 1
       mobileCaseArrived = false
       mobileFormatsProgress = 1

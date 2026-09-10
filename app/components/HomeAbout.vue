@@ -6,6 +6,193 @@ const surfaceEl = ref<HTMLElement | null>(null)
 const titleEl = ref<HTMLElement | null>(null)
 
 defineExpose({ rootEl, surfaceEl, titleEl })
+
+let mobileMedia: MediaQueryList | null = null
+let reducedMotionMedia: MediaQueryList | null = null
+let biographyMotionCtx: { revert: () => void } | null = null
+let biographyMotionObservers: IntersectionObserver[] = []
+
+function clearBiographyMotion() {
+  biographyMotionObservers.forEach(observer => observer.disconnect())
+  biographyMotionObservers = []
+  biographyMotionCtx?.revert()
+  biographyMotionCtx = null
+}
+
+async function setupBiographyMotion() {
+  clearBiographyMotion()
+
+  const root = rootEl.value
+  if (!root) return
+
+  const gsap = (await import('gsap')).default
+  const { ScrollTrigger } = await import('gsap/ScrollTrigger')
+  gsap.registerPlugin(ScrollTrigger)
+
+  const isMobile = !!mobileMedia?.matches
+  const reducedMotion = !!reducedMotionMedia?.matches
+  const title = titleEl.value
+  const baseTitleLines = Array.from(
+    root.querySelectorAll<HTMLElement>('.home-about__title-copy:not(.home-about__title-copy--inverse) .home-about__title-line-text'),
+  )
+  const inverseTitleLines = Array.from(
+    root.querySelectorAll<HTMLElement>('.home-about__title-copy--inverse .home-about__title-line-text'),
+  )
+  const titleLines = [...baseTitleLines, ...inverseTitleLines]
+  const portrait = root.querySelector<HTMLElement>('.home-about__portrait')
+  const portraitPicture = portrait?.querySelector<HTMLElement>('picture') ?? null
+  const portraitImage = portrait?.querySelector<HTMLElement>('img') ?? null
+  const metaLines = Array.from(
+    root.querySelectorAll<HTMLElement>('.home-about__meta > span'),
+  )
+  const copy = root.querySelector<HTMLElement>('.home-about__copy')
+  const copyTitle = copy?.querySelector<HTMLElement>('h3 > span') ?? null
+  const paragraphs = Array.from(copy?.querySelectorAll<HTMLElement>('p') ?? [])
+  const animatedElements = [
+    ...titleLines,
+    ...(portraitPicture ? [portraitPicture] : []),
+    ...(portraitImage ? [portraitImage] : []),
+    ...metaLines,
+    ...(copyTitle ? [copyTitle] : []),
+    ...paragraphs,
+  ]
+
+  if (reducedMotion) {
+    gsap.set(animatedElements, { clearProps: 'all' })
+    return
+  }
+
+  const observeTimeline = (
+    trigger: HTMLElement,
+    timeline: ReturnType<typeof gsap.timeline>,
+  ) => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return
+        if (entry.isIntersecting || entry.boundingClientRect.top < 0) timeline.play()
+        else timeline.reverse()
+      },
+      { rootMargin: '0px 0px -8% 0px', threshold: 0 },
+    )
+    observer.observe(trigger)
+    biographyMotionObservers.push(observer)
+  }
+
+  biographyMotionCtx = gsap.context(() => {
+    if (title && titleLines.length) {
+      gsap.set(titleLines, { yPercent: 115 })
+      const titleReveal = gsap.timeline({
+        paused: isMobile,
+        scrollTrigger: isMobile
+          ? undefined
+          : {
+              trigger: title,
+              start: 'top 88%',
+              toggleActions: 'play none none reverse',
+            },
+      })
+
+      baseTitleLines.forEach((line, index) => {
+        const pair = [line, inverseTitleLines[index]].filter(
+          (element): element is HTMLElement => !!element,
+        )
+        titleReveal.to(pair, {
+          yPercent: 0,
+          duration: isMobile ? 0.76 : 1,
+          ease: 'power4.out',
+        }, index * (isMobile ? 0.08 : 0.12))
+      })
+
+      if (isMobile) observeTimeline(title, titleReveal)
+    }
+
+    if (portrait && portraitPicture && portraitImage) {
+      gsap.set(portraitPicture, { clipPath: 'inset(100% 0 0 0)' })
+      gsap.set(portraitImage, { scale: 1.075 })
+      gsap.set(metaLines, { autoAlpha: 0, y: 18 })
+
+      const portraitReveal = gsap.timeline({
+        paused: isMobile,
+        scrollTrigger: isMobile
+          ? undefined
+          : {
+              trigger: portrait,
+              start: 'top 88%',
+              toggleActions: 'play none none reverse',
+            },
+      })
+      portraitReveal
+        .to(portraitPicture, {
+          clipPath: 'inset(0% 0 0 0)',
+          duration: isMobile ? 0.9 : 1.15,
+          ease: 'power4.inOut',
+        }, 0)
+        .to(portraitImage, {
+          scale: 1,
+          duration: isMobile ? 1.05 : 1.3,
+          ease: 'power3.out',
+        }, 0.08)
+        .to(metaLines, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.62,
+          stagger: 0.08,
+          ease: 'power3.out',
+        }, isMobile ? 0.48 : 0.62)
+
+      if (isMobile) observeTimeline(portrait, portraitReveal)
+    }
+
+    if (copy && copyTitle) {
+      gsap.set(copyTitle, { yPercent: 115 })
+      gsap.set(paragraphs, { autoAlpha: 0, y: isMobile ? 30 : 24 })
+
+      const copyReveal = gsap.timeline({
+        paused: isMobile,
+        scrollTrigger: isMobile
+          ? undefined
+          : {
+              trigger: copy,
+              start: 'top 86%',
+              toggleActions: 'play none none reverse',
+            },
+      })
+      copyReveal
+        .to(copyTitle, {
+          yPercent: 0,
+          duration: 0.78,
+          ease: 'power4.out',
+        }, 0)
+        .to(paragraphs, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.76,
+          stagger: 0.16,
+          ease: 'power3.out',
+        }, 0.18)
+
+      if (isMobile) observeTimeline(copy, copyReveal)
+    }
+  }, root)
+}
+
+async function onMotionMediaChange() {
+  await setupBiographyMotion()
+}
+
+onMounted(async () => {
+  mobileMedia = window.matchMedia('(max-width: 767.98px)')
+  reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
+  mobileMedia.addEventListener('change', onMotionMediaChange)
+  reducedMotionMedia.addEventListener('change', onMotionMediaChange)
+  await setupBiographyMotion()
+})
+
+onUnmounted(() => {
+  clearBiographyMotion()
+  mobileMedia?.removeEventListener('change', onMotionMediaChange)
+  reducedMotionMedia?.removeEventListener('change', onMotionMediaChange)
+})
 </script>
 
 <template>
@@ -30,15 +217,15 @@ defineExpose({ rootEl, surfaceEl, titleEl })
           class="home-about__title"
         >
           <span class="home-about__title-copy">
-            <span>Личный взгляд.</span>
-            <span>Цельный результат.</span>
+            <span class="home-about__title-line"><span class="home-about__title-line-text">Личный взгляд.</span></span>
+            <span class="home-about__title-line"><span class="home-about__title-line-text">Цельный результат.</span></span>
           </span>
           <span
             class="home-about__title-copy home-about__title-copy--inverse"
             aria-hidden="true"
           >
-            <span>Личный взгляд.</span>
-            <span>Цельный результат.</span>
+            <span class="home-about__title-line"><span class="home-about__title-line-text">Личный взгляд.</span></span>
+            <span class="home-about__title-line"><span class="home-about__title-line-text">Цельный результат.</span></span>
           </span>
         </h2>
 
@@ -71,7 +258,7 @@ defineExpose({ rootEl, surfaceEl, titleEl })
       </div>
 
       <div class="home-about__copy">
-        <h3>Обо мне</h3>
+        <h3><span>Обо мне</span></h3>
         <p>
           Меня зовут Антон. Я дизайнер и разработчик, основатель КАДОФЛОУ.
           Лично веду ключевые этапы проекта: разбираюсь в задаче, формирую
@@ -128,6 +315,14 @@ defineExpose({ rootEl, surfaceEl, titleEl })
   background: transparent;
 }
 
+.home-about__surface[data-flow-surface-proxy-active] {
+  background: var(--palette-ink);
+}
+
+.home-about__surface[data-flow-surface-proxy-active] + .home-about__title {
+  color: var(--palette-sand);
+}
+
 .home-about__title {
   --about-title-clip: inset(0 100% 0 0);
   position: relative;
@@ -147,7 +342,13 @@ defineExpose({ rootEl, surfaceEl, titleEl })
 }
 
 .home-about__title-copy > span {
+  overflow: hidden;
   white-space: nowrap;
+}
+
+.home-about__title-line-text {
+  display: inline-block;
+  will-change: transform;
 }
 
 .home-about__title-copy--inverse {
@@ -177,8 +378,14 @@ defineExpose({ rootEl, surfaceEl, titleEl })
   width: 100%;
 }
 
+.home-about__portrait picture {
+  will-change: clip-path;
+}
+
 .home-about__portrait img {
   height: auto;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .home-about__meta {
@@ -201,11 +408,17 @@ defineExpose({ rootEl, surfaceEl, titleEl })
 }
 
 .home-about__copy h3 {
+  overflow: hidden;
   margin: 0 0 clamp(1.75rem, 2.5vw, 2.75rem);
   font-size: var(--type-slogan);
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1;
+}
+
+.home-about__copy h3 > span {
+  display: inline-block;
+  will-change: transform;
 }
 
 .home-about__copy p {
@@ -274,6 +487,13 @@ defineExpose({ rootEl, surfaceEl, titleEl })
   }
 
   .home-about__title-copy--inverse {
+    will-change: auto;
+  }
+
+  .home-about__title-line-text,
+  .home-about__portrait picture,
+  .home-about__portrait img,
+  .home-about__copy h3 > span {
     will-change: auto;
   }
 }

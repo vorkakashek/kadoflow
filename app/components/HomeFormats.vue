@@ -151,14 +151,22 @@ let hoverMedia: MediaQueryList | null = null
 let mobileThumbMedia: MediaQueryList | null = null
 let reducedMotionMedia: MediaQueryList | null = null
 let reducedMotion = false
-let titleMotionCtx: { revert: () => void } | null = null
+let entranceMotionCtx: { revert: () => void } | null = null
+let entranceMotionObservers: IntersectionObserver[] = []
 
-async function setupTitleMotion() {
-  titleMotionCtx?.revert()
-  titleMotionCtx = null
+function clearEntranceMotion() {
+  entranceMotionObservers.forEach(observer => observer.disconnect())
+  entranceMotionObservers = []
+  entranceMotionCtx?.revert()
+  entranceMotionCtx = null
+}
 
+async function setupEntranceMotion() {
+  clearEntranceMotion()
+
+  const root = rootEl.value
   const header = headerEl.value
-  if (!header) return
+  if (!root || !header) return
 
   const gsap = (await import('gsap')).default
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
@@ -168,24 +176,150 @@ async function setupTitleMotion() {
     header.querySelectorAll<HTMLElement>('.work-formats__title-char'),
   )
   const title = header.querySelector<HTMLElement>('.work-formats__title')
-  if (!chars.length) return
+  const intro = header.querySelector<HTMLElement>('.work-formats__intro')
+  const items = Array.from(
+    root.querySelectorAll<HTMLElement>('.work-formats__item'),
+  )
+  const animatedElements = [
+    ...chars,
+    ...(intro ? [intro] : []),
+    ...items.flatMap(item => Array.from(
+      item.querySelectorAll<HTMLElement>(
+        '.work-formats__number-text, .work-formats__name-text, .work-formats__description, .work-formats__thumb-slot, .work-formats__thumb img',
+      ),
+    )),
+  ]
+
   if (reducedMotion) {
-    gsap.set(chars, { clearProps: 'transform' })
+    gsap.set(animatedElements, { clearProps: 'all' })
+    gsap.set(items, { clearProps: '--work-formats-divider-scale' })
     return
   }
 
-  titleMotionCtx = gsap.context(() => {
-    gsap.set(chars, { yPercent: 115 })
-    gsap.to(chars, {
-      yPercent: 0,
-      duration: 1.1,
-      stagger: 0.055,
-      ease: 'power4.out',
-      scrollTrigger: {
-        trigger: title ?? header,
-        start: 'center bottom',
-        toggleActions: 'play none none reverse',
+  const observeTimeline = (
+    trigger: HTMLElement,
+    timeline: ReturnType<typeof gsap.timeline>,
+  ) => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return
+        if (entry.isIntersecting || entry.boundingClientRect.top < 0) timeline.play()
+        else timeline.reverse()
       },
+      { rootMargin: '0px 0px -8% 0px', threshold: 0 },
+    )
+    observer.observe(trigger)
+    entranceMotionObservers.push(observer)
+  }
+
+  entranceMotionCtx = gsap.context(() => {
+    if (chars.length) {
+      gsap.set(chars, { yPercent: 115 })
+      if (intro) gsap.set(intro, { autoAlpha: 0, y: 24 })
+
+      const headerReveal = gsap.timeline({
+        paused: mobileThumbsEnabled.value,
+        scrollTrigger: mobileThumbsEnabled.value
+          ? undefined
+          : {
+              trigger: title ?? header,
+              start: 'center bottom',
+              toggleActions: 'play none none reverse',
+            },
+      })
+      headerReveal.to(chars, {
+        yPercent: 0,
+        duration: mobileThumbsEnabled.value ? 0.72 : 1.1,
+        stagger: mobileThumbsEnabled.value ? 0.025 : 0.055,
+        ease: 'power4.out',
+      })
+      if (intro) {
+        headerReveal.to(intro, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.72,
+          ease: 'power3.out',
+        }, mobileThumbsEnabled.value ? 0.16 : 0.3)
+      }
+
+      if (mobileThumbsEnabled.value) {
+        observeTimeline(title ?? header, headerReveal)
+      }
+    }
+
+    items.forEach((item, index) => {
+      const number = item.querySelector<HTMLElement>('.work-formats__number-text')
+      const name = item.querySelector<HTMLElement>('.work-formats__name-text')
+      const description = item.querySelector<HTMLElement>('.work-formats__description')
+      const thumb = item.querySelector<HTMLElement>('.work-formats__thumb-slot')
+      const thumbImage = item.querySelector<HTMLElement>('.work-formats__thumb img')
+      const copyTargets = [number, name, description].filter(
+        (element): element is HTMLElement => !!element,
+      )
+
+      gsap.set(copyTargets, { autoAlpha: 0, y: mobileThumbsEnabled.value ? 30 : 22 })
+      if (index > 0) gsap.set(item, { '--work-formats-divider-scale': 0 })
+      if (thumb) gsap.set(thumb, { clipPath: 'inset(0 0 100% 0)' })
+      if (thumbImage) gsap.set(thumbImage, { scale: 1.08 })
+
+      const itemReveal = gsap.timeline({
+        paused: mobileThumbsEnabled.value,
+        defaults: { ease: 'power3.out' },
+        scrollTrigger: mobileThumbsEnabled.value
+          ? undefined
+          : {
+              trigger: item,
+              start: 'top 88%',
+              toggleActions: 'play none none reverse',
+            },
+      })
+
+      if (index > 0) {
+        itemReveal.to(item, {
+          '--work-formats-divider-scale': 1,
+          duration: 0.7,
+          ease: 'power2.out',
+        }, 0)
+      }
+      if (thumb) {
+        itemReveal.to(thumb, {
+          clipPath: 'inset(0 0 0% 0)',
+          duration: 0.88,
+          ease: 'power4.inOut',
+        }, 0)
+      }
+      if (thumbImage) {
+        itemReveal.to(thumbImage, {
+          scale: 1,
+          duration: 1.05,
+          ease: 'power3.out',
+        }, 0.08)
+      }
+      if (number) {
+        itemReveal.to(number, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.58,
+        }, mobileThumbsEnabled.value ? 0.12 : 0.04)
+      }
+      if (name) {
+        itemReveal.to(name, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.72,
+        }, mobileThumbsEnabled.value ? 0.2 : 0.1)
+      }
+      if (description) {
+        itemReveal.to(description, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.68,
+        }, mobileThumbsEnabled.value ? 0.3 : 0.2)
+      }
+
+      if (mobileThumbsEnabled.value) {
+        observeTimeline(item, itemReveal)
+      }
     })
   }, header)
 }
@@ -195,6 +329,12 @@ function syncHoverPreviewMode() {
   mobileThumbsEnabled.value = !!mobileThumbMedia?.matches
   reducedMotion = !!reducedMotionMedia?.matches
   if (!hoverPreviewEnabled.value) previewVisible.value = false
+}
+
+async function onMotionMediaChange() {
+  syncHoverPreviewMode()
+  await nextTick()
+  await setupEntranceMotion()
 }
 
 watch(
@@ -218,19 +358,18 @@ onMounted(async () => {
   reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)')
   syncHoverPreviewMode()
   hoverMedia.addEventListener('change', syncHoverPreviewMode)
-  mobileThumbMedia.addEventListener('change', syncHoverPreviewMode)
-  reducedMotionMedia.addEventListener('change', syncHoverPreviewMode)
+  mobileThumbMedia.addEventListener('change', onMotionMediaChange)
+  reducedMotionMedia.addEventListener('change', onMotionMediaChange)
   window.addEventListener('resize', measurePreview, { passive: true })
-  await setupTitleMotion()
+  await setupEntranceMotion()
 })
 
 onUnmounted(() => {
-  titleMotionCtx?.revert()
-  titleMotionCtx = null
+  clearEntranceMotion()
   if (frame) cancelAnimationFrame(frame)
   hoverMedia?.removeEventListener('change', syncHoverPreviewMode)
-  mobileThumbMedia?.removeEventListener('change', syncHoverPreviewMode)
-  reducedMotionMedia?.removeEventListener('change', syncHoverPreviewMode)
+  mobileThumbMedia?.removeEventListener('change', onMotionMediaChange)
+  reducedMotionMedia?.removeEventListener('change', onMotionMediaChange)
   window.removeEventListener('resize', measurePreview)
 })
 </script>
@@ -313,7 +452,9 @@ onUnmounted(() => {
                 </picture>
               </span>
               <span class="work-formats__marker">
-                <span class="work-formats__number">{{ String(index + 1).padStart(3, '0') }}</span>
+                <span class="work-formats__number">
+                  <span class="work-formats__number-text">{{ String(index + 1).padStart(3, '0') }}</span>
+                </span>
                 <span class="work-formats__arrow" aria-hidden="true">
                   <svg viewBox="0 0 40 40" fill="none">
                     <path d="M5 20h27M23 10l10 10-10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -481,8 +622,16 @@ onUnmounted(() => {
   z-index: 40;
 }
 
-.work-formats__item + .work-formats__item {
-  border-top: 1px solid color-mix(in srgb, var(--palette-ink) 18%, transparent);
+.work-formats__item + .work-formats__item::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--palette-ink) 18%, transparent);
+  content: '';
+  transform: scaleX(var(--work-formats-divider-scale, 1));
+  transform-origin: left center;
 }
 
 .work-formats__list.has-active .work-formats__item:not(.is-active):not(:focus-within) {
@@ -555,11 +704,16 @@ onUnmounted(() => {
 }
 
 .work-formats__name {
+  overflow: hidden;
   margin: 0;
   font-size: var(--type-slogan);
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1.1;
+}
+
+.work-formats__name-text {
+  display: inline-block;
 }
 
 .work-formats__number {
@@ -572,6 +726,10 @@ onUnmounted(() => {
   line-height: 1.2;
   opacity: 1;
   transform: translateX(0);
+}
+
+.work-formats__number-text {
+  display: inline-block;
 }
 
 .work-formats__description {
@@ -612,6 +770,12 @@ onUnmounted(() => {
 
 .work-formats__picture img {
   object-fit: cover;
+  transform: scale(1.045);
+  transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.work-formats__preview.is-visible .work-formats__picture img {
+  transform: scale(1);
 }
 
 @media (min-width: 768px) {
@@ -730,6 +894,7 @@ onUnmounted(() => {
   }
 
   .work-formats__name-text {
+    display: block;
     grid-column: 1 / -1;
     grid-row: 2;
     margin-top: calc(var(--space-2) * 0.5);
@@ -761,6 +926,11 @@ onUnmounted(() => {
   .work-formats__number,
   .work-formats__arrow,
   .work-formats__preview {
+    transition: none;
+  }
+
+  .work-formats__picture img {
+    transform: none;
     transition: none;
   }
 }

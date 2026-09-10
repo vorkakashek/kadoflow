@@ -2530,6 +2530,13 @@ onBeforeUnmount(() => {
   }
 
   .cases-media__layer {
+    /* On exit the outer wrapper owns the fade. Reset the hidden clip only
+       after opacity reaches zero, so slide and fade never run together. */
+    transition-delay: 0.28s;
+    transition-duration: 0s;
+  }
+
+  :where(.cases-media__local--visible) .cases-media__layer {
     transition-delay: 0.15s;
     transition-duration: 1.24s;
   }
