@@ -2,7 +2,7 @@
  * Global brand preloader gate — scene asset progress + ready flags.
  * Displayed % is time-smoothed; never snaps to 99 until the exit beat asks for it.
  */
-const SEEN_KEY = 'kf-preload-seen'
+const SEEN_KEY = 'kadonext-preload-seen'
 
 const rawProgress = ref(0)
 const displayProgress = ref(0)

@@ -3,10 +3,10 @@
  * Home — «Кадо́ — путь цветов.»
  * Grid: empty col 1 & 12 · photo cols 2–6 · text cols 7–11.
  * Body: line-by-line ash→ink fill on scroll (1.5× type).
- * Mobile surface waypoints: stone → term → Kadoflow word → center square
- * (square hop starts when Kadoflow hits top 20%).
+ * Mobile surface waypoints: stone → term → Kado word → center square
+ * (square hop starts when Kado hits top 20%).
  */
-const BRAND = 'Kadoflow'
+const BRAND = 'Kado'
 const { t } = useI18n()
 const bodyText = computed(() => t('home.kado.body'))
 /** Scroll lag for the whole fill timeline. */
@@ -22,8 +22,8 @@ const surfaceTarget = ref<HTMLElement | null>(null)
 const stoneEl = ref<HTMLElement | null>(null)
 /** Title + phonetic block — mobile waypoint after stone. */
 const termTarget = ref<HTMLElement | null>(null)
-/** First word “Kadoflow” — mobile waypoint with pad (set after line-fill build). */
-const kadoflowWord = ref<HTMLElement | null>(null)
+/** First word “Kado” — mobile waypoint with pad (set after line-fill build). */
+const kadoWord = ref<HTMLElement | null>(null)
 const topFocusEl = ref<HTMLElement | null>(null)
 const bodyFocusEl = ref<HTMLElement | null>(null)
 const bodyEl = ref<HTMLElement | null>(null)
@@ -36,7 +36,7 @@ defineExpose({
   surfaceTarget,
   stoneEl,
   termTarget,
-  kadoflowWord,
+  kadoWord,
   bodyFocusEl,
 })
 
@@ -140,7 +140,7 @@ function buildLineFill(host: HTMLElement): HTMLElement[] {
       label.textContent = BRAND
       wrap.append(pin, label)
       row.appendChild(wrap)
-      kadoflowWord.value = wrap
+      kadoWord.value = wrap
       lineText = lineText.slice(BRAND.length).replace(/^\s+/, '')
       // Explicit space node — leading space inside the next span can collapse.
       if (lineText.length) row.appendChild(document.createTextNode(' '))
@@ -199,7 +199,7 @@ async function setupLineFill(force = false) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     host.textContent = bodyText.value
     host.style.color = 'var(--palette-ink)'
-    kadoflowWord.value = null
+    kadoWord.value = null
     return
   }
 
@@ -696,7 +696,7 @@ onUnmounted(() => {
 
 @media (min-width: 768px) {
   .kado {
-    --kado-flow-compensation: 8svh;
+    --kado-word-compensation: 8svh;
 
     display: flex;
     min-height: var(--app-screen);
@@ -721,7 +721,7 @@ onUnmounted(() => {
 @media (min-width: 768px) and (prefers-reduced-motion: no-preference) {
   .kado {
     /* The slower copy column owns the visual bottom edge of the section. */
-    margin-bottom: calc(-1 * var(--kado-flow-compensation));
+    margin-bottom: calc(-1 * var(--kado-word-compensation));
   }
 }
 

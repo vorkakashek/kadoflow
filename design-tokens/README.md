@@ -1,10 +1,10 @@
-# Kadoflow design tokens
+# Kado design tokens
 
 Машинный источник размеров и цветов. **Документация для людей:** [`docs/kado/`](../docs/kado/index.md).
 
 ## Файлы
 
-- `kadoflow-colors-light.json` / `kadoflow-colors-inverse.json` — DTCG цвета (Figma Variables);
+- `kado-colors-light.json` / `kado-colors-inverse.json` — DTCG цвета (Figma Variables);
 - `responsive.json` — кусочный fluid (`390 → 768 → 1280 → 1440 → 1920 → 2560`), база **8dp** / type **4**.
 
 Генерация:

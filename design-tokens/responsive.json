@@ -1,5 +1,5 @@
 {
-  "$description": "Kadoflow piecewise fluid on an 8dp base. Control-point values are multiples of 8 (layout/space) or 4 (type half-step). Between viewports clamp() interpolates freely. Soft decelerating continue after 1440 → 1920 → 2560. Column width is derived in CSS. Surface-top = 2×header-inset + header-content.",
+  "$description": "Kado piecewise fluid on an 8dp base. Control-point values are multiples of 8 (layout/space) or 4 (type half-step). Between viewports clamp() interpolates freely. Soft decelerating continue after 1440 → 1920 → 2560. Column width is derived in CSS. Surface-top = 2×header-inset + header-content.",
   "viewports": [390, 768, 1280, 1440, 1920, 2560],
   "scale": {
     "space": 8,

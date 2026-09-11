@@ -92,7 +92,7 @@ async function capturePass(spec) {
   })
   const page = await context.newPage()
   await page.addInitScript(() => {
-    localStorage.setItem('kf-preload-seen', '1')
+    localStorage.setItem('kadonext-preload-seen', '1')
   })
 
   for (const item of pages) {

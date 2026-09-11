@@ -109,7 +109,7 @@ export default defineNuxtConfig({
         {
           key: 'preload-warm',
           innerHTML:
-            "try{if(localStorage.getItem('kf-preload-seen')==='1')document.documentElement.setAttribute('data-preload-warm','1')}catch(e){}",
+            "try{if(localStorage.getItem('kadonext-preload-seen')==='1')document.documentElement.setAttribute('data-preload-warm','1')}catch(e){}",
           tagPosition: 'head',
         },
       ],

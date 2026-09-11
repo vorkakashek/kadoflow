@@ -96,7 +96,7 @@ const CASE_MEDIA_REVEAL_START_P = 0.76
 const CASE_MEDIA_EXIT_END_P = 0.48
 /** Keep the parked stone plate safely inside the project raster on every DPR. */
 const CASE_MEDIA_SURFACE_INSET_PX = 1
-/** Kadoflow → Cases forward handoff and Cases → Kadoflow return marker. */
+/** Kado → Cases forward handoff and Cases → Kado return marker. */
 const MOBILE_CASE_HOP_FORWARD = 'top 30%'
 const MOBILE_CASE_HOP_REVERSE = 'top 90%'
 const MOBILE_CASE_HOP_DURATION = 0.9
@@ -128,7 +128,7 @@ const MOBILE_KADO_MORPH_SPAN_VH = 0.18
 const MOBILE_KADO_HOLD_VH = 0.18
 const MOBILE_WORD_MORPH_SPAN_VH = 0.24
 const MOBILE_WORD_HOLD_VH = 0.12
-/** Minimum finger travel for Kadoflow → Projects; prevents a near-zero span. */
+/** Minimum finger travel for Kado → Projects; prevents a near-zero span. */
 const MOBILE_CASE_SCROLL_SPAN_VH = 0.62
 /** Scroll runway where case media exits while the Surface remains parked. */
 const MOBILE_CASE_MEDIA_EXIT_SPAN_VH = 0.24
@@ -155,7 +155,7 @@ const props = withDefaults(
     stoneEl?: HTMLElement | null
     /** Title + phonetic — hop after stone `top 10%`. */
     termEl?: HTMLElement | null
-    /** “Kadoflow” word — hop at stone `center top`; Cases handoff at word `top 20%`. */
+    /** “Kado” word — hop at stone `center top`; Cases handoff at word `top 20%`. */
     wordEl?: HTMLElement | null
     /** Body block — layout / capture; Cases handoff uses wordEl when present. */
     bodyEl?: HTMLElement | null
@@ -359,7 +359,7 @@ function scheduleColdMotionBoot() {
 
 /** Mobile corridor state */
 let mobileActive = false
-/** Reversible mobile Kadoflow → Cases hop progress. */
+/** Reversible mobile Kado → Cases hop progress. */
 let mobileCaseProgress = 0
 let caseSettleTween: { kill: () => void } | null = null
 let caseHopGen = 0
@@ -433,12 +433,12 @@ let lastCaseSectionTop: number | null = null
 let scrubTargetP = 0
 let scrubLiveP = 0
 let liveBox: SurfaceBox | null = null
-/** Stable compositor basis for the expensive mobile Kadoflow → Cases flight. */
+/** Stable compositor basis for the expensive mobile Kado → Cases flight. */
 let mobileCaseTransformBasis: SurfaceBox | null = null
 /** Snapshot used as hop tween start (destination tracks live each frame). */
 let hopFromBox: SurfaceBox | null = null
 let hopProgress = 0
-/** Last good Kadoflow box in *document* space — viewport via docToViewport. */
+/** Last good Kado box in *document* space — viewport via docToViewport. */
 let lastWordDoc: SurfaceBox | null = null
 /** Pin host currently holding the frame (term/word slot). */
 let pinHost: HTMLElement | null = null
@@ -2428,7 +2428,7 @@ function settleHop(hop: MobileHop) {
   pinFrame(hop)
 }
 
-/** Live viewport box for “Kadoflow” — pin slot already includes margin pad. */
+/** Live viewport box for “Kado” — pin slot already includes margin pad. */
 function wordPose(): SurfaceBox | null {
   const slot = pinSlot('word')
   const live = readBox(slot)
@@ -2487,7 +2487,7 @@ function requestStage(next: MobileStage, animate: boolean) {
   const curRank = STAGE_RANK[mobileStage]
   const requestedRank = STAGE_RANK[next]
   // A cold mobile boot can finish after native scroll has crossed more than one
-  // waypoint. Preserve the forward story instead of jumping Hero → Kadoflow.
+  // waypoint. Preserve the forward story instead of jumping Hero → Kado.
   if (requestedRank > curRank + 1) {
     next = curRank === STAGE_RANK.scrub ? 'term' : 'word'
   }
@@ -2619,7 +2619,7 @@ function stageFromScroll(): MobileStage {
   if (!stoneMark || !body) return 'scrub'
 
   const y = window.scrollY
-  // Body is needed for corridor capture; the final handoff prefers Kadoflow.
+  // Body is needed for corridor capture; the final handoff prefers Kado.
   // During boot / unloaded stone image, markers sit near 0 and every hop looks “active”.
   if (!markersReliable()) {
     if (props.fromEl) {
@@ -2631,7 +2631,7 @@ function stageFromScroll(): MobileStage {
     return mobileStage
   }
 
-  // Kadoflow `top 20%` is owned by the direct Cases handoff trigger.
+  // Kado `top 20%` is owned by the direct Cases handoff trigger.
   const squareMark = props.wordEl ?? body
   const squareAt = props.wordEl ? 0.2 : 0.5
   if (y >= scrollYForTopAt(squareMark, squareAt)) return 'word'

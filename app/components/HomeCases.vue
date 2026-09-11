@@ -42,7 +42,7 @@ let mobileCasesViewportWidth = 0
  * above it.
  */
 const mobileCasesHeight = ref<number | null>(null)
-const caseGestureHintSeen = useCookie<boolean>('kadoflow-case-gesture-hint-v2', {
+const caseGestureHintSeen = useCookie<boolean>('kadonext-case-gesture-hint-v2', {
   default: () => false,
   maxAge: 60 * 60 * 24 * 7,
   path: '/',

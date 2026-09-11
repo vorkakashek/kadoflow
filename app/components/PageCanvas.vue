@@ -1282,10 +1282,10 @@ onUnmounted(() => {
       <div class="page-canvas__chrome">
         <div class="page-canvas__chrome-top">
           <div class="page-canvas__chrome-lead">
-            <p class="page-canvas__eyebrow">Kadoflow · workspace</p>
+            <p class="page-canvas__eyebrow">KADO · workspace</p>
             <a
               class="page-canvas__mail"
-              href="mailto:hello@kadoflow.com"
+              href="mailto:hello@kadonext.com"
               :tabindex="open ? 0 : -1"
               @pointerenter="onMailEnter"
               @pointerleave="onMailLeave"
@@ -1293,7 +1293,7 @@ onUnmounted(() => {
               @focusout="onMailLeave"
             >
               <span class="page-canvas__mail-text">
-                <span>hello@kadoflow.com</span>
+                <span>hello@kadonext.com</span>
                 <svg
                   class="page-canvas__mail-wave"
                   viewBox="0 0 64 8"

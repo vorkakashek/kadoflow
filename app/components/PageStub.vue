@@ -9,7 +9,7 @@ const { openCanvas } = usePageCanvas()
 const { t } = useI18n()
 
 useSeoMeta({
-  title: () => `${props.title} — Kadoflow`,
+  title: () => `${props.title} — KADO`,
   description: () => props.blurb,
 })
 </script>

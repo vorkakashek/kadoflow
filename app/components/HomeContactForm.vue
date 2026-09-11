@@ -57,7 +57,7 @@ function submitForm() {
   }
   const subject = encodeURIComponent(`Новый проект — ${projectType.value}`)
   const body = encodeURIComponent(encodeMailBody())
-  window.location.href = `mailto:hello@kadoflow.com?subject=${subject}&body=${body}`
+  window.location.href = `mailto:hello@kadonext.com?subject=${subject}&body=${body}`
 }
 </script>
 
@@ -66,7 +66,7 @@ function submitForm() {
     <form
       :id="props.formId"
       class="contact-form"
-      action="mailto:hello@kadoflow.com"
+      action="mailto:hello@kadonext.com"
       method="post"
       enctype="text/plain"
       @submit.prevent="submitForm"
@@ -120,7 +120,7 @@ function submitForm() {
           </label>
           <p v-if="policyOpen" class="contact-form__policy">
             Контакт и сведения о проекте используются только для ответа на обращение и не передаются третьим лицам без законного основания. Удалить данные можно по запросу на
-            <a href="mailto:hello@kadoflow.com">hello@kadoflow.com</a>.
+            <a href="mailto:hello@kadonext.com">hello@kadonext.com</a>.
           </p>
         </div>
       </div>
@@ -158,7 +158,7 @@ function submitForm() {
 
       <div class="contact-form__actions">
         <button class="contact-form__submit" type="submit">Продолжить разговор</button>
-        <a href="mailto:hello@kadoflow.com">или написать сразу на hello@kadoflow.com</a>
+        <a href="mailto:hello@kadonext.com">или написать сразу на hello@kadonext.com</a>
       </div>
     </form>
   </div>

@@ -109,6 +109,8 @@ const FAB_LABEL_DIR_PX = 8
 let fabLabelHoldUntil = 0
 let lastMobileLogoScrollY: number | null = null
 let lastDesktopLogoScrollY: number | null = null
+let desktopLogoCollapsePending = false
+let desktopLogoWantsCompact = false
 
 function onChipPointer(e: PointerEvent) {
   const el = e.currentTarget
@@ -343,13 +345,15 @@ async function gsap() {
   return gsapMod
 }
 
-/** The full wordmark's «о» centre in its 165px SVG viewBox. */
-const LOGO_MARK_CENTRE = 71.67 / 165
+const LOGO_VIEWBOX_WIDTH = 81
+const LOGO_VIEWBOX_HEIGHT = 27
+/** The «ō» centre in the supplied KADŌ artwork's viewBox. */
+const LOGO_MARK_CENTRE_X = 71.67
 
 function logoMarkExpandedX() {
   // SVG transforms use viewBox units, not rendered CSS pixels. Move the
-  // original glyph centre (71.67) onto the compact 32×32 frame centre (16).
-  return 16 - LOGO_MARK_CENTRE * 165
+  // original glyph centre onto the square compact frame's centre.
+  return LOGO_VIEWBOX_HEIGHT / 2 - LOGO_MARK_CENTRE_X
 }
 
 async function animateDesktopLogo(compact: boolean, immediate = false) {
@@ -364,7 +368,7 @@ async function animateDesktopLogo(compact: boolean, immediate = false) {
 
   const compactX = logoMarkExpandedX()
   const compactWidth = frame.offsetHeight
-  const expandedWidth = frame.offsetHeight * 165 / 32
+  const expandedWidth = frame.offsetHeight * LOGO_VIEWBOX_WIDTH / LOGO_VIEWBOX_HEIGHT
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (immediate || reduce) {
     g.set(frame, { width: compact ? compactWidth : expandedWidth })
@@ -520,7 +524,7 @@ function boxNear(
   )
 }
 
-async function morph(animate: boolean) {
+async function morph(animate: boolean, onComplete?: () => void) {
   const bar = barEl.value
   if (!bar) return
 
@@ -544,6 +548,7 @@ async function morph(animate: boolean) {
     if (gsapMod) gsapMod.killTweensOf(bar)
     applyBox(bar, width, m.height, m.paddingTop, m.paddingBottom, m.sidePad)
     syncMenuFloat()
+    onComplete?.()
     return
   }
 
@@ -562,6 +567,7 @@ async function morph(animate: boolean) {
     onUpdate: syncMenuFloat,
     onComplete: () => {
       syncMenuFloat()
+      onComplete?.()
     },
   })
 }
@@ -573,6 +579,9 @@ function resetHeaderWide(animate: boolean, deferFabExpand = false) {
   }
   pendingExpand = false
   scrolled.value = false
+  desktopLogoCollapsePending = false
+  desktopLogoWantsCompact = false
+  desktopScrollMarkOn.value = false
   window.scrollTo(0, 0)
   lastFabScrollY = 0
   if (deferFabExpand) {
@@ -625,19 +634,39 @@ function onScroll() {
     if (canvasLocksScroll()) return
     if (window.scrollY > 8) {
       scrolled.value = true
-      void morph(true)
+      const sequenceDesktopLogo = (
+        !mobileHeader.value
+        && desktopLogoWantsCompact
+        && !desktopScrollMarkOn.value
+      )
+      desktopLogoCollapsePending = sequenceDesktopLogo
+      void morph(true, () => {
+        if (!desktopLogoCollapsePending) return
+        desktopLogoCollapsePending = false
+        if (
+          !mobileHeader.value
+          && scrolled.value
+          && desktopLogoWantsCompact
+          && window.scrollY > 8
+          && !canvasLocksScroll()
+        ) {
+          desktopScrollMarkOn.value = true
+        }
+      })
     }
   }, COLLAPSE_DELAY_MS)
 }
 
 /**
- * Once desktop scrolling begins, reduce the wordmark to the existing «о» mark;
- * any intentional reverse scroll restores it. Mobile uses its separate
- * thumb-zone mark below.
+ * Once desktop scrolling begins, reduce the wordmark to the existing «о» mark.
+ * The first hero exit waits for the header shell to settle; later direction
+ * changes stay responsive. Mobile uses its separate thumb-zone mark below.
  */
 const DESKTOP_LOGO_DIR_PX = 6
 function syncDesktopScrollMark() {
   if (mobileHeader.value) {
+    desktopLogoCollapsePending = false
+    desktopLogoWantsCompact = false
     desktopScrollMarkOn.value = false
     lastDesktopLogoScrollY = null
     return
@@ -645,6 +674,8 @@ function syncDesktopScrollMark() {
   if (canvasLocksScroll()) return
 
   if (returningToHomeCases.value) {
+    desktopLogoCollapsePending = false
+    desktopLogoWantsCompact = true
     desktopScrollMarkOn.value = true
     lastDesktopLogoScrollY = Math.max(0, window.scrollY || 0)
     return
@@ -652,6 +683,8 @@ function syncDesktopScrollMark() {
 
   const y = Math.max(0, window.scrollY || 0)
   if (y <= 8) {
+    desktopLogoCollapsePending = false
+    desktopLogoWantsCompact = false
     desktopScrollMarkOn.value = false
     lastDesktopLogoScrollY = y
     return
@@ -664,7 +697,16 @@ function syncDesktopScrollMark() {
   const dy = y - lastDesktopLogoScrollY
   if (Math.abs(dy) < DESKTOP_LOGO_DIR_PX) return
   lastDesktopLogoScrollY = y
-  desktopScrollMarkOn.value = dy > 0
+  desktopLogoWantsCompact = dy > 0
+  if (!desktopLogoWantsCompact) {
+    desktopLogoCollapsePending = false
+    desktopScrollMarkOn.value = false
+    return
+  }
+  // On the first scroll away from the hero, let the bar finish collapsing
+  // before the wordmark starts moving into its compact mark.
+  if (!scrolled.value || desktopLogoCollapsePending) return
+  desktopScrollMarkOn.value = true
 }
 
 /** Mobile logo visibility follows scroll direction only, never page position. */
@@ -810,6 +852,7 @@ function onResize() {
     syncMenuFloat()
     return
   }
+  desktopLogoCollapsePending = false
   refreshTokens()
   void morph(false)
   syncMenuFloat()
@@ -879,6 +922,7 @@ onMounted(() => {
   watch(
     canvasForced,
     (on, was) => {
+      if (on) desktopLogoCollapsePending = false
       if (was && !on) {
         applyFabLabel(true, true)
         fabLabelHoldUntil = performance.now() + 160
@@ -1081,7 +1125,7 @@ onUnmounted(() => {
           ref="logoEl"
           to="/"
           data-home-top
-          class="header-logo-link pointer-events-auto row-start-1 col-span-12 col-start-1 justify-self-center md:col-span-3 md:justify-self-start"
+          class="header-logo-link pointer-events-auto row-start-1 self-center col-span-12 col-start-1 justify-self-center md:col-span-3 md:justify-self-start"
           :class="{ 'header-logo-link--mobile-scrolled': mobileScrollMarkVisible }"
           :aria-label="t('accessibility.brandHome')"
           :tabindex="canvasSurface ? -1 : 0"
@@ -1095,20 +1139,17 @@ onUnmounted(() => {
           >
             <svg
               class="header-logo__svg"
-              viewBox="0 0 165 32"
+              viewBox="0 0 81 27"
               fill="none"
               aria-hidden="true"
             >
               <g ref="logoLettersEl" class="header-logo__letters">
-                <use href="/brand/logo-ru.svg#logo-k" />
-                <use href="/brand/logo-ru.svg#logo-a" />
-                <use href="/brand/logo-ru.svg#logo-d" />
-                <use href="/brand/logo-ru.svg#logo-flow" />
+                <use href="/brand/kado-logo.svg#kado-logo-letters" />
               </g>
               <use
                 ref="logoMarkEl"
                 class="header-logo__mark"
-                href="/brand/logo-ru.svg#logo-o"
+                href="/brand/kado-logo.svg#kado-logo-mark"
               />
             </svg>
           </span>
@@ -1119,7 +1160,7 @@ onUnmounted(() => {
             v-if="detailCase"
             ref="caseBackEl"
             type="button"
-            class="case-header-back site-nav pointer-events-auto hidden md:inline-flex md:col-span-2 md:col-start-4"
+            class="case-header-back site-nav pointer-events-auto hidden md:row-start-1 md:self-center md:inline-flex md:col-span-2 md:col-start-4"
             :aria-label="t('common.backHome')"
             @click="onCaseDetailBack"
           >
@@ -1135,7 +1176,7 @@ onUnmounted(() => {
 
         <nav
           ref="navEl"
-          class="header-nav header-chip site-nav pointer-events-auto col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
+          class="header-nav header-chip site-nav pointer-events-auto row-start-1 self-center col-span-5 col-start-6 hidden w-fit items-center justify-self-start md:flex md:col-span-3 md:col-start-8 gap-x-[-1.5rem]"
           :class="{ 'header-chip--scrolled': headerCollapsed }"
           :aria-label="t('navigation.mainLabel')"
         >
@@ -1161,7 +1202,7 @@ onUnmounted(() => {
 
         <span
           ref="menuSlotEl"
-          class="header-desk-menu menu-btn menu-btn-slot header-chip site-nav col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end pointer-events-none invisible md:flex"
+          class="header-desk-menu menu-btn menu-btn-slot header-chip site-nav row-start-1 self-center col-span-1 col-start-12 hidden items-center justify-end gap-2 justify-self-end pointer-events-none invisible md:flex"
           aria-hidden="true"
         >
           <span class="menu-chip-word">{{ t('common.menu') }}</span>
@@ -1230,7 +1271,7 @@ onUnmounted(() => {
         @click="onLogoClick"
         @pointerenter="preloadHomeSceneAssets"
       >
-        <img src="/brand/kado-logo-ru-o.svg" alt="" width="32" height="32">
+        <img src="/brand/kado-logo-ru-o.svg" alt="" width="28" height="28">
       </NuxtLink>
     </Transition>
     <button
@@ -1453,8 +1494,8 @@ html.page-canvas-lock .menu-btn--float {
 
 .mobile-scroll-mark img {
   display: block;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   /* Match the menu FAB's 1px optical lift from its asymmetric vertical padding. */
   transform: translateY(-1px);
   transition: filter 0.35s var(--motion-ease, ease);
@@ -1478,10 +1519,12 @@ html.page-canvas-lock .menu-btn--float {
 }
 
 .header-logo {
+  --header-logo-height: calc(var(--layout-header-content) * 0.84375);
+
   position: relative;
   display: block;
-  width: calc(var(--layout-header-content) * 165 / 32);
-  height: var(--layout-header-content);
+  width: calc(var(--header-logo-height) * 81 / 27);
+  height: var(--header-logo-height);
   max-width: none;
   overflow: hidden;
   transition: filter 0.35s var(--motion-ease, ease);
@@ -1493,7 +1536,7 @@ html.page-canvas-lock .menu-btn--float {
   top: 0;
   left: 0;
   display: block;
-  width: calc(var(--layout-header-content) * 165 / 32);
+  width: calc(var(--header-logo-height) * 81 / 27);
   height: 100%;
   max-width: none;
   overflow: visible;
@@ -1615,12 +1658,7 @@ html.page-canvas-lock .menu-btn--float {
 
 @media (max-width: 767px) {
   .header-logo {
-    width: calc(var(--layout-header-content) * 1.1 * 165 / 32);
-    height: calc(var(--layout-header-content) * 1.1);
-  }
-
-  .header-logo__svg {
-    width: calc(var(--layout-header-content) * 1.1 * 165 / 32);
+    --header-logo-height: calc(var(--layout-header-content) * 1.1 * 0.84375);
   }
 }
 

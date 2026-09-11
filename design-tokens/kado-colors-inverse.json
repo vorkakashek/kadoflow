@@ -1,6 +1,6 @@
 {
   "palette": {
-    "$description": "Kadoflow base color palette",
+    "$description": "Kado base color palette",
     "milk": {
       "$type": "color",
       "$value": {
@@ -111,7 +111,7 @@
     }
   },
   "semantic": {
-    "$description": "Kadoflow semantic colors for the Inverse mode",
+    "$description": "Kado semantic colors for the Inverse mode",
     "background": {
       "canvas": {
         "$type": "color",
@@ -170,7 +170,7 @@
     }
   },
   "project": {
-    "$description": "Optional accents owned by individual Kadoflow projects",
+    "$description": "Optional accents owned by individual Kado projects",
     "electric-blue": {
       "$type": "color",
       "$value": {

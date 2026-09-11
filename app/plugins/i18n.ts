@@ -24,7 +24,7 @@ function interpolate(message: string, params?: MessageParams): string {
 }
 
 export default defineNuxtPlugin(async () => {
-  const localeCookie = useCookie<LocaleCode | null>('kadoflow-locale', {
+  const localeCookie = useCookie<LocaleCode | null>('kadonext-locale', {
     default: () => null,
     maxAge: 60 * 60 * 24 * 365,
     path: '/',

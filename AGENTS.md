@@ -1,17 +1,17 @@
-# Kadoflow: compact working context
+# Kado / kadonext: compact working context
 
 ## What this project is
 
-- Russian-first portfolio and lead-generation site for Kadoflow, an author-led design/development studio.
+- Russian-first portfolio and lead-generation site for Kado, an author-led design/development studio. The repository and canonical domain use `kadonext` / `kadonext.com`.
 - Core promise: expressive turnkey websites, from structure and visual concept through development and launch.
 - Brand formula: “Свобода формы. Порядок процесса.” Visual tone is editorial, calm and tactile; motion should feel organic but controlled.
-- Kadoflow is one accountable author-led studio, not a fictional large agency. Speak confidently and precisely, but do not simulate scale, make absolute promises, or hide behind jargon.
+- Kado is one accountable author-led studio, not a fictional large agency. Speak confidently and precisely, but do not simulate scale, make absolute promises, or hide behind jargon.
 - The initial commercial focus is hospitality, local brands and service businesses that need a distinctive, technically sound digital presence. Sell the outcome and process—not the stack.
 
 ## Brand guardrails
 
 - Write in Russian by default: calm, concrete, professional and human. Short sentences; one idea per block; explain technology through client benefit. Use first person where personal responsibility matters.
-- Use `КАДОФЛОУ / KADŌFLOW` in Russian-facing public communication until a registered-trademark decision says otherwise. The informal `Кадо` is acceptable only where the user explicitly wants an informal tone.
+- Use `KADO` as the public brand in Russian-facing communication. `kadonext` is the repository/domain identifier, not a second public brand name. The informal `Кадо` is acceptable where the user explicitly wants an informal tone.
 - The cultural reference in Kadō is compositional discipline, whitespace, attentive lines and natural asymmetry—not Japanese decoration. Never introduce sakura, arbitrary kanji, a red sun circle, ikebana props or pseudo-Asian typography merely for atmosphere.
 - Visual direction is managed asymmetry: a rigorous grid, large type, generous whitespace, project imagery and occasional organic lines. The studio shell must frame client work rather than overpower it.
 - Beauty must not trade away legibility, navigation, accessibility, performance, search visibility or a clear next step. Motion supports hierarchy and transitions; it must never make the interface slower or less understandable.
@@ -34,7 +34,7 @@
 - Responsive values: `design-tokens/responsive.json` is canonical. Run `npm run tokens:fluid`; never hand-edit `app/assets/css/fluid.generated.css`.
 - Brand, positioning, service offer, naming, tone, visual foundations and SSG policy: `docs/brand-and-website-brief.md`.
 - Page content, case-study framing, About and contact scenarios: `docs/content-cases-contact-and-studio.md`.
-- Design-system rules and implementation decisions: `docs/kadoflow-design-system-spec.md` and `docs/kado/`.
+- Design-system rules and implementation decisions: `docs/kado-design-system-spec.md` and `docs/kado/`.
 - Motion behavior and interaction constraints: `docs/motion-and-interaction-spec.md`.
 - Visual direction, prototype scope and reference interpretation: `docs/visual-direction-and-live-prototype.md`.
 - Naming exploration is reference only: `docs/studio-naming-bank.md`. Do not treat alternatives there as an instruction to rename the studio.
@@ -67,5 +67,5 @@
 ## Collaboration history and context hygiene
 
 - The implementation history is captured well by git: the initial site, Page Canvas/iris navigation, iOS/WebGL hardening, gyro controls, Cases and the waypoint corridor were developed through Cursor-agent-assisted commits.
-- Do not bulk-read old agent/chat logs. At least one historical Kadoflow task embeds multi-megabyte base64 screenshots and can expand to millions of tokens. Use task summaries, git history and targeted turn/file reads with strict limits.
+- Do not bulk-read old agent/chat logs. At least one historical studio task embeds multi-megabyte base64 screenshots and can expand to millions of tokens. Use task summaries, git history and targeted turn/file reads with strict limits.
 - Communicate with the user in Russian by default. Be concrete and visually literate; favor measured performance and a coherent interaction system over adding more spectacle.
