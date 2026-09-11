@@ -978,6 +978,14 @@ let heightTl: { kill: () => void } | null = null
 let railPositionTl: { kill: () => void } | null = null
 let mediaGeometryTl: { kill: () => void } | null = null
 const CASE_MEDIA_GEOMETRY_DURATION = 0.9
+const CASE_MEDIA_SURFACE_INSET_PX = 1
+
+function clearCaseMediaSurfaceResize(media: HTMLElement | null) {
+  if (!media) return
+  media.removeAttribute('data-case-media-resize')
+  media.style.removeProperty('--cases-media-surface-width')
+  media.style.removeProperty('--cases-media-surface-height')
+}
 
 function clearCaseArrow() {
   showCaseArrow.value = false
@@ -1125,6 +1133,10 @@ function tweenCaseMediaGeometry(
 
   mediaGeometryTl?.kill()
   media.setAttribute('data-case-media-resize', '')
+  gsap.set(media, {
+    '--cases-media-surface-width': `${Math.max(1, from.width - CASE_MEDIA_SURFACE_INSET_PX * 2)}px`,
+    '--cases-media-surface-height': `${Math.max(1, from.height - CASE_MEDIA_SURFACE_INSET_PX * 2)}px`,
+  })
   // Translate the figure itself so its position follows a compositor-backed
   // FLIP. Resize only the crop window; scaling the figure would squash the
   // screenshot whenever the incoming case has another aspect ratio.
@@ -1145,12 +1157,14 @@ function tweenCaseMediaGeometry(
   const timeline = gsap.timeline({
     onComplete: () => {
       mediaGeometryTl = null
-      media.removeAttribute('data-case-media-resize')
+      clearCaseMediaSurfaceResize(media)
     },
   })
   timeline.to(media, {
     x: 0,
     y: 0,
+    '--cases-media-surface-width': `${Math.max(1, to.width - CASE_MEDIA_SURFACE_INSET_PX * 2)}px`,
+    '--cases-media-surface-height': `${Math.max(1, to.height - CASE_MEDIA_SURFACE_INSET_PX * 2)}px`,
     duration: CASE_MEDIA_GEOMETRY_DURATION,
     ease: 'power3.inOut',
     clearProps: 'transform,transformOrigin',
@@ -1200,7 +1214,7 @@ async function selectCase(item: HomeCase) {
   railPositionTl = null
   mediaGeometryTl?.kill()
   mediaGeometryTl = null
-  mediaEl.value?.removeAttribute('data-case-media-resize')
+  clearCaseMediaSurfaceResize(mediaEl.value)
   if (mediaEl.value) {
     gsap.set(mediaEl.value, { clearProps: 'transform,transformOrigin' })
   }
@@ -1330,7 +1344,7 @@ onBeforeUnmount(() => {
   railPositionTl = null
   mediaGeometryTl?.kill()
   mediaGeometryTl = null
-  mediaEl.value?.removeAttribute('data-case-media-resize')
+  clearCaseMediaSurfaceResize(mediaEl.value)
   enterTl?.kill()
   enterTl = null
   introCtx?.revert()
@@ -2398,7 +2412,10 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 0;
   /* Keep the parked Surface safely beneath the raster's rounded edge. */
-  inset: 1px;
+  top: 1px;
+  left: 1px;
+  width: var(--cases-media-surface-width, calc(100% - 2px));
+  height: var(--cases-media-surface-height, calc(100% - 2px));
   border-radius: var(--flow-surface-radius, 12px);
   content: '';
   opacity: 0;
@@ -2617,15 +2634,16 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Keys Store stays centred in its grid slot, but its Surface is 20% smaller. */
+/* Keys Store stays deliberately narrower on desktop. Mobile uses the same
+   full-width 4:5 asset as the case-detail header. */
 .home-cases[data-case-id='keys-store'] .cases-media {
   width: 80%;
   justify-self: center;
 }
 
-/* SCHMIDT keeps its wide composition, with a quieter 30% smaller footprint. */
+/* SCHMIDT fills its complete assigned image track. */
 .home-cases[data-case-id='schmidt'] .cases-media {
-  width: 70%;
+  width: 100%;
   justify-self: center;
 }
 
@@ -2636,6 +2654,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767.98px) {
+  .home-cases[data-case-id='keys-store'] .cases-media,
+  .home-cases[data-case-id='schmidt'] .cases-media {
+    width: 100%;
+  }
+
   .home-cases[data-case-id='keys-store'] .cases-media,
   .home-cases[data-case-id='schmidt'] .cases-media,
   .home-cases[data-case-id='baltika'] .cases-media {

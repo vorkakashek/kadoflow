@@ -72,6 +72,9 @@ function onCaseDetailBack(event: MouseEvent) {
     src: item.media.src,
     webpSrcset: item.media.webpSrcset,
     avifSrcset: item.media.avifSrcset,
+    mobileSrc: item.media.mobileSrc,
+    mobileWebpSrcset: item.media.mobileWebpSrcset,
+    mobileAvifSrcset: item.media.mobileAvifSrcset,
     alt: item.media.alt,
     wash: item.wash,
   })

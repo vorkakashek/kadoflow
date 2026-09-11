@@ -8,6 +8,9 @@ export type CaseDetailTransitionRequest = {
   proxySrc?: string
   webpSrcset?: string
   avifSrcset?: string
+  mobileSrc?: string
+  mobileWebpSrcset?: string
+  mobileAvifSrcset?: string
   alt: string
   wash: string
   rect?: { top: number; left: number; width: number; height: number }

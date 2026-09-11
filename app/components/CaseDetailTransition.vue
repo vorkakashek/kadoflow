@@ -21,6 +21,9 @@ const wash = ref('#0a0a0a')
 const src = ref('')
 const webpSrcset = ref('')
 const avifSrcset = ref('')
+const mobileSrc = ref('')
+const mobileWebpSrcset = ref('')
+const mobileAvifSrcset = ref('')
 const alt = ref('')
 
 function nextPaint() {
@@ -166,6 +169,9 @@ watch(request, async (next) => {
   // image underneath the transition.
   webpSrcset.value = proxySrc ? '' : (next.webpSrcset ?? '')
   avifSrcset.value = proxySrc ? '' : (next.avifSrcset ?? '')
+  mobileSrc.value = proxySrc ? '' : (next.mobileSrc ?? '')
+  mobileWebpSrcset.value = proxySrc ? '' : (next.mobileWebpSrcset ?? '')
+  mobileAvifSrcset.value = proxySrc ? '' : (next.mobileAvifSrcset ?? '')
   alt.value = next.alt
   await nextTick()
   await waitForImageDecode(image, !!proxySrc)
@@ -355,6 +361,9 @@ watch(request, async (next) => {
       :style="{ backgroundColor: wash }"
     />
     <picture>
+      <source v-if="mobileAvifSrcset" media="(max-width: 767.98px)" type="image/avif" :srcset="mobileAvifSrcset" sizes="100vw">
+      <source v-if="mobileWebpSrcset" media="(max-width: 767.98px)" type="image/webp" :srcset="mobileWebpSrcset" sizes="100vw">
+      <source v-if="mobileSrc" media="(max-width: 767.98px)" :srcset="mobileSrc">
       <source v-if="avifSrcset" type="image/avif" :srcset="avifSrcset" sizes="100vw">
       <source v-if="webpSrcset" type="image/webp" :srcset="webpSrcset" sizes="100vw">
       <img ref="imageEl" :src="src" :alt="alt" class="case-detail-transition__image">
