@@ -12,9 +12,12 @@ defineProps<{ surfaceReady?: boolean }>()
 const rootEl = ref<HTMLElement | null>(null)
 const surfaceEl = ref<HTMLElement | null>(null)
 const previewEl = ref<HTMLElement | null>(null)
+const listEl = ref<HTMLElement | null>(null)
+const contrastEl = ref<HTMLElement | null>(null)
 const headerEl = ref<HTMLElement | null>(null)
 const activeIndex = ref(0)
 const previewVisible = ref(false)
+const previewsMounted = ref(false)
 const hoverPreviewEnabled = ref(false)
 const mobileThumbsEnabled = ref(false)
 const { open: pageCanvasOpen, busy: pageCanvasBusy } = usePageCanvas()
@@ -41,6 +44,58 @@ let targetY = 0
 let currentX = 0
 let currentY = 0
 const previewFollowResponseMs = 50
+const previewLoadPromises = new Map<string, Promise<void>>()
+let previewActivationId = 0
+
+function previewKey(format: WorkFormat) {
+  return `${format.previewAvif}|${format.preview}`
+}
+
+function preloadFormatPreview(format: WorkFormat, priority: 'high' | 'low' = 'low') {
+  const key = previewKey(format)
+  const existing = previewLoadPromises.get(key)
+  if (existing) return existing
+
+  const promise = new Promise<void>((resolve) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.fetchPriority = priority
+
+    const finish = async () => {
+      try {
+        await image.decode()
+      }
+      catch {
+        // A completed load is still cache-warmed when explicit decoding is unavailable.
+      }
+      resolve()
+    }
+
+    const load = (src: string, fallback?: string) => {
+      image.onload = () => void finish()
+      image.onerror = fallback
+        ? () => load(fallback)
+        : () => resolve()
+      image.src = src
+    }
+
+    load(format.previewAvif, format.preview)
+  })
+
+  previewLoadPromises.set(key, promise)
+  return promise
+}
+
+function warmFormatPreviews(selectedIndex: number) {
+  const selected = formats.value[selectedIndex]
+  if (!selected) return Promise.resolve()
+
+  const selectedReady = preloadFormatPreview(selected, 'high')
+  formats.value.forEach((format, index) => {
+    if (index !== selectedIndex) void preloadFormatPreview(format)
+  })
+  return selectedReady
+}
 
 function measurePreview() {
   const box = previewEl.value?.getBoundingClientRect()
@@ -56,6 +111,16 @@ function resolvePreviewPosition(clientX: number, clientY: number) {
     x: clientX - width / 2,
     y: clientY - height / 2,
   }
+}
+
+function syncContrastOverlay() {
+  const list = listEl.value
+  const contrast = contrastEl.value
+  if (!list || !contrast) return
+
+  const bounds = list.getBoundingClientRect()
+  contrast.style.width = `${bounds.width}px`
+  contrast.style.transform = `translate3d(${bounds.left - currentX}px, ${bounds.top - currentY}px, 0)`
 }
 
 function paintPreview(timestamp: number) {
@@ -74,6 +139,7 @@ function paintPreview(timestamp: number) {
   currentX += (targetX - currentX) * follow
   currentY += (targetY - currentY) * follow
   el.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`
+  syncContrastOverlay()
 
   if (Math.abs(targetX - currentX) > 0.2 || Math.abs(targetY - currentY) > 0.2) {
     frame = requestAnimationFrame(paintPreview)
@@ -100,20 +166,34 @@ function setPointerTarget(event: PointerEvent, snap = false) {
 
 async function activate(index: number, event?: PointerEvent) {
   if (!hoverPreviewEnabled.value) return
+  const activationId = ++previewActivationId
   const wasVisible = previewVisible.value
-  activeIndex.value = index
-  previewVisible.value = true
+  previewsMounted.value = true
+  const selected = formats.value[index]
+  if (!selected) return
+
+  const selectedReady = warmFormatPreviews(index)
+  if (!wasVisible) previewVisible.value = false
+
   await nextTick()
   measurePreview()
   if (event) setPointerTarget(event, !wasVisible)
+  await selectedReady
+
+  if (activationId !== previewActivationId || !hoverPreviewEnabled.value) return
+  activeIndex.value = index
+  await nextTick()
+  previewVisible.value = true
+  schedulePreviewPaint()
 }
 
 function onPointerMove(event: PointerEvent) {
-  if (!hoverPreviewEnabled.value || !previewVisible.value) return
+  if (!hoverPreviewEnabled.value) return
   setPointerTarget(event)
 }
 
 function onPointerLeave(event?: PointerEvent) {
+  previewActivationId += 1
   previewVisible.value = false
 
   const list = event?.currentTarget
@@ -135,16 +215,24 @@ function onPointerLeave(event?: PointerEvent) {
 }
 
 function onFocus(index: number) {
-  if (!hoverPreviewEnabled.value) return
-  activeIndex.value = index
-  previewVisible.value = true
+  void activate(index)
 }
 
 function onBlur(event: FocusEvent) {
   const next = event.relatedTarget
   if (!(next instanceof Node) || !rootEl.value?.contains(next)) {
+    previewActivationId += 1
     previewVisible.value = false
   }
+}
+
+function onViewportScroll() {
+  if (previewVisible.value) schedulePreviewPaint()
+}
+
+function onViewportResize() {
+  measurePreview()
+  if (previewVisible.value) schedulePreviewPaint()
 }
 
 let hoverMedia: MediaQueryList | null = null
@@ -328,7 +416,10 @@ function syncHoverPreviewMode() {
   hoverPreviewEnabled.value = !!hoverMedia?.matches
   mobileThumbsEnabled.value = !!mobileThumbMedia?.matches
   reducedMotion = !!reducedMotionMedia?.matches
-  if (!hoverPreviewEnabled.value) previewVisible.value = false
+  if (!hoverPreviewEnabled.value) {
+    previewActivationId += 1
+    previewVisible.value = false
+  }
 }
 
 async function onMotionMediaChange() {
@@ -360,7 +451,8 @@ onMounted(async () => {
   hoverMedia.addEventListener('change', syncHoverPreviewMode)
   mobileThumbMedia.addEventListener('change', onMotionMediaChange)
   reducedMotionMedia.addEventListener('change', onMotionMediaChange)
-  window.addEventListener('resize', measurePreview, { passive: true })
+  window.addEventListener('scroll', onViewportScroll, { passive: true })
+  window.addEventListener('resize', onViewportResize, { passive: true })
   await setupEntranceMotion()
 })
 
@@ -370,12 +462,14 @@ onUnmounted(() => {
   hoverMedia?.removeEventListener('change', syncHoverPreviewMode)
   mobileThumbMedia?.removeEventListener('change', onMotionMediaChange)
   reducedMotionMedia?.removeEventListener('change', onMotionMediaChange)
-  window.removeEventListener('resize', measurePreview)
+  window.removeEventListener('scroll', onViewportScroll)
+  window.removeEventListener('resize', onViewportResize)
 })
 </script>
 
 <template>
   <section
+    id="services"
     ref="rootEl"
     class="work-formats pointer-events-auto relative z-10 w-full"
     :aria-labelledby="'work-formats-title'"
@@ -416,6 +510,7 @@ onUnmounted(() => {
         />
 
         <ol
+          ref="listEl"
           class="work-formats__list"
           :class="{ 'has-active': previewVisible }"
           @pointermove="onPointerMove"
@@ -481,17 +576,54 @@ onUnmounted(() => {
           :aria-label="activeFormat?.alt"
           aria-live="polite"
         >
-          <picture v-if="activeFormat" :key="activeFormat.preview" class="work-formats__picture">
-            <source type="image/avif" :srcset="activeFormat.previewAvif">
+          <picture
+            v-for="(item, index) in previewsMounted ? formats : []"
+            :key="item.preview"
+            class="work-formats__picture"
+            :class="{ 'is-active': activeIndex === index }"
+          >
+            <source type="image/avif" :srcset="item.previewAvif">
             <img
-              :src="activeFormat.preview"
-              :alt="activeFormat.alt"
+              :src="item.preview"
+              alt=""
               width="960"
               height="960"
               loading="lazy"
               decoding="async"
             >
           </picture>
+
+          <ol
+            ref="contrastEl"
+            class="work-formats__contrast"
+            aria-hidden="true"
+          >
+            <li
+              v-for="(item, index) in formats"
+              :key="`contrast-${item.title}`"
+              class="work-formats__contrast-item"
+              :class="{ 'is-active': activeIndex === index }"
+            >
+              <div class="work-formats__trigger">
+                <span class="work-formats__marker">
+                  <span class="work-formats__number">
+                    <span class="work-formats__number-text">{{ String(index + 1).padStart(3, '0') }}</span>
+                  </span>
+                  <span class="work-formats__arrow">
+                    <svg viewBox="0 0 40 40" fill="none">
+                      <path d="M5 20h27M23 10l10 10-10 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                </span>
+                <span class="work-formats__copy">
+                  <span class="work-formats__name">
+                    <span class="work-formats__name-text">{{ item.title }}</span>
+                  </span>
+                  <span class="work-formats__description">{{ item.description }}</span>
+                </span>
+              </div>
+            </li>
+          </ol>
         </div>
       </div>
     </div>
@@ -590,14 +722,20 @@ onUnmounted(() => {
   background-image: var(--home-surface-grain);
   background-position: 0 0;
   background-repeat: repeat;
-  background-size: 56px 56px;
+  background-size: 224px 224px;
   content: '';
-  mix-blend-mode: overlay;
+  mix-blend-mode: soft-light;
   opacity: 0;
 }
 
 .work-formats__surface[data-flow-surface-proxy-active]::after {
-  opacity: 0.22;
+  opacity: 0.2;
+}
+
+@media (max-width: 767.98px) {
+  .work-formats__surface::after {
+    background-size: 176px 176px;
+  }
 }
 
 .work-formats__list {
@@ -636,6 +774,12 @@ onUnmounted(() => {
 
 .work-formats__list.has-active .work-formats__item:not(.is-active):not(:focus-within) {
   color: color-mix(in srgb, var(--palette-ink) 42%, var(--palette-sand));
+}
+
+/* While the preview is visible, the real rows stay below the photo. Only the
+   hovered row is redrawn inside it, so the image covers every other item. */
+.work-formats__list.has-active .work-formats__item {
+  z-index: 20;
 }
 
 .work-formats__trigger {
@@ -745,7 +889,7 @@ onUnmounted(() => {
   z-index: 30;
   top: 0;
   left: 0;
-  width: clamp(18rem, 28vw, 32rem);
+  width: clamp(20.48rem, 32vw, 37.12rem);
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: var(--radius-surface);
@@ -754,11 +898,42 @@ onUnmounted(() => {
   pointer-events: none;
   transform: translate3d(-200vw, -200vh, 0);
   transition: opacity 0.22s ease;
+  isolation: isolate;
   will-change: transform, opacity;
 }
 
 .work-formats__preview.is-visible {
   opacity: 1;
+}
+
+.work-formats__contrast {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  display: flex;
+  margin: 0;
+  padding: 0;
+  color: #fff;
+  flex-direction: column;
+  list-style: none;
+  mix-blend-mode: difference;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.work-formats__contrast-item {
+  position: relative;
+  color: inherit;
+}
+
+.work-formats__contrast-item:not(.is-active) {
+  visibility: hidden;
+}
+
+.work-formats__contrast-item.is-active .work-formats__arrow {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 .work-formats__picture,
@@ -768,13 +943,24 @@ onUnmounted(() => {
   height: 100%;
 }
 
+.work-formats__picture {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+.work-formats__picture.is-active {
+  z-index: 1;
+  opacity: 1;
+}
+
 .work-formats__picture img {
   object-fit: cover;
   transform: scale(1.045);
   transition: transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.work-formats__preview.is-visible .work-formats__picture img {
+.work-formats__preview.is-visible .work-formats__picture.is-active img {
   transform: scale(1);
 }
 
@@ -789,7 +975,8 @@ onUnmounted(() => {
   }
 
   .work-formats__item.is-active .work-formats__number,
-  .work-formats__item:focus-within .work-formats__number {
+  .work-formats__item:focus-within .work-formats__number,
+  .work-formats__contrast-item.is-active .work-formats__number {
     opacity: 0;
     transform: translateX(100%);
   }

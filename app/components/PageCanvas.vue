@@ -34,6 +34,7 @@ const {
   fabLabelOn,
   irisLive,
   pageIrisLive,
+  pageIrisHomeReveal,
 } = usePageCanvas()
 const route = useRoute()
 const router = useRouter()
@@ -48,7 +49,7 @@ let lastFocus: HTMLElement | null = null
 let savedScrollY = 0
 let navFromCanvas = false
 
-const shownCurrentId = ref(matchFramePath(route.path))
+const shownCurrentId = ref(matchFramePath(route.fullPath))
 const reducedMotion = ref(false)
 const isNarrow = ref(false)
 const isThumb = ref(false)
@@ -212,6 +213,7 @@ function irisClipEl() {
 /** GL / scroll guard for menu→home hop — no PageIris visual layer on top. */
 function setPageIrisGuard(on: boolean) {
   pageIrisLive.value = on
+  pageIrisHomeReveal.value = on
   document.documentElement.classList.toggle('page-iris-lock', on)
 }
 
@@ -302,9 +304,25 @@ function hideCanvasSurface() {
 }
 
 function frameIsCurrent(frame: SiteNavFrame) {
-  const routePath = route.path.replace(/\/+$/, '') || '/'
+  const routePath = route.fullPath.replace(/\/+$/, '') || '/'
   const framePath = frame.to.replace(/\/+$/, '') || '/'
   return routePath === framePath
+}
+
+function homeAnchorId(to: string) {
+  const hashAt = to.indexOf('#')
+  return hashAt < 0 ? '' : decodeURIComponent(to.slice(hashAt + 1))
+}
+
+async function scrollToHomeAnchor(to: string) {
+  const id = homeAnchorId(to)
+  if (!id) return
+  await nextTick()
+  await waitFrames(2)
+  const target = document.getElementById(id)
+  if (!target) return
+  const top = window.scrollY + target.getBoundingClientRect().top
+  window.scrollTo({ top, left: 0, behavior: 'auto' })
 }
 
 function frameShot(frame: SiteNavFrame) {
@@ -1095,7 +1113,7 @@ async function goToFrame(frame: SiteNavFrame) {
       return
     }
 
-    if (frame.id === 'home') {
+    if (frame.to === '/' || frame.to.startsWith('/#')) {
       skipHeroIntro.value = true
       heroGlRevealBusy.value = true
       preloadHomeSceneAssets()
@@ -1117,10 +1135,16 @@ async function goToFrame(frame: SiteNavFrame) {
 
       swapCloseWord('menu')
       spinCloseDots(false)
+      const anchoredHome = !!homeAnchorId(frame.to)
+      if (anchoredHome) {
+        await unlockSession({ restoreScroll: false })
+        await scrollToHomeAnchor(frame.to)
+        if (gen !== motionGen) return
+      }
       await tweenIris({ dir: 'close', pill: start, followMenu: true })
       if (gen !== motionGen) return
       hideCanvasSurface()
-      await unlockSession({ restoreScroll: false })
+      if (!anchoredHome) await unlockSession({ restoreScroll: false })
       heroGlRevealBusy.value = false
     } else {
       open.value = false
@@ -1168,7 +1192,7 @@ function onKeydown(e: KeyboardEvent) {
 
 watch(open, async (isOpen, wasOpen) => {
   if (isOpen) {
-    shownCurrentId.value = matchFramePath(route.path)
+    shownCurrentId.value = matchFramePath(route.fullPath)
     hoverId.value = null
     clearPreviewRevealed()
     markPreviewRevealed(shownCurrentId.value)

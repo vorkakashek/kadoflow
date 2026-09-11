@@ -26,6 +26,7 @@ const {
   surfaceOn,
   waitForHeroSwarm,
   pageIrisLive,
+  pageIrisHomeReveal,
   menuHomeIrisReveal,
   menuHomeIrisSnap,
   resolveMenuHomeIrisReveal,
@@ -115,15 +116,17 @@ function setLock(on: boolean) {
   document.documentElement.classList.toggle('page-iris-lock', on)
 }
 
-function showLive() {
+function showLive(revealsHome = false) {
   live.value = true
   pageIrisLive.value = true
+  pageIrisHomeReveal.value = revealsHome
   setLock(true)
 }
 
 function hideLive() {
   live.value = false
   pageIrisLive.value = false
+  pageIrisHomeReveal.value = false
   setLock(false)
   const root = rootEl.value
   clearIrisClip(root)
@@ -205,10 +208,15 @@ async function tweenIris(
   })
 }
 
-async function cover(start: IrisGeom, token: number, deferCorners = false) {
+async function cover(
+  start: IrisGeom,
+  token: number,
+  deferCorners = false,
+  revealsHome = false,
+) {
   const root = rootEl.value
   if (!root) return
-  showLive()
+  showLive(revealsHome)
   await nextTick()
   if (token !== gen) return
   void root.offsetWidth
@@ -276,7 +284,7 @@ async function runMenuHomeSnap(req: NonNullable<typeof menuHomeIrisSnap.value>) 
     return
   }
   try {
-    showLive()
+    showLive(true)
     await nextTick()
     void root.offsetWidth
     const anchor = menuHopIrisOrigin(req.geom)
@@ -296,8 +304,9 @@ async function runMenuHomeReveal(req: NonNullable<typeof menuHomeIrisReveal.valu
   }
   const token = ++gen
   try {
+    pageIrisHomeReveal.value = true
     if (!live.value) {
-      showLive()
+      showLive(true)
       await nextTick()
       if (token !== gen) return
       const anchor = menuHopIrisOrigin(req.geom)
@@ -375,7 +384,7 @@ onMounted(() => {
     popNav = false
     pendingReveal = true
     try {
-      await cover(originGeom, token, deferCorners)
+      await cover(originGeom, token, deferCorners, to.path === '/')
     } catch {
       hideLive()
     }

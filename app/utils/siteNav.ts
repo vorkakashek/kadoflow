@@ -26,8 +26,8 @@ export interface SiteNavFrame {
 /** Header shortcuts (subset). */
 export const headerLinks = [
   { labelKey: 'navigation.header.projects', to: '/projects' },
-  { labelKey: 'navigation.header.services', to: '/services' },
-  { labelKey: 'navigation.header.contact', to: '/contact' },
+  { labelKey: 'navigation.header.services', to: '/#services' },
+  { labelKey: 'navigation.header.contact', to: '/#contact' },
 ] as const
 
 /** Full Page Canvas — link list + hover preview. */
@@ -61,7 +61,7 @@ export const canvasFrames: SiteNavFrame[] = [
   {
     id: 'services',
     kind: 'page',
-    to: '/services',
+    to: '/#services',
     labelKey: 'navigation.frames.services.label',
     blurbKey: 'navigation.frames.services.blurb',
     index: '03',
@@ -87,7 +87,7 @@ export const canvasFrames: SiteNavFrame[] = [
   {
     id: 'contact',
     kind: 'page',
-    to: '/contact',
+    to: '/#contact',
     labelKey: 'navigation.frames.contact.label',
     blurbKey: 'navigation.frames.contact.blurb',
     index: '05',
@@ -101,7 +101,14 @@ export const canvasFrames: SiteNavFrame[] = [
 
 export function matchFramePath(path: string): string {
   const clean = path.replace(/\/+$/, '') || '/'
+  const exact = canvasFrames.find((f) => clean === f.to)
+  if (exact) return exact.id
   if (clean === '/') return 'home'
-  const hit = canvasFrames.find((f) => f.to !== '/' && clean.startsWith(f.to))
+  const pathOnly = clean.split('#', 1)[0] || '/'
+  const hit = canvasFrames.find((f) => (
+    !f.to.includes('#')
+    && f.to !== '/'
+    && pathOnly.startsWith(f.to)
+  ))
   return hit?.id ?? 'home'
 }

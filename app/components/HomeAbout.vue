@@ -1,11 +1,26 @@
 <script setup lang="ts">
+import {
+  IconBrandBehance,
+  IconBrandLinkedin,
+  IconBrandTelegram,
+  IconBrandThreads,
+} from '@tabler/icons-vue'
+
 defineProps<{ surfaceReady?: boolean }>()
+
+const socialLinks = [
+  { label: 'Telegram', icon: IconBrandTelegram },
+  { label: 'Threads', icon: IconBrandThreads },
+  { label: 'Behance', icon: IconBrandBehance },
+  { label: 'LinkedIn', icon: IconBrandLinkedin },
+] as const
 
 const rootEl = ref<HTMLElement | null>(null)
 const surfaceEl = ref<HTMLElement | null>(null)
 const titleEl = ref<HTMLElement | null>(null)
+const contentEndEl = ref<HTMLElement | null>(null)
 
-defineExpose({ rootEl, surfaceEl, titleEl })
+defineExpose({ rootEl, surfaceEl, titleEl, contentEndEl })
 
 let mobileMedia: MediaQueryList | null = null
 let reducedMotionMedia: MediaQueryList | null = null
@@ -48,6 +63,9 @@ async function setupBiographyMotion() {
   const copy = root.querySelector<HTMLElement>('.home-about__copy')
   const copyTitle = copy?.querySelector<HTMLElement>('h3 > span') ?? null
   const paragraphs = Array.from(copy?.querySelectorAll<HTMLElement>('p') ?? [])
+  const socialItems = Array.from(
+    copy?.querySelectorAll<HTMLElement>('.home-about__social-link') ?? [],
+  )
   const animatedElements = [
     ...titleLines,
     ...(portraitPicture ? [portraitPicture] : []),
@@ -55,6 +73,7 @@ async function setupBiographyMotion() {
     ...metaLines,
     ...(copyTitle ? [copyTitle] : []),
     ...paragraphs,
+    ...socialItems,
   ]
 
   if (reducedMotion) {
@@ -146,6 +165,7 @@ async function setupBiographyMotion() {
     if (copy && copyTitle) {
       gsap.set(copyTitle, { yPercent: 115 })
       gsap.set(paragraphs, { autoAlpha: 0, y: isMobile ? 30 : 24 })
+      gsap.set(socialItems, { autoAlpha: 0, y: isMobile ? 22 : 16 })
 
       const copyReveal = gsap.timeline({
         paused: isMobile,
@@ -170,6 +190,13 @@ async function setupBiographyMotion() {
           stagger: 0.16,
           ease: 'power3.out',
         }, 0.18)
+        .to(socialItems, {
+          autoAlpha: 1,
+          y: 0,
+          duration: 0.58,
+          stagger: 0.07,
+          ease: 'power3.out',
+        }, 0.52)
 
       if (isMobile) observeTimeline(copy, copyReveal)
     }
@@ -197,6 +224,7 @@ onUnmounted(() => {
 
 <template>
   <section
+    id="about"
     ref="rootEl"
     class="home-about pointer-events-auto relative z-10 w-full"
     :class="{ 'is-surface-ready': surfaceReady }"
@@ -257,7 +285,7 @@ onUnmounted(() => {
         </figure>
       </div>
 
-      <div class="home-about__copy">
+      <div ref="contentEndEl" class="home-about__copy">
         <h3><span>Обо мне</span></h3>
         <p>
           Меня зовут Антон. Я дизайнер и разработчик, основатель КАДОФЛОУ.
@@ -270,6 +298,19 @@ onUnmounted(() => {
           характером, понятной логикой и движением, которое помогает содержанию,
           а не существует ради эффекта.
         </p>
+        <nav class="home-about__socials" aria-label="Социальные сети">
+          <a
+            v-for="social in socialLinks"
+            :key="social.label"
+            href="#"
+            class="home-about__social-link"
+            :aria-label="social.label"
+            :title="social.label"
+            @click.prevent
+          >
+            <component :is="social.icon" aria-hidden="true" />
+          </a>
+        </nav>
       </div>
     </div>
   </section>
@@ -278,7 +319,7 @@ onUnmounted(() => {
 <style scoped>
 .home-about {
   padding: var(--space-section) var(--layout-margin-content)
-    calc(var(--space-section) * 1.25);
+    calc(var(--space-section) * 0.625);
 }
 
 .home-about__layout,
@@ -410,7 +451,7 @@ onUnmounted(() => {
 .home-about__copy h3 {
   overflow: hidden;
   margin: 0 0 clamp(1.75rem, 2.5vw, 2.75rem);
-  font-size: var(--type-slogan);
+  font-size: calc(var(--type-slogan) * 1.35);
   font-weight: 600;
   letter-spacing: -0.035em;
   line-height: 1;
@@ -424,7 +465,7 @@ onUnmounted(() => {
 .home-about__copy p {
   max-width: 58rem;
   margin: 0;
-  font-size: var(--type-body);
+  font-size: var(--type-case-body-large);
   letter-spacing: -0.025em;
   line-height: 1.38;
 }
@@ -433,9 +474,42 @@ onUnmounted(() => {
   margin-top: 1.65em;
 }
 
+.home-about__socials {
+  display: flex;
+  margin-top: clamp(2rem, 3vw, 3.25rem);
+  align-items: center;
+  gap: clamp(1rem, 1.4vw, 1.5rem);
+}
+
+.home-about__social-link {
+  display: grid;
+  width: clamp(2.15rem, 2.5vw, 2.75rem);
+  height: clamp(2.15rem, 2.5vw, 2.75rem);
+  place-items: center;
+  color: var(--palette-ink);
+  transition: color 0.28s var(--motion-ease, ease);
+}
+
+.home-about__social-link :deep(svg) {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.55;
+}
+
+.home-about__social-link:hover,
+.home-about__social-link:focus-visible {
+  color: var(--palette-forest);
+}
+
+.home-about__social-link:focus-visible {
+  border-radius: 0.2rem;
+  outline: 2px solid currentColor;
+  outline-offset: 0.3rem;
+}
+
 @media (max-width: 767.98px) {
   .home-about {
-    padding-block: calc(var(--space-section) * 0.75) var(--space-section);
+    padding-block: calc(var(--space-section) * 0.75) calc(var(--space-section) * 1.5);
   }
 
   .home-about__layout,
@@ -473,7 +547,7 @@ onUnmounted(() => {
   }
 
   .home-about__copy h3 {
-    font-size: calc(var(--type-slogan) * 0.8);
+    font-size: calc(var(--type-slogan) * 1.2);
   }
 }
 
@@ -493,8 +567,10 @@ onUnmounted(() => {
   .home-about__title-line-text,
   .home-about__portrait picture,
   .home-about__portrait img,
-  .home-about__copy h3 > span {
+  .home-about__copy h3 > span,
+  .home-about__social-link {
     will-change: auto;
+    transition: none;
   }
 }
 </style>

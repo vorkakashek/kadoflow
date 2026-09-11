@@ -335,17 +335,37 @@ onUnmounted(() => {
 })
 
 function openCase(item: HomeCase, event: MouseEvent) {
-  const cover = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-case-cover]')
+  const card = event.currentTarget as HTMLElement | null
+  const cover = card?.querySelector<HTMLElement>('[data-case-cover]')
   const rect = cover?.getBoundingClientRect()
   if (!rect || rect.width < 2 || rect.height < 2) return
   const paintedImage = cover?.querySelector<HTMLImageElement>('img')
+  const imageRect = paintedImage?.getBoundingClientRect()
+  const imageFilter = paintedImage ? getComputedStyle(paintedImage).filter : undefined
+
+  // Pointer leave fires as soon as the fixed transition layer takes ownership.
+  // Freeze the source image first so its catalog-only hover loop cannot move
+  // between the geometry snapshot above and the proxy's first painted frame.
+  const cardMotion = card ? projectCardMotions.get(card) : undefined
+  if (cardMotion?.frame) {
+    cancelAnimationFrame(cardMotion.frame)
+    cardMotion.frame = 0
+    cardMotion.lastFrameAt = 0
+  }
   event.preventDefault()
   openCaseDetail({
     to: homeCaseDetailPath(item), origin: 'projects', src: item.media.src,
     proxySrc: paintedImage?.currentSrc || undefined,
     webpSrcset: item.media.webpSrcset, avifSrcset: item.media.avifSrcset,
+    mobileSrc: item.media.mobileSrc,
+    mobileWebpSrcset: item.media.mobileWebpSrcset,
+    mobileAvifSrcset: item.media.mobileAvifSrcset,
     alt: item.media.alt, wash: item.wash,
     rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+    imageRect: imageRect
+      ? { top: imageRect.top, left: imageRect.left, width: imageRect.width, height: imageRect.height }
+      : undefined,
+    imageFilter,
   })
 }
 </script>

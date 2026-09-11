@@ -14,6 +14,11 @@ export const imageRecipes = [
     widths: [128],
   },
   {
+    source: 'public/textures/grain-tile-v2.png',
+    outputStem: 'public/textures/grain-tile-v2',
+    widths: [256],
+  },
+  {
     source: 'public/home/rock.png',
     outputStem: 'public/home/rock',
     widths: [320, 480, 640, 854, 1088],

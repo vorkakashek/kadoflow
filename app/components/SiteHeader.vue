@@ -19,7 +19,7 @@ const { t } = useI18n()
 const homeCases = useHomeCases()
 const links = headerLinks
 /** Optimistic “you are here” so the chip fill doesn’t wait for the iris hop. */
-const navHerePath = ref(route.path)
+const navHerePath = ref(route.fullPath)
 const scrolled = ref(false)
 const canvasForced = computed(() => canvasSurface.value || canvasOpen.value)
 /** Menu pins the bar to the default wide layout — never the compact scroll state. */
@@ -68,8 +68,12 @@ function onCaseDetailBack(event: MouseEvent) {
   const item = detailCase.value
   if (!item) return
   event.preventDefault()
+  const paintedDetailImage = document.querySelector<HTMLImageElement>(
+    '.case-detail__first-screen .case-detail__image',
+  )
   closeCaseDetail({
     src: item.media.src,
+    proxySrc: paintedDetailImage?.currentSrc || undefined,
     webpSrcset: item.media.webpSrcset,
     avifSrcset: item.media.avifSrcset,
     mobileSrc: item.media.mobileSrc,
@@ -179,7 +183,7 @@ async function onLogoClick(event: MouseEvent) {
   }
 }
 
-watch(() => route.path, (path) => {
+watch(() => route.fullPath, (path) => {
   navHerePath.value = path
 })
 
@@ -1405,9 +1409,10 @@ html.page-iris-lock:not(.page-canvas-surface) .site-header {
   z-index: 113;
 }
 
-/* Sand iris + chip fill clash — keep nav chrome clear while the hop covers. */
-html.page-iris-lock .header-chip,
-html.page-iris-lock .header-chip--scrolled {
+/* Sand iris + nav fill clash — keep only the link group clear while the hop
+   covers. The menu control stays dark so it does not flash transparent. */
+html.page-iris-lock .header-nav.header-chip,
+html.page-iris-lock .header-nav.header-chip--scrolled {
   background-color: transparent !important;
   color: var(--palette-ink, #171915) !important;
   backdrop-filter: none !important;

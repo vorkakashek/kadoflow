@@ -53,6 +53,8 @@ export function usePageCanvas() {
   const irisLive = useState('page-canvas-iris-live', () => false)
   /** SPA page hop overlay — iris reveal onto home. */
   const pageIrisLive = useState('page-iris-live', () => false)
+  /** The active page iris will reveal Home and must protect its WebGL buffer. */
+  const pageIrisHomeReveal = useState('page-iris-home-reveal', () => false)
   /** Menu → home hop: PageIris iris-out onto the menu chip after swarm prewarm. */
   const menuHomeIrisReveal = useState<MenuHomeIrisReveal | null>(
     'menu-home-iris-reveal',
@@ -206,6 +208,7 @@ export function usePageCanvas() {
     heroSwarmReady,
     irisLive,
     pageIrisLive,
+    pageIrisHomeReveal,
     menuHomeIrisReveal,
     menuHomeIrisSnap,
     canvasMotionPaused,

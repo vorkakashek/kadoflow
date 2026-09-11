@@ -638,9 +638,9 @@ function scheduleDetailEnhancement(delay: number, task: () => void | Promise<voi
 function scheduleDeferredDetailEnhancements() {
   if (detailPageUnmounted || detailEnhancementTimers.length || detailEnhancementIdles.length) return
 
-  // Keep the first interactive frames empty, then spread layout-sensitive
-  // setup across separate idle slices instead of releasing every feature at once.
-  scheduleDetailEnhancement(1000, setupDetailReveals)
+  // Keep non-critical work away from the first interactive frames. Scroll
+  // reveals are registered with the text fill as soon as entry ends so a fast
+  // reader cannot move past their trigger corridor before they exist.
   scheduleDetailEnhancement(1350, setupNextProjectParallax)
   scheduleDetailEnhancement(2400, () => preloadRouteComponents('/'))
 }
@@ -649,8 +649,10 @@ function deferBelowFoldSetupUntilEntryEnds() {
   const startEnhancements = () => {
     requestAnimationFrame(() => {
       if (detailPageUnmounted || !detailMotionActive.value) return
-      // Text fill is scroll-critical: initialize it before the user can move
-      // past the first target. The heavier non-critical effects stay deferred.
+      // Both appearance systems are scroll-critical: initialize them before
+      // the user can move past the first target. Heavier non-critical effects
+      // stay deferred.
+      void setupDetailReveals()
       void setupAudienceTextFill()
       scheduleDeferredDetailEnhancements()
     })

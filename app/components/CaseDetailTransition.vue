@@ -15,6 +15,7 @@ const {
 } = useCaseDetailTransition()
 const rootEl = ref<HTMLElement | null>(null)
 const backdropEl = ref<HTMLElement | null>(null)
+const frameEl = ref<HTMLElement | null>(null)
 const imageEl = ref<HTMLImageElement | null>(null)
 const visible = ref(false)
 const wash = ref('#0a0a0a')
@@ -32,8 +33,62 @@ function nextPaint() {
   })
 }
 
-function waitForTransitionDelay(milliseconds: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+type TransitionBox = { top: number; left: number; width: number; height: number }
+type ImagePose = { x: number; y: number; scale: number; width: number; height: number }
+
+const OPEN_FILL_DURATION = 0.54
+const OPEN_OVERSHOOT_DURATION = 0.62
+const OPEN_OVERSHOOT_SCALE = 1.15
+
+/** Uniformly fit the decoded raster behind a clipped box without resizing it. */
+function coverPose(
+  image: HTMLImageElement,
+  box: TransitionBox,
+  paintedBox: TransitionBox = box,
+) {
+  const naturalWidth = Math.max(1, image.naturalWidth)
+  const naturalHeight = Math.max(1, image.naturalHeight)
+  const baseScale = Math.max(box.width / naturalWidth, box.height / naturalHeight)
+  const baseLeft = box.left + (box.width - naturalWidth * baseScale) * 0.5
+  const baseTop = box.top + (box.height - naturalHeight * baseScale) * 0.5
+
+  // Project cards can still be following the pointer when clicked. Recreate
+  // that exact painted pose so the first proxy frame does not snap to rest.
+  const liveScale = box.width > 0 ? paintedBox.width / box.width : 1
+  const boxCenterX = box.left + box.width * 0.5
+  const boxCenterY = box.top + box.height * 0.5
+  const paintedCenterX = paintedBox.left + paintedBox.width * 0.5
+  const paintedCenterY = paintedBox.top + paintedBox.height * 0.5
+
+  return {
+    x: paintedCenterX + (baseLeft - boxCenterX) * liveScale,
+    y: paintedCenterY + (baseTop - boxCenterY) * liveScale,
+    scale: baseScale * liveScale,
+    width: naturalWidth,
+    height: naturalHeight,
+  }
+}
+
+function scalePoseAroundViewport(
+  pose: ImagePose,
+  viewport: { width: number; height: number },
+  factor: number,
+) {
+  const centerX = viewport.width * 0.5
+  const centerY = viewport.height * 0.5
+  return {
+    x: centerX + (pose.x - centerX) * factor,
+    y: centerY + (pose.y - centerY) * factor,
+    scale: pose.scale * factor,
+  }
+}
+
+function poseWithinFrame(pose: ImagePose, frame: TransitionBox) {
+  return {
+    ...pose,
+    x: pose.x - frame.left,
+    y: pose.y - frame.top,
+  }
 }
 
 /** Keep a newly assigned transition src hidden until its raster can paint. */
@@ -68,6 +123,23 @@ async function waitForTargetImagePaint(target: HTMLElement) {
   image.loading = 'eager'
   await waitForImageDecode(image)
   await nextPaint()
+}
+
+/** Wait until HomeCases has actually exposed its decoded raster under proxy. */
+async function waitForTargetHandoff(target: HTMLElement) {
+  const localMedia = target.querySelector<HTMLElement>('[data-case-local-media]')
+  if (!localMedia) {
+    await nextPaint()
+    return
+  }
+
+  const image = localMedia.querySelector<HTMLImageElement>('img')
+  for (let frame = 0; frame < 12; frame += 1) {
+    await nextPaint()
+    const painted = Number.parseFloat(getComputedStyle(localMedia).opacity) >= 0.99
+    const decoded = !image || (image.complete && image.naturalWidth > 0)
+    if (painted && decoded) return
+  }
 }
 
 async function returnThroughHistory(to: string) {
@@ -150,8 +222,9 @@ watch(request, async (next) => {
   if (!next || active.value) return
   const root = rootEl.value
   const backdrop = backdropEl.value
+  const frame = frameEl.value
   const image = imageEl.value
-  if (!root || !backdrop || !image) return
+  if (!root || !backdrop || !frame || !image) return
 
   // Start resolving the cold route before decoding and staging the transition
   // image. Scheduled warmups normally finish this earlier; this is the fallback
@@ -162,7 +235,7 @@ watch(request, async (next) => {
 
   active.value = true
   wash.value = next.wash
-  const proxySrc = next.direction === 'open' ? next.proxySrc : undefined
+  const proxySrc = next.proxySrc
   src.value = proxySrc ?? next.src
   // Keep the opening proxy on the exact candidate that is already visible in
   // the source card. The destination page loads its own full-size responsive
@@ -177,35 +250,36 @@ watch(request, async (next) => {
   await waitForImageDecode(image, !!proxySrc)
 
   const viewport = { width: window.innerWidth, height: window.innerHeight }
+  const viewportBox = { top: 0, left: 0, width: viewport.width, height: viewport.height }
+  const fullscreenPose = coverPose(image, viewportBox)
   gsap.set(root, { opacity: 1 })
   if (next.direction === 'open' && next.rect) {
     gsap.set(backdrop, { opacity: 0 })
+    gsap.set(frame, next.rect)
     gsap.set(image, {
-      ...next.rect,
-      x: 0,
-      y: 0,
-      scale: 1,
+      ...poseWithinFrame(
+        coverPose(image, next.rect, next.imageRect ?? next.rect),
+        next.rect,
+      ),
+      top: 0,
+      left: 0,
       rotate: 0,
       opacity: 1,
-      filter: 'none',
-      clipPath: 'inset(0px)',
+      filter: next.imageFilter ?? 'none',
+      transformOrigin: '0 0',
     })
   } else {
     gsap.set(backdrop, { opacity: 0 })
+    gsap.set(frame, viewportBox)
     gsap.set(image, {
+      ...fullscreenPose,
       top: 0,
       left: 0,
-      width: viewport.width,
-      height: viewport.height,
-      x: 0,
-      y: 0,
       // A fractional paint uploads the fixed proxy before its cover tween.
       opacity: 0.001,
       filter: 'none',
-      clipPath: 'inset(0px)',
-      scale: 1.1,
-      rotate: -2,
-      transformOrigin: '50% 50%',
+      rotate: 0,
+      transformOrigin: '0 0',
     })
   }
   // Reveal only after the new src and its exact first pose are already on the
@@ -220,40 +294,61 @@ watch(request, async (next) => {
   const hashPinSession: { stop?: () => void } = {}
   try {
     if (next.direction === 'open' && next.rect) {
-      // Mount the route under the moving proxy once the backdrop is opaque.
-      // Detail enhancements stay phase-gated, so route work can overlap the
-      // geometry tween without introducing a static fullscreen hold.
-      const flight = gsap.timeline()
-      flight.to(backdrop, { opacity: 1, duration: 0.18, ease: 'power1.out' }, 0)
-      flight.to(
+      // Keep the source route mounted until the proxy fills the viewport. On
+      // mobile this prevents a narrow clipped photo from sitting alone on the
+      // destination wash while the route is already changing underneath it.
+      const fill = gsap.timeline()
+      fill.to(backdrop, {
+        opacity: 1,
+        duration: OPEN_FILL_DURATION,
+        ease: 'power1.inOut',
+      }, 0)
+      fill.to(frame, {
+        ...viewportBox,
+        duration: OPEN_FILL_DURATION,
+        ease: 'power3.inOut',
+      }, 0)
+      fill.to(
         image,
         {
-          top: 0,
-          left: 0,
-          width: viewport.width,
-          height: viewport.height,
-          duration: 0.72,
+          x: fullscreenPose.x,
+          y: fullscreenPose.y,
+          scale: fullscreenPose.scale,
+          filter: 'none',
+          duration: OPEN_FILL_DURATION,
           ease: 'power3.inOut',
         },
         0,
       )
-      const routeTask = (async () => {
-        await Promise.all([routeWarmup, waitForTransitionDelay(160)])
-        await router.push(next.to)
-        await nextPaint()
-      })()
+      await fill
 
-      // Keep the detail in its entry pose for the entire proxy handoff. If its
-      // content is released here, most of the entrance plays behind the media.
-      await Promise.all([routeTask, waitForTransitionDelay(500)])
-      const reveal = gsap.to(root, {
-        opacity: 0,
-        duration: 0.54,
-        ease: 'power2.out',
-      })
-      await Promise.all([flight, reveal])
+      await routeWarmup
+      await router.push(next.to)
+      await nextPaint()
+
+      // Scale 1 is the filled viewport. The final 15% is deliberately slower,
+      // and the proxy dissolves only across that overshoot corridor.
       revealDetailContent()
       await nextPaint()
+      const overshootPose = scalePoseAroundViewport(
+        fullscreenPose,
+        viewport,
+        OPEN_OVERSHOOT_SCALE,
+      )
+      const reveal = gsap.timeline()
+      reveal.to(image, {
+        x: overshootPose.x,
+        y: overshootPose.y,
+        scale: overshootPose.scale,
+        duration: OPEN_OVERSHOOT_DURATION,
+        ease: 'power2.out',
+      }, 0)
+      reveal.to(root, {
+        opacity: 0,
+        duration: OPEN_OVERSHOOT_DURATION,
+        ease: 'power2.out',
+      }, 0)
+      await reveal
       return
     }
 
@@ -269,9 +364,7 @@ watch(request, async (next) => {
     cover.to(backdrop, { opacity: 1, duration: 0.30, ease: 'power2.inOut' }, 0)
     cover.to(image, {
       opacity: 1,
-      scale: 1.04,
-      rotate: -0.75,
-      duration: 0.44,
+      duration: 0.42,
       ease: 'power2.inOut',
     }, 0)
 
@@ -292,18 +385,24 @@ watch(request, async (next) => {
 
     if (targetEl) {
       const target = targetEl.getBoundingClientRect()
+      const targetBox = { top: target.top, left: target.left, width: target.width, height: target.height }
+      const targetImage = targetEl.matches('img')
+        ? targetEl as HTMLImageElement
+        : targetEl.querySelector<HTMLImageElement>('img')
+      const targetImageRect = targetImage?.getBoundingClientRect()
+      const targetPose = coverPose(image, targetBox, targetImageRect ?? targetBox)
+      const targetLocalPose = poseWithinFrame(targetPose, targetBox)
       const flight = gsap.timeline()
+      flight.to(frame, {
+        ...targetBox,
+        duration: 0.72,
+        ease: 'power3.inOut',
+      }, 0)
       flight.to(image, {
-        top: target.top,
-        left: target.left,
-        width: target.width,
-        height: target.height,
-        x: 0,
-        y: 0,
-        scale: 1,
-        rotate: 0,
-        clipPath: 'inset(0px)',
-        duration: 0.66,
+        x: targetLocalPose.x,
+        y: targetLocalPose.y,
+        scale: targetLocalPose.scale,
+        duration: 0.72,
         ease: 'power3.inOut',
         overwrite: 'auto',
       }, 0)
@@ -314,18 +413,14 @@ watch(request, async (next) => {
       await flight
       markHomeReturnMediaDocked()
 
-      // Finish docking before handing the frame back to the live surface.
-      // A fractional opacity forces the browser to composite and paint the
-      // destination under the still-indistinguishable proxy first, avoiding
-      // a one-frame blank during the swap.
-      gsap.set(image, { opacity: 0.999 })
-      await nextPaint()
-      await gsap.to(image, { opacity: 0, duration: 0.14, ease: 'power1.out' })
+      // Do not crossfade into a surface that may still be presenting its gray
+      // backing frame on mobile. Once the live raster is truly painted, swap
+      // two geometrically identical layers atomically.
+      await waitForTargetHandoff(targetEl)
+      gsap.set(image, { opacity: 0 })
     } else {
       await gsap.to(image, {
         opacity: 0,
-        scale: 1.02,
-        rotate: 0,
         duration: 0.42,
         ease: 'power2.out',
       })
@@ -360,14 +455,16 @@ watch(request, async (next) => {
       class="case-detail-transition__backdrop"
       :style="{ backgroundColor: wash }"
     />
-    <picture>
-      <source v-if="mobileAvifSrcset" media="(max-width: 767.98px)" type="image/avif" :srcset="mobileAvifSrcset" sizes="100vw">
-      <source v-if="mobileWebpSrcset" media="(max-width: 767.98px)" type="image/webp" :srcset="mobileWebpSrcset" sizes="100vw">
-      <source v-if="mobileSrc" media="(max-width: 767.98px)" :srcset="mobileSrc">
-      <source v-if="avifSrcset" type="image/avif" :srcset="avifSrcset" sizes="100vw">
-      <source v-if="webpSrcset" type="image/webp" :srcset="webpSrcset" sizes="100vw">
-      <img ref="imageEl" :src="src" :alt="alt" class="case-detail-transition__image">
-    </picture>
+    <div ref="frameEl" class="case-detail-transition__frame">
+      <picture>
+        <source v-if="mobileAvifSrcset" media="(max-width: 767.98px)" type="image/avif" :srcset="mobileAvifSrcset" sizes="100vw">
+        <source v-if="mobileWebpSrcset" media="(max-width: 767.98px)" type="image/webp" :srcset="mobileWebpSrcset" sizes="100vw">
+        <source v-if="mobileSrc" media="(max-width: 767.98px)" :srcset="mobileSrc">
+        <source v-if="avifSrcset" type="image/avif" :srcset="avifSrcset" sizes="100vw">
+        <source v-if="webpSrcset" type="image/webp" :srcset="webpSrcset" sizes="100vw">
+        <img ref="imageEl" :src="src" :alt="alt" class="case-detail-transition__image">
+      </picture>
+    </div>
   </div>
 </template>
 
@@ -385,15 +482,22 @@ watch(request, async (next) => {
   inset: 0;
 }
 
-.case-detail-transition picture {
+.case-detail-transition__frame {
+  position: fixed;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  will-change: top, left, width, height;
+}
+
+.case-detail-transition__frame picture {
   display: contents;
 }
 
 .case-detail-transition__image {
-  position: fixed;
+  position: absolute;
   display: block;
-  object-fit: cover;
-  object-position: center;
-  will-change: top, left, width, height, transform, opacity;
+  max-width: none;
+  will-change: transform, opacity;
 }
 </style>

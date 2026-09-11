@@ -90,7 +90,20 @@ const sceneBleedY = computed(() =>
 const sceneLive = ref(true)
 /** WebGL rAF — deferred on mobile until iris veil is done (revealT≈1). */
 const swarmLoopReady = ref(false)
-const { open: pageCanvasOpen, busy: pageCanvasBusy, skipHeroIntro, heroSwarmReady, surfaceOn, irisLive, pageIrisLive, navHopActive, heroGlPrewarm, heroGlRevealBusy, resolveHeroGlPrewarm } = usePageCanvas()
+const {
+  open: pageCanvasOpen,
+  busy: pageCanvasBusy,
+  skipHeroIntro,
+  heroSwarmReady,
+  surfaceOn,
+  irisLive,
+  pageIrisLive,
+  pageIrisHomeReveal,
+  navHopActive,
+  heroGlPrewarm,
+  heroGlRevealBusy,
+  resolveHeroGlPrewarm,
+} = usePageCanvas()
 /** Keep the last GL frame visible while the menu covers the page. */
 const swarmVisible = computed(
   () =>
@@ -106,10 +119,14 @@ const glCoverHold = ref(false)
 /** Menu hop — keep GL rendering under the lid from prewarm through iris out. */
 const glCoverHopSession = ref(false)
 
-/** Iris / menu session — cover on only for SPA hop while GL has no frame yet. */
+/**
+ * Protect the WebGL buffer only while an iris is revealing Home. While leaving
+ * Home the live scene stays visible inside the growing iris instead of being
+ * replaced by the stone lid on pointer-down.
+ */
 const glCoverNeed = computed(() => {
   if (!sceneLive.value) return false
-  return pageIrisLive.value
+  return pageIrisHomeReveal.value
 })
 
 const glCoverLocked = computed(() => glCoverNeed.value || glCoverHold.value)
@@ -647,7 +664,7 @@ watch(
 )
 
 onMounted(() => {
-  if (pageIrisLive.value) {
+  if (pageIrisHomeReveal.value) {
     glCoverHopSession.value = true
     glCoverHold.value = true
   } else if (heroGlRevealBusy.value) {

@@ -159,9 +159,14 @@ export function useHomeExperience() {
   }
 
   function completeDetailReturn() {
+    const returnedToDockedMedia = state.value.homeReturnMediaDocked
     state.value.routePhase = 'idle'
     state.value.homeReturnSurfacePending = false
     state.value.homeReturnMediaDocked = false
+    // The return proxy has already docked into the live raster. Keep that
+    // raster authoritative while FlowSurface finishes its own mobile handoff;
+    // otherwise one intermediate frame exposes the gray parked surface.
+    if (returnedToDockedMedia) state.value.caseMediaVisible = true
   }
 
   return {

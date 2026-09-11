@@ -82,6 +82,9 @@ const FORMATS_SCRUB_END = 'top 35%'
 /** Work formats → author block: the stone surface settles into its dark panel. */
 const ABOUT_SCRUB_START = 'top 92%'
 const ABOUT_SCRUB_END = 'top 25%'
+/** Begin as Biography leaves; finish once the first contact input reaches the fold. */
+const CONTACT_SCRUB_START = 'bottom bottom+=72px'
+const CONTACT_SCRUB_END = 'bottom bottom'
 /** Global scroll-driven surface limit, in normalized morph segments/sec. */
 const SURFACE_MORPH_MAX_VELOCITY = 1.55
 const SURFACE_MORPH_EPSILON = 0.0008
@@ -136,6 +139,7 @@ const MOBILE_CASE_TO_FORMATS_HOLD_PX = 200
 /** Tail morphs must never collapse to a one-pixel range after layout shifts. */
 const MOBILE_FORMATS_SCROLL_SPAN_VH = 0.62
 const MOBILE_ABOUT_SCROLL_SPAN_VH = 0.3
+const MOBILE_CONTACT_ENTRY_LEAD_PX = 32
 /** Stretch Formats ↔ Biography equally at both ends of the reversible range. */
 const MOBILE_ABOUT_ENTRY_LEAD_PX = 80
 const MOBILE_ABOUT_EXIT_RUNWAY_PX = 80
@@ -169,6 +173,14 @@ const props = withDefaults(
     aboutSurfaceEl?: HTMLElement | null
     /** Heading whose light copy is clipped to the live surface overlap. */
     aboutTitleEl?: HTMLElement | null
+    /** Bottom of the visible Biography content — starts the contact morph. */
+    aboutEndEl?: HTMLElement | null
+    /** Contact section — final continuous surface segment. */
+    contactSectionEl?: HTMLElement | null
+    /** Form field destination; the live Surface also clips the form UI. */
+    contactSurfaceEl?: HTMLElement | null
+    /** First contact input — marks the end of the Biography → contact morph. */
+    contactTaskEl?: HTMLElement | null
     plan?: SurfaceMorphPlan
     toneClass?: string
   }>(),
@@ -186,6 +198,10 @@ const props = withDefaults(
     aboutSectionEl: null,
     aboutSurfaceEl: null,
     aboutTitleEl: null,
+    aboutEndEl: null,
+    contactSectionEl: null,
+    contactSurfaceEl: null,
+    contactTaskEl: null,
     plan: () => heroToKadoPlan,
     toneClass: 'bg-stone',
   },
@@ -240,6 +256,7 @@ let trigger: { kill: () => void; progress: number } | null = null
 let caseTrigger: { kill: () => void; progress: number } | null = null
 let formatsTrigger: { kill: () => void; progress: number } | null = null
 let aboutTrigger: { kill: () => void; progress: number } | null = null
+let contactTrigger: { kill: () => void; progress: number } | null = null
 let mobileTriggers: { kill: () => void }[] = []
 let hopTween: { kill: () => void } | null = null
 let target = { h: 0, v: 0 }
@@ -252,6 +269,7 @@ let fromPose: SurfaceBox | null = null
 let toPose: SurfaceBox | null = null
 let desktopTargetS = 0
 let desktopLiveS = 0
+const contactStageProgress = ref(0)
 /** True while lagged case progress is parked on the mockup. */
 let caseMediaActive = false
 let surfaceReadyEmitted = false
@@ -373,6 +391,8 @@ type MobileScrollBounds = {
   formatsEnd: number
   aboutStart: number
   aboutEnd: number
+  contactStart: number
+  contactEnd: number
   stoneDoc: SurfaceBox
   termDoc: SurfaceBox
   wordDoc: SurfaceBox
@@ -380,6 +400,7 @@ type MobileScrollBounds = {
   formatsDoc: SurfaceBox
   formatsListDoc: SurfaceBox
   aboutDoc: SurfaceBox
+  contactDoc: SurfaceBox
 }
 let mobileScrollBounds: MobileScrollBounds | null = null
 let mobileCorridorS = 0
@@ -422,7 +443,7 @@ let lastWordDoc: SurfaceBox | null = null
 /** Pin host currently holding the frame (term/word slot). */
 let pinHost: HTMLElement | null = null
 let pinRo: ResizeObserver | null = null
-type SurfaceProxyKind = 'kado' | 'case' | 'formats' | 'about'
+type SurfaceProxyKind = 'kado' | 'case' | 'formats' | 'about' | 'contact'
 let proxyHost: HTMLElement | null = null
 let proxyKind: SurfaceProxyKind | null = null
 let caseMediaRevealTimer = 0
@@ -573,6 +594,9 @@ function captureMobileScrollBounds() {
   const formatsListDocRaw = readDocBox(formatsListElement())
   const aboutSectionDocRaw = readDocBox(props.aboutSectionEl)
   const aboutDocRaw = readDocBox(props.aboutSurfaceEl)
+  const aboutEndDocRaw = readDocBox(props.aboutEndEl)
+  const contactDocRaw = readDocBox(props.contactSurfaceEl)
+  const contactTaskDocRaw = readDocBox(props.contactTaskEl)
   if (
     !stoneMark
     || !stoneDoc
@@ -585,6 +609,9 @@ function captureMobileScrollBounds() {
     || !formatsListDocRaw
     || !aboutSectionDocRaw
     || !aboutDocRaw
+    || !aboutEndDocRaw
+    || !contactDocRaw
+    || !contactTaskDocRaw
   ) {
     mobileScrollBounds = null
     return false
@@ -606,6 +633,9 @@ function captureMobileScrollBounds() {
   const formatsListDoc = afterCaseCollapse(formatsListDocRaw)
   const aboutSectionDoc = afterCaseCollapse(aboutSectionDocRaw)
   const aboutDoc = afterCaseCollapse(aboutDocRaw)
+  const aboutEndDoc = afterCaseCollapse(aboutEndDocRaw)
+  const contactDoc = afterCaseCollapse(contactDocRaw)
+  const contactTaskDoc = afterCaseCollapse(contactTaskDocRaw)
 
   const viewportHeight = stableMobileTriggerViewportHeight()
   const termStart = scrubEndY
@@ -667,6 +697,16 @@ function captureMobileScrollBounds() {
     aboutStart + aboutSpan,
     aboutSectionDoc.top - viewportHeight * 0.7,
   ) + MOBILE_ABOUT_EXIT_RUNWAY_PX
+  const contactStart = Math.max(
+    aboutEnd,
+    aboutEndDoc.top + aboutEndDoc.height
+      - viewportHeight
+      - MOBILE_CONTACT_ENTRY_LEAD_PX,
+  )
+  const contactEnd = Math.max(
+    contactStart + 1,
+    contactTaskDoc.top + contactTaskDoc.height - viewportHeight,
+  )
 
   mobileScrollBounds = {
     termStart,
@@ -681,6 +721,8 @@ function captureMobileScrollBounds() {
     formatsEnd,
     aboutStart,
     aboutEnd,
+    contactStart,
+    contactEnd,
     stoneDoc,
     termDoc,
     wordDoc,
@@ -688,6 +730,7 @@ function captureMobileScrollBounds() {
     formatsDoc,
     formatsListDoc,
     aboutDoc,
+    contactDoc,
   }
   lastWordDoc = wordDoc
   lastCaseDoc = caseDoc
@@ -998,6 +1041,14 @@ function aboutSurfacePose(): SurfaceBox | null {
   return readBox(props.aboutSurfaceEl)
 }
 
+function contactSurfacePose(): SurfaceBox | null {
+  return readBox(props.contactSurfaceEl)
+}
+
+function setContactStageProgress(progress: number) {
+  contactStageProgress.value = clampUnit(progress)
+}
+
 let lastAboutTitleClip = ''
 let lastAboutTitleOpacity = ''
 
@@ -1084,6 +1135,9 @@ function kadoLivePose(): SurfaceBox | null {
 }
 
 function computeDesktopTarget(): number {
+  if (contactTrigger && contactTrigger.progress > 0) {
+    return 4 + Math.min(1, Math.max(0, contactTrigger.progress))
+  }
   if (aboutTrigger && aboutTrigger.progress > 0) {
     return 3 + Math.min(1, Math.max(0, aboutTrigger.progress))
   }
@@ -1100,6 +1154,7 @@ function computeDesktopTarget(): number {
 }
 
 function paintHeroToKadoSegment(t: number) {
+  setContactStageProgress(0)
   clearAboutTitleContrast()
   if (
     caseSurfaceDocked.value
@@ -1136,6 +1191,7 @@ function paintHeroToKadoSegment(t: number) {
 }
 
 function paintKadoToCasesSegment(t: number) {
+  setContactStageProgress(0)
   clearAboutTitleContrast()
   const docked = t >= CASE_PARK_P
   if (docked !== caseMediaActive) {
@@ -1180,6 +1236,7 @@ function paintKadoToCasesSegment(t: number) {
 }
 
 function paintCasesToFormatsSegment(t: number) {
+  setContactStageProgress(0)
   clearAboutTitleContrast()
   const from = caseMediaPose()
   const to = formatsSurfacePose()
@@ -1222,6 +1279,7 @@ function paintCasesToFormatsSegment(t: number) {
 }
 
 function paintFormatsToAboutSegment(t: number) {
+  setContactStageProgress(0)
   const from = formatsSurfacePose()
   const to = aboutSurfacePose()
   if (!from && !to) {
@@ -1241,6 +1299,35 @@ function paintFormatsToAboutSegment(t: number) {
   paintAboutSurfaceTone(t)
   paintBox(box, 1)
   paintAboutTitleContrast(box)
+}
+
+function paintAboutToContactSegment(t: number) {
+  const from = aboutSurfacePose()
+  const to = contactSurfacePose()
+  if (!from && !to) return
+
+  if (contactFramePinned() && t >= 1 - SURFACE_MORPH_EPSILON) {
+    paintAboutSurfaceTone(0)
+    clearAboutTitleContrast()
+    setContactStageProgress(1)
+    syncPinnedMask()
+    return
+  }
+
+  if (aboutFramePinned() || contactFramePinned()) {
+    unpinFrame()
+  }
+
+  const box = from && to
+    ? lerpBox(from, to, t)
+    : (to ?? from)!
+  const contactReveal = smoothUnit((t - 0.58) / 0.3)
+  paintAboutSurfaceTone(1 - t)
+  paintBox(box, 1)
+  paintAboutTitleContrast(box, 1 - smoothUnit(t / 0.55))
+  setContactStageProgress(contactReveal)
+
+  if (t >= 1 - SURFACE_MORPH_EPSILON) pinContactFrame()
 }
 
 function finishHeroEntryReveal() {
@@ -1587,8 +1674,10 @@ function paintDesktop(s = desktopLiveS) {
   if (mobileActive) return
   if (hopTween) return
 
-  const { segmentIndex, localT } = resolveCorridorSegment(s, 4)
-  if (segmentIndex === 3) {
+  const { segmentIndex, localT } = resolveCorridorSegment(s, 5)
+  if (segmentIndex === 4) {
+    paintAboutToContactSegment(localT)
+  } else if (segmentIndex === 3) {
     paintFormatsToAboutSegment(localT)
   } else if (segmentIndex === 2) {
     paintCasesToFormatsSegment(localT)
@@ -1661,6 +1750,7 @@ const MOBILE_CORRIDOR_IDS = [
   'word-cases',
   'cases-formats',
   'formats-about',
+  'about-contact',
 ] as const
 type MobileCorridorId = typeof MOBILE_CORRIDOR_IDS[number]
 
@@ -1694,10 +1784,11 @@ function mobileCorridorRanges(
     { id: 'word-cases', start: bounds.caseStart, end: exits.caseEnd },
     { id: 'cases-formats', start: exits.formatsStart, end: bounds.formatsEnd },
     { id: 'formats-about', start: bounds.aboutStart, end: bounds.aboutEnd },
+    { id: 'about-contact', start: bounds.contactStart, end: bounds.contactEnd },
   ]
 }
 
-/** Map native scroll to one ordered Hero → About animation clock. */
+/** Map native scroll to one ordered Hero → Contact animation clock. */
 function mobileCorridorTargetAt(scrollY: number) {
   const bounds = mobileScrollBounds
   if (!bounds) return 0
@@ -1784,6 +1875,8 @@ function paintMobileScrollCorridor(
     poseAtScrollY(bounds.formatsDoc, bounds.formatsEnd),
   )
   const aboutAtEnd = poseAtScrollY(bounds.aboutDoc, bounds.aboutEnd)
+  const aboutAtContactStart = poseAtScrollY(bounds.aboutDoc, bounds.contactStart)
+  const contactAtEnd = poseAtScrollY(bounds.contactDoc, bounds.contactEnd)
 
   // Holds stay in the fixed shell and follow the current document box. Moving
   // the frame into a proxy/Teleport here creates a second coordinate system.
@@ -1847,14 +1940,45 @@ function paintMobileScrollCorridor(
       setCaseMediaVisible(mediaVisible)
       return
     }
+    const contactPinned = contactFramePinned()
+    if (
+      scrollY >= bounds.contactEnd
+      || (
+        contactPinned
+        && mobileCorridorDirection !== 'reverse'
+        && scrollY >= bounds.contactEnd - MOBILE_TAIL_TRIGGER_HYSTERESIS_PX
+      )
+    ) {
+      mobileCaseProgress = 1
+      mobileCaseArrived = false
+      mobileFormatsProgress = 1
+      mobileFormatsArrived = false
+      mobileAboutProgress = 1
+      mobileAboutArrived = false
+      caseMediaActive = false
+      setSurfaceDocked(false)
+      setSurfaceReady(false)
+      setCaseMediaVisible(false)
+      clearCaseMediaFlight()
+      clearAboutTitleContrast()
+      paintAboutSurfaceTone(0)
+      setContactStageProgress(1)
+      pinContactFrame()
+      return
+    }
+
     const aboutProxyParked = proxyKind === 'about'
       && proxyHost === props.aboutSurfaceEl
     if (
-      scrollY >= bounds.aboutEnd
+      (
+        scrollY >= bounds.aboutEnd
+        && scrollY < bounds.contactStart
+      )
       || (
         aboutProxyParked
         && mobileCorridorDirection !== 'reverse'
         && scrollY >= bounds.aboutEnd - MOBILE_TAIL_TRIGGER_HYSTERESIS_PX
+        && scrollY < bounds.contactStart
       )
     ) {
       mobileCaseProgress = 1
@@ -1869,6 +1993,7 @@ function paintMobileScrollCorridor(
       setCaseMediaVisible(false)
       clearCaseMediaFlight()
       paintAboutSurfaceTone(1)
+      setContactStageProgress(0)
       const box = aboutSurfacePose()
       if (box) {
         parkMobileAboutWaypoint(box)
@@ -1880,6 +2005,7 @@ function paintMobileScrollCorridor(
   prepareMobileScrollFlight(segmentId === 'word-cases')
   setSurfaceDocked(false)
   setSurfaceReady(false)
+  if (segmentId !== 'about-contact') setContactStageProgress(0)
 
   if (segmentId === 'hero-stone') {
     prepareMobileScrollFlight()
@@ -1975,25 +2101,46 @@ function paintMobileScrollCorridor(
     return
   }
 
-  // The gap between formatsEnd and aboutStart is an intentional hold: the
-  // corridor resolves this segment at t=0 until Biography actually begins.
-  const box = lerpBox(formatsAtEnd, aboutAtEnd, t)
-  const toneProgress = smoothUnit(t / MOBILE_ABOUT_TONE_END_P)
-  const titleLightProgress = smoothUnit((toneProgress - 0.35) / 0.45)
+  if (segmentId === 'formats-about') {
+    // The gap between formatsEnd and aboutStart is an intentional hold: the
+    // corridor resolves this segment at t=0 until Biography actually begins.
+    const box = lerpBox(formatsAtEnd, aboutAtEnd, t)
+    const toneProgress = smoothUnit(t / MOBILE_ABOUT_TONE_END_P)
+    const titleLightProgress = smoothUnit((toneProgress - 0.35) / 0.45)
+    mobileStage = 'word'
+    mobileCaseProgress = 1
+    mobileCaseArrived = false
+    mobileFormatsProgress = 1
+    mobileFormatsArrived = false
+    mobileAboutProgress = t
+    mobileAboutArrived = t >= 1 - SURFACE_MORPH_EPSILON
+    caseMediaActive = false
+    setSurfaceDocked(false)
+    setCaseMediaVisible(false)
+    clearCaseMediaFlight()
+    paintAboutSurfaceTone(toneProgress)
+    paintBox(box, 1)
+    paintAboutTitleContrast(box, titleLightProgress)
+    return
+  }
+
+  const box = lerpBox(aboutAtContactStart, contactAtEnd, t)
+  const contactReveal = smoothUnit((t - 0.55) / 0.32)
   mobileStage = 'word'
   mobileCaseProgress = 1
   mobileCaseArrived = false
   mobileFormatsProgress = 1
   mobileFormatsArrived = false
-  mobileAboutProgress = t
-  mobileAboutArrived = t >= 1 - SURFACE_MORPH_EPSILON
+  mobileAboutProgress = 1
+  mobileAboutArrived = false
   caseMediaActive = false
   setSurfaceDocked(false)
   setCaseMediaVisible(false)
   clearCaseMediaFlight()
-  paintAboutSurfaceTone(toneProgress)
+  paintAboutSurfaceTone(1 - t)
   paintBox(box, 1)
-  paintAboutTitleContrast(box, titleLightProgress)
+  paintAboutTitleContrast(box, 1 - smoothUnit(t / 0.55))
+  setContactStageProgress(contactReveal)
 }
 
 /** Pin slot inside a hop target (`[data-flow-pin]`), else the target itself. */
@@ -2182,6 +2329,42 @@ function pinAboutFrame() {
     const box = aboutSurfacePose()
     if (box) paintAboutTitleContrast(box)
   })
+}
+
+function contactFramePinned() {
+  return !!props.contactSurfaceEl && pinTo.value === props.contactSurfaceEl
+}
+
+/** Attach the settled Surface and its interactive form to the contact field. */
+function pinContactFrame() {
+  const host = props.contactSurfaceEl
+  const el = frame.value
+  if (!host || !el) return
+  setCaseMediaVisible(false)
+  clearCaseMediaFlight()
+  setContactStageProgress(1)
+  if (pinTo.value === host) {
+    syncPinnedMask()
+    return
+  }
+
+  unpinFrame()
+  proxyParked.value = false
+  pinHost = host
+  el.style.position = 'absolute'
+  el.style.top = '0px'
+  el.style.left = '0px'
+  el.style.width = '100%'
+  el.style.height = '100%'
+  el.style.right = 'auto'
+  el.style.bottom = 'auto'
+  el.style.transform = ''
+  pinTo.value = host
+
+  pinRo?.disconnect()
+  pinRo = new ResizeObserver(syncPinnedMask)
+  pinRo.observe(host)
+  void nextTick(syncPinnedMask)
 }
 
 function unpinFrame() {
@@ -2680,6 +2863,8 @@ function killMorph() {
   formatsTrigger = null
   aboutTrigger?.kill()
   aboutTrigger = null
+  contactTrigger?.kill()
+  contactTrigger = null
   desktopTargetS = 0
   desktopLiveS = 0
   mobileCaseProgress = 0
@@ -2710,6 +2895,7 @@ function killMorph() {
   mobileFormatsArrived = false
   mobileAboutProgress = 0
   mobileAboutArrived = false
+  setContactStageProgress(0)
   mobileScrollBounds = null
   mobileCorridorS = 0
   mobileCorridorLastY = null
@@ -2737,6 +2923,10 @@ let lastFormatsSurfaceEl: HTMLElement | null = null
 let lastAboutSectionEl: HTMLElement | null = null
 let lastAboutSurfaceEl: HTMLElement | null = null
 let lastAboutTitleEl: HTMLElement | null = null
+let lastAboutEndEl: HTMLElement | null = null
+let lastContactSectionEl: HTMLElement | null = null
+let lastContactSurfaceEl: HTMLElement | null = null
+let lastContactTaskEl: HTMLElement | null = null
 
 /** Prevent re-entrant buildMorph ↔ ScrollTrigger.refresh softlocks (SPA return to `/`). */
 let morphGen = 0
@@ -2800,7 +2990,8 @@ function buildMobileMorph(ScrollTrigger: typeof import('gsap/ScrollTrigger').Scr
   captureMobileScrollBounds()
   mobileCorridorS = mobileCorridorTargetAt(window.scrollY)
   mobileCorridorLastY = window.scrollY
-  const corridorEnd = props.aboutSectionEl
+  const corridorEnd = props.contactSectionEl
+    ?? props.aboutSectionEl
     ?? props.formatsSectionEl
     ?? props.caseSectionEl
     ?? body
@@ -2929,6 +3120,10 @@ function buildMorph() {
       lastAboutSectionEl = props.aboutSectionEl ?? null
       lastAboutSurfaceEl = props.aboutSurfaceEl ?? null
       lastAboutTitleEl = props.aboutTitleEl ?? null
+      lastAboutEndEl = props.aboutEndEl ?? null
+      lastContactSectionEl = props.contactSectionEl ?? null
+      lastContactSurfaceEl = props.contactSurfaceEl ?? null
+      lastContactTaskEl = props.contactTaskEl ?? null
       return
     }
 
@@ -3006,6 +3201,25 @@ function buildMorph() {
       aboutTrigger = null
     }
 
+    if (props.aboutEndEl && props.contactSurfaceEl && props.contactTaskEl) {
+      contactTrigger = ScrollTrigger.create({
+        trigger: props.aboutEndEl,
+        endTrigger: props.contactTaskEl,
+        start: CONTACT_SCRUB_START,
+        end: CONTACT_SCRUB_END,
+        invalidateOnRefresh: true,
+        onUpdate: () => {
+          ensureTick()
+        },
+        onRefresh: () => {
+          if (morphBooting) return
+          ensureTick()
+        },
+      })
+    } else {
+      contactTrigger = null
+    }
+
     const s = computeDesktopTarget()
     desktopTargetS = s
     desktopLiveS = s
@@ -3031,6 +3245,10 @@ function buildMorph() {
     lastAboutSectionEl = props.aboutSectionEl ?? null
     lastAboutSurfaceEl = props.aboutSurfaceEl ?? null
     lastAboutTitleEl = props.aboutTitleEl ?? null
+    lastAboutEndEl = props.aboutEndEl ?? null
+    lastContactSectionEl = props.contactSectionEl ?? null
+    lastContactSurfaceEl = props.contactSurfaceEl ?? null
+    lastContactTaskEl = props.contactTaskEl ?? null
   } finally {
     if (gen === morphGen) {
       beginMorphQuiet(1800)
@@ -3137,6 +3355,10 @@ onUnmounted(() => {
   lastAboutSectionEl = null
   lastAboutSurfaceEl = null
   lastAboutTitleEl = null
+  lastAboutEndEl = null
+  lastContactSectionEl = null
+  lastContactSurfaceEl = null
+  lastContactTaskEl = null
   surfaceViewportWidth = 0
   fontsResyncBound = false
   captureFailCount = 0
@@ -3186,6 +3408,10 @@ watch(
       props.aboutSectionEl,
       props.aboutSurfaceEl,
       props.aboutTitleEl,
+      props.aboutEndEl,
+      props.contactSectionEl,
+      props.contactSurfaceEl,
+      props.contactTaskEl,
       props.plan,
     ] as const,
   () => {
@@ -3208,6 +3434,10 @@ watch(
         && props.aboutSectionEl === lastAboutSectionEl
         && props.aboutSurfaceEl === lastAboutSurfaceEl
         && props.aboutTitleEl === lastAboutTitleEl
+        && props.aboutEndEl === lastAboutEndEl
+        && props.contactSectionEl === lastContactSectionEl
+        && props.contactSurfaceEl === lastContactSurfaceEl
+        && props.contactTaskEl === lastContactTaskEl
       if (sameCorridor) {
         // Stone/term/body often arrive a tick later — soft resync, not kill+rebuild.
         resyncAfterLayout()
@@ -3322,6 +3552,10 @@ watch(
             :stage-width="stageRest.w"
             :stage-height="stageRest.h"
             :section-el="heroSectionEl"
+          />
+          <HomeContactStage
+            :progress="contactStageProgress"
+            :target-el="contactSurfaceEl"
           />
         </FlowSurface>
       </div>

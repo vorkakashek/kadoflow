@@ -5,9 +5,9 @@ import { extname, join, resolve } from 'node:path'
 const outputRoot = resolve(process.cwd(), '.output/public')
 const modulePreloadPattern = /<link\s+rel="modulepreload"[^>]*>\s*/g
 const criticalStylesheetPattern = /<link\s+rel="stylesheet"\s+href="(\/_nuxt\/(?:entry\.[^"]+|navWaveHover\.[^"]+)\.css)"[^>]*>\s*/g
-const grainPreloadPattern = /<link\s+rel="preload"\s+as="image"\s+href="\/textures\/grain-tile-128\.avif"[^>]*>\s*/g
-const grainUrlPattern = /url\((['"]?)(?:\/|\.\.\/)textures\/grain-tile-128\.avif\1\)/g
-const grainBytes = await readFile(join(outputRoot, 'textures/grain-tile-128.avif'))
+const grainPreloadPattern = /<link\s+rel="preload"\s+as="image"\s+href="\/textures\/grain-tile-v2-256\.avif"[^>]*>\s*/g
+const grainUrlPattern = /url\((['"]?)(?:\/|\.\.\/)textures\/grain-tile-v2-256\.avif\1\)/g
+const grainBytes = await readFile(join(outputRoot, 'textures/grain-tile-v2-256.avif'))
 const grainDataUrl = `data:image/avif;base64,${grainBytes.toString('base64')}`
 let optimized = 0
 let removed = 0

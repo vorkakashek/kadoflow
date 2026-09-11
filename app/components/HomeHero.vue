@@ -50,8 +50,8 @@ defineExpose({ section, surfaceSlot })
 <style scoped>
 :global(:root) {
   --home-surface-grain: image-set(
-    url('/textures/grain-tile-128.avif') type('image/avif'),
-    url('/textures/grain-tile-128.webp') type('image/webp')
+    url('/textures/grain-tile-v2-256.avif') type('image/avif'),
+    url('/textures/grain-tile-v2-256.webp') type('image/webp')
   );
 }
 
@@ -68,14 +68,14 @@ defineExpose({ section, surfaceSlot })
   background-image: var(--home-surface-grain);
   background-position: 0 0;
   background-repeat: repeat;
-  background-size: 72px 72px;
-  opacity: 0.22;
-  mix-blend-mode: overlay;
+  background-size: 224px 224px;
+  opacity: 0.2;
+  mix-blend-mode: soft-light;
 }
 
 @media (max-width: 767.98px) {
   .home-hero__surface-primer-grain {
-    background-size: 56px 56px;
+    background-size: 176px 176px;
   }
 }
 </style>

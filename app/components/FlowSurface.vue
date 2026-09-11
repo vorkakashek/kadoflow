@@ -49,12 +49,12 @@ const root = ref<HTMLElement | null>(null)
 const clipEl = ref<HTMLElement | null>(null)
 const pathD = ref('')
 const size = reactive({ w: 1, h: 1 })
-/** Tiled film grain — static PNG (no SVG feTurbulence; that tanks WebKit FPS). */
+/** Large seamless grain tile (no SVG feTurbulence; that tanks WebKit FPS). */
 const GRAIN_TILE = 'var(--home-surface-grain)'
 /** Smaller tile = finer flecks. */
-const grainTilePx = ref(72)
+const grainTilePx = ref(224)
 const grainEl = ref<HTMLElement | null>(null)
-const GRAIN_OPACITY = 0.22
+const GRAIN_OPACITY = 0.2
 /** Discrete tile offset rate — hard jumps, not eased drift. */
 const GRAIN_STEP_MS = 120
 
@@ -917,7 +917,7 @@ function onDocumentMouseOut(e: MouseEvent) {
 }
 
 function syncGrainScale() {
-  grainTilePx.value = isNarrowViewport() ? 56 : 72
+  grainTilePx.value = isNarrowViewport() ? 176 : 224
   const el = grainEl.value
   if (el) el.style.backgroundSize = `${grainTilePx.value}px ${grainTilePx.value}px`
 }
@@ -1112,7 +1112,7 @@ const slotInsetStyle = computed(() => {
           backgroundSize: `${grainTilePx}px ${grainTilePx}px`,
           backgroundPosition: '0 0',
           opacity: GRAIN_OPACITY * props.toneOpacity,
-          mixBlendMode: 'overlay',
+          mixBlendMode: 'soft-light',
           willChange: 'background-position',
         }"
       />
@@ -1149,7 +1149,7 @@ const slotInsetStyle = computed(() => {
           backgroundSize: `${grainTilePx}px ${grainTilePx}px`,
           backgroundPosition: '0 0',
           opacity: GRAIN_OPACITY * props.toneOpacity,
-          mixBlendMode: 'overlay',
+          mixBlendMode: 'soft-light',
           willChange: 'background-position',
         }"
       />

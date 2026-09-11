@@ -11,6 +11,7 @@ const kado = useTemplateRef('kado')
 const cases = useTemplateRef('cases')
 const formats = useTemplateRef('formats')
 const about = useTemplateRef('about')
+const contact = useTemplateRef('contact')
 const surfaceReady = ref(false)
 
 const fromEl = computed(() => hero.value?.surfaceSlot ?? null)
@@ -26,6 +27,10 @@ const formatsSurfaceEl = computed(() => formats.value?.surfaceEl ?? null)
 const aboutSectionEl = computed(() => about.value?.rootEl ?? null)
 const aboutSurfaceEl = computed(() => about.value?.surfaceEl ?? null)
 const aboutTitleEl = computed(() => about.value?.titleEl ?? null)
+const aboutEndEl = computed(() => about.value?.contentEndEl ?? null)
+const contactSectionEl = computed(() => contact.value?.rootEl ?? null)
+const contactSurfaceEl = computed(() => contact.value?.surfaceEl ?? null)
+const contactTaskEl = computed(() => contact.value?.taskInputEl ?? null)
 
 /**
  * Yield one frame so router paint commits, then mount the surface.
@@ -63,6 +68,10 @@ onMounted(() => {
       :about-section-el="aboutSectionEl"
       :about-surface-el="aboutSurfaceEl"
       :about-title-el="aboutTitleEl"
+      :about-end-el="aboutEndEl"
+      :contact-section-el="contactSectionEl"
+      :contact-surface-el="contactSurfaceEl"
+      :contact-task-el="contactTaskEl"
       :plan="heroToKadoPlan"
       @ready="surfaceReady = true"
     />
@@ -72,6 +81,7 @@ onMounted(() => {
       <HomeCases ref="cases" />
       <HomeFormats ref="formats" :surface-ready="surfaceReady" />
       <HomeAbout ref="about" :surface-ready="surfaceReady" />
+      <HomeContact ref="contact" :surface-ready="surfaceReady" />
       <section class="home-scroll-tail" aria-hidden="true" />
     </main>
   </div>
@@ -79,6 +89,6 @@ onMounted(() => {
 
 <style scoped>
 .home-scroll-tail {
-  min-height: 150svh;
+  min-height: 50svh;
 }
 </style>

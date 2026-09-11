@@ -776,14 +776,20 @@ onUnmounted(() => {
   background-image: var(--home-surface-grain);
   background-position: 0 0;
   background-repeat: repeat;
-  background-size: 56px 56px;
+  background-size: 224px 224px;
   content: '';
-  mix-blend-mode: overlay;
-  opacity: 0.22;
+  mix-blend-mode: soft-light;
+  opacity: 0.2;
 }
 
 :deep(.kado-surface-pin[data-flow-surface-proxy-active]) {
   opacity: 1;
+}
+
+@media (max-width: 767.98px) {
+  :deep(.kado-surface-pin)::after {
+    background-size: 176px 176px;
+  }
 }
 
 :deep(.kado-surface-pin--pad) {

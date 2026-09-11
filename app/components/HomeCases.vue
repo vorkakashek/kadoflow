@@ -130,6 +130,7 @@ function openCaseDetailFromMedia(item: HomeCase) {
   const paintedImage = media.querySelector<HTMLImageElement>(
     `[data-case-layer="${item.id}"] img`,
   ) ?? media.querySelector<HTMLImageElement>('img')
+  const imageRect = paintedImage?.getBoundingClientRect()
   openCaseDetail({
     to: homeCaseDetailPath(item),
     origin: 'home',
@@ -140,6 +141,9 @@ function openCaseDetailFromMedia(item: HomeCase) {
     alt: item.media.alt,
     wash: item.wash,
     rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+    imageRect: imageRect
+      ? { top: imageRect.top, left: imageRect.left, width: imageRect.width, height: imageRect.height }
+      : undefined,
   })
 }
 
@@ -2430,8 +2434,8 @@ onBeforeUnmount(() => {
   background-image: var(--home-surface-grain);
   background-position: 0 0;
   background-repeat: repeat;
-  background-size: 56px 56px;
-  mix-blend-mode: overlay;
+  background-size: 224px 224px;
+  mix-blend-mode: soft-light;
 }
 
 .cases-media[data-flow-surface-proxy-active]::before,
@@ -2441,7 +2445,13 @@ onBeforeUnmount(() => {
 
 .cases-media[data-flow-surface-proxy-active]::after,
 .cases-media[data-case-surface-ready]::after {
-  opacity: 0.22;
+  opacity: 0.2;
+}
+
+@media (max-width: 767.98px) {
+  .cases-media::after {
+    background-size: 176px 176px;
+  }
 }
 
 .cases-media[data-case-media-flight],

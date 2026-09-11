@@ -14,6 +14,10 @@ export type CaseDetailTransitionRequest = {
   alt: string
   wash: string
   rect?: { top: number; left: number; width: number; height: number }
+  /** Painted image box, including any live hover transform at click time. */
+  imageRect?: { top: number; left: number; width: number; height: number }
+  /** Computed source filter so a catalog hover cannot flash on proxy handoff. */
+  imageFilter?: string
   targetSelector?: string
 }
 
