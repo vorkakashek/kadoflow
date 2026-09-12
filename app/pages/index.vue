@@ -73,7 +73,7 @@ onMounted(() => {
       :plan="heroToKadoPlan"
       @ready="surfaceReady = true"
     />
-    <main class="home-page pointer-events-none relative z-10">
+    <main class="home-page pointer-events-none relative">
       <HomeHero ref="hero" :surface-ready="surfaceReady" />
       <HomeKado ref="kado" />
       <HomeCases ref="cases" />

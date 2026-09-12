@@ -483,16 +483,6 @@ watch(
   },
 )
 
-function readLayoutSpan1Px(host: HTMLElement) {
-  const probe = document.createElement('div')
-  probe.style.cssText =
-    'position:absolute;visibility:hidden;pointer-events:none;width:var(--layout-span-1)'
-  host.appendChild(probe)
-  const width = probe.offsetWidth
-  probe.remove()
-  return width > 0 ? width : host.clientWidth * 0.06
-}
-
 /** Stable svh screen height — matches HomeHero media padding. */
 function readAppScreenPx(): number {
   const probe = document.createElement('div')
@@ -618,16 +608,15 @@ async function bootScene() {
 
   const gl = new WebGLRenderer({
     antialias: true,
-    alpha: false,
+    alpha: true,
     powerPreference: 'high-performance',
     // Page Canvas no longer snapshots this buffer. Keeping it discardable avoids
     // the copy-back cost; the existing stone cover masks frames during GL wake-up.
     preserveDrawingBuffer: false,
   })
-  const surfaceColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--palette-forest')
-    .trim() || '#384738'
-  gl.setClearColor(surfaceColor, 1)
+  // The static moss → forest radial lives in CSS below the transparent canvas.
+  // This avoids spending another full-screen WebGL draw on the background.
+  gl.setClearColor(0x000000, 0)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
   // Frosted transmission does not need a full-resolution refraction buffer.
   // Half resolution cuts that first GPU allocation/render to a quarter of pixels.
@@ -1262,10 +1251,7 @@ async function bootScene() {
     // so hide→show cycles can't ratchet the cluster upward.
     if (orbitLocked && !opts?.unlock) return
 
-    const column = readLayoutSpan1Px(host)
-    const rightNdc = 1 - ((column * 2 + w * 0.16) / w) * 2
-
-    let anchorNdcX = rightNdc
+    const anchorNdcX = 0
     let anchorNdcY = 0.02
     if (lite) {
       // Stable screen metrics — not the morphing host box.
@@ -1275,7 +1261,6 @@ async function bootScene() {
       const divePx = screen * MEDIA_DIVE_VH
       const slotPx = Math.max(layoutH - topExtraPx - divePx, layoutH * 0.45)
       const cssY = topExtraPx + slotPx * MOBILE_ANCHOR_SURFACE_Y
-      anchorNdcX = 0
       anchorNdcY = 1 - (2 * cssY) / layoutH
     }
 
@@ -1287,7 +1272,7 @@ async function bootScene() {
     pointerNdc.set(anchorNdcX, anchorNdcY)
     raycaster.setFromCamera(pointerNdc, camera)
     if (!raycaster.ray.intersectPlane(hitPlane, anchor)) {
-      anchor.set(lite ? 0 : 1.55, lite ? 0.55 : 0.05, 0)
+      anchor.set(0, lite ? 0.55 : 0.05, 0)
     }
 
     camera.lookAt(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
@@ -2168,8 +2153,25 @@ async function bootScene() {
 
 .hero-swarm {
   cursor: grab;
+  background: radial-gradient(
+    ellipse 88% 96% at 70% 42%,
+    var(--hero-scene-moss) 0%,
+    var(--hero-scene-forest) 72%,
+    var(--hero-scene-forest) 100%
+  );
   /* Belt-and-suspenders: never let the GL surface own vertical gestures. */
   touch-action: pan-y;
+}
+
+@media (max-width: 1199px) {
+  .hero-swarm {
+    background: radial-gradient(
+      ellipse 105% 78% at 50% 30%,
+      var(--hero-scene-moss) 0%,
+      var(--hero-scene-forest) 76%,
+      var(--hero-scene-forest) 100%
+    );
+  }
 }
 
 /* Under the brand preloader: keep the GL layer out of the compositor.

@@ -111,7 +111,7 @@ let softPointer: { x: number; y: number; str: number; side: number } = {
 }
 
 /** Keep path geometry aligned with --flow-surface-radius in main.css. */
-const RADIUS = 12
+const RADIUS = 24
 /**
  * Dense edge samples so a wide signed wave stays a smooth curve, not facets.
  */
@@ -1066,7 +1066,7 @@ const overscanBoxStyle = computed(() => {
     ...(noClip
       ? {
           overflow: 'hidden',
-          borderRadius: 'var(--flow-surface-radius, 12px)',
+          borderRadius: 'var(--flow-surface-radius, 24px)',
         }
       : {}),
   }

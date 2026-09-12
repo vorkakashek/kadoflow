@@ -242,7 +242,7 @@ defineExpose({ rootEl, surfaceEl, taskInputEl })
   min-height: max(52rem, calc(var(--app-screen) - var(--layout-margin-content) * 2));
   margin-top: clamp(1.25rem, 2vw, 2.5rem);
   overflow: hidden;
-  border-radius: var(--flow-surface-radius, 12px);
+  border-radius: var(--flow-surface-radius, 24px);
   background: var(--palette-stone);
 }
 

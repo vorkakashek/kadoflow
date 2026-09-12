@@ -705,7 +705,7 @@ onUnmounted(() => {
   left: calc(-1 * (var(--layout-column) + var(--layout-gutter)));
   width: var(--layout-span-4);
   overflow: hidden;
-  border-radius: var(--flow-surface-radius, 12px);
+  border-radius: var(--flow-surface-radius, 24px);
   background: var(--palette-stone);
 }
 

@@ -577,7 +577,7 @@ onUnmounted(() => {
 <template>
   <section
     ref="section"
-    class="kado pointer-events-auto relative z-10 w-full"
+    class="kado pointer-events-auto relative w-full"
     :style="{
       paddingInline: 'var(--layout-margin-content)',
     }"
@@ -593,7 +593,7 @@ onUnmounted(() => {
     >
       <div
         ref="stoneColumnEl"
-        class="kado-stone-column relative col-span-12 flex justify-center md:col-span-5 md:col-start-2"
+        class="kado-stone-column relative z-10 col-span-12 flex justify-center md:col-span-5 md:col-start-2"
       >
         <div class="kado-stone-wrap relative w-fit max-w-full">
           <div
@@ -628,7 +628,7 @@ onUnmounted(() => {
       </div>
 
       <div
-        class="kado-copy-column relative col-span-12 md:col-span-5 md:col-start-7 md:self-stretch"
+        class="kado-copy-column relative z-10 col-span-12 md:col-span-5 md:col-start-7 md:self-stretch"
       >
         <div
           class="kado-copy flex flex-col gap-[var(--space-block)] md:absolute md:inset-x-0 md:top-[10%] md:h-[60%] md:gap-0"
@@ -646,7 +646,7 @@ onUnmounted(() => {
               class="kado-term col-span-6"
             >
               <div
-                class="kado-surface-pin"
+                class="kado-surface-pin kado-surface-pin--pad"
                 data-flow-pin="term"
                 aria-hidden="true"
               />
@@ -764,7 +764,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  border-radius: var(--flow-surface-radius, 12px);
+  border-radius: var(--flow-surface-radius, 24px);
   background: var(--palette-stone);
   opacity: 0;
   pointer-events: none;

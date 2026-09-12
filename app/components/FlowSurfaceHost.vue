@@ -477,12 +477,21 @@ function sectionOf(el: HTMLElement) {
 function stableMobileTriggerViewportHeight() {
   const width = window.innerWidth
   if (!mobileTriggerViewportHeight || width !== mobileTriggerViewportWidth) {
-    const heroSection = props.fromEl ? sectionOf(props.fromEl) : null
-    const heroHeight = heroSection?.getBoundingClientRect().height ?? 0
-    mobileTriggerViewportHeight = Math.max(1, heroHeight || window.innerHeight)
+    const appScreenHeight = shellEl.value?.getBoundingClientRect().height ?? 0
+    mobileTriggerViewportHeight = Math.max(1, appScreenHeight || window.innerHeight)
     mobileTriggerViewportWidth = width
   }
   return mobileTriggerViewportHeight
+}
+
+function stableViewportHeight() {
+  return Math.max(1, shellEl.value?.getBoundingClientRect().height || window.innerHeight)
+}
+
+/** Scroll where the complete 16:9 Hero surface, including its lower margin, fits. */
+function heroRevealScrollY(section: HTMLElement) {
+  const sectionTop = section.getBoundingClientRect().top + window.scrollY
+  return Math.max(sectionTop, sectionTop + section.offsetHeight - stableViewportHeight())
 }
 
 function syncStageRest(pose: SurfaceBox) {
@@ -533,7 +542,7 @@ function captureDesktopPoses() {
   const fromSection = sectionOf(props.fromEl)
   const toSection = sectionOf(props.toEl)
 
-  const scrollStart = fromSection.getBoundingClientRect().top + window.scrollY
+  const scrollStart = heroRevealScrollY(fromSection)
   fromPose = poseAtScrollY(fromDoc, scrollStart)
 
   const scrollEnd = scrollYForCenterCenter(toSection)
@@ -563,7 +572,7 @@ function captureMobilePoses() {
   if (!readBox(term)) return false
 
   const heroSection = sectionOf(hero)
-  scrubStartY = heroSection.getBoundingClientRect().top + window.scrollY
+  scrubStartY = heroRevealScrollY(heroSection)
   scrubEndY = scrollYForTopAt(stoneMark, 0.1)
 
   heroPose = poseAtScrollY(heroDoc, scrubStartY)
@@ -746,9 +755,10 @@ function bootAlignHeroVisibility() {
   if (!props.fromEl) return
   const section = sectionOf(props.fromEl)
   const top = section.getBoundingClientRect().top + window.scrollY
+  const revealEnd = heroRevealScrollY(section)
   const y = window.scrollY
   // Still on the hero rest screen — never boot hidden (bad marker layout used to force morph=1).
-  if (y <= top + window.innerHeight * 0.35) {
+  if (y <= revealEnd + window.innerHeight * 0.35) {
     flowSurfaceMask.morph = 0
     applyFlowSurfaceLive('hero')
     return
@@ -774,10 +784,10 @@ function ensureHeroRestPlaceholder() {
   const doc = readDocBox(props.fromEl)
   if (!doc) return
   const section = sectionOf(props.fromEl)
-  const y0 = section.getBoundingClientRect().top + window.scrollY
-  const pose = poseAtScrollY(doc, y0)
+  const revealEnd = heroRevealScrollY(section)
+  const pose = poseAtScrollY(doc, Math.min(window.scrollY, revealEnd))
   syncStageRest(pose)
-  if (window.scrollY <= y0 + window.innerHeight * 0.35) {
+  if (window.scrollY <= revealEnd + window.innerHeight * 0.35) {
     paintBox(pose, 0)
     announceSurfaceReady()
   }
@@ -850,6 +860,19 @@ function endMobileCaseTransformPaint(materialize = true) {
 
 function heroLivePose(): SurfaceBox | null {
   return readBox(props.fromEl) ?? (fromDoc ? docToViewport(fromDoc) : null)
+}
+
+/** Before morphing, let the fixed renderer follow its in-flow 16:9 placeholder. */
+function paintHeroReveal(scrollY = window.scrollY) {
+  const hero = props.fromEl
+  if (!hero) return false
+  const revealEnd = mobileActive ? scrubStartY : heroRevealScrollY(sectionOf(hero))
+  if (scrollY >= revealEnd - 0.5) return false
+  const pose = heroLivePose()
+  if (!pose) return false
+  syncStageRest(pose)
+  paintBox(pose, 0)
+  return true
 }
 
 function caseMediaPose(): SurfaceBox | null {
@@ -1152,6 +1175,7 @@ function computeDesktopTarget(): number {
 }
 
 function paintHeroToKadoSegment(t: number) {
+  if (paintHeroReveal()) return
   setContactStageProgress(0)
   clearAboutTitleContrast()
   if (
@@ -1836,6 +1860,27 @@ function paintMobileScrollCorridor(
   scrollY = window.scrollY,
 ) {
   if (!mobileActive || !frame.value) return
+  if (scrollY < scrubStartY) {
+    prepareMobileScrollFlight()
+  }
+  if (scrollY < scrubStartY && paintHeroReveal(scrollY)) {
+    mobileStage = 'scrub'
+    mobileCaseProgress = 0
+    mobileCaseArrived = false
+    mobileFormatsProgress = 0
+    mobileFormatsArrived = false
+    mobileAboutProgress = 0
+    mobileAboutArrived = false
+    caseMediaActive = false
+    setSurfaceDocked(false)
+    setSurfaceReady(false)
+    setCaseMediaVisible(false)
+    clearCaseMediaFlight()
+    clearAboutTitleContrast()
+    paintAboutSurfaceTone(0)
+    setContactStageProgress(0)
+    return
+  }
   if (!mobileScrollBounds && !captureMobileScrollBounds()) {
     paintScrubAt(scrubProgressAt(scrollY))
     return
@@ -3129,7 +3174,10 @@ function buildMorph() {
     trigger = ScrollTrigger.create({
       trigger: triggerFrom,
       endTrigger: triggerTo,
-      start: 'top top',
+      start: () => {
+        const revealOffset = Math.max(0, triggerFrom.offsetHeight - stableViewportHeight())
+        return `top+=${revealOffset} top`
+      },
       end: 'center center',
       invalidateOnRefresh: true,
       onUpdate: () => {

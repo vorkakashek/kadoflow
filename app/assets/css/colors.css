@@ -10,6 +10,10 @@
   --palette-moss: #607052;
   --palette-forest: #49573f;
 
+  /* Darker hero field: keep the shared brand greens unchanged elsewhere. */
+  --hero-scene-moss: color-mix(in srgb, var(--palette-moss) 60%, var(--palette-ink));
+  --hero-scene-forest: color-mix(in srgb, var(--palette-forest) 62%, var(--palette-ink));
+
   --semantic-bg-page: var(--palette-sand);
   --semantic-bg-surface: var(--palette-stone);
   --semantic-text-primary: var(--palette-ink);

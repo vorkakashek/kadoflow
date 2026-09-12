@@ -2423,7 +2423,7 @@ onBeforeUnmount(() => {
   left: 1px;
   width: var(--cases-media-surface-width, calc(100% - 2px));
   height: var(--cases-media-surface-height, calc(100% - 2px));
-  border-radius: var(--flow-surface-radius, 12px);
+  border-radius: var(--flow-surface-radius, 24px);
   content: '';
   opacity: 0;
   pointer-events: none;

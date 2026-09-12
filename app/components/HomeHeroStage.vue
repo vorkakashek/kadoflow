@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * Hero visuals — inside the Flow Surface clipped window.
- * No own clip-path: parent clip cuts stone + 3D + text together.
+ * No own clip-path: parent clip cuts stone + 3D + slogan together.
  * Stage is rest-sized and offset so frame morph clips over it (no layout squash).
  */
 import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfaceMask'
@@ -9,11 +9,7 @@ import { useBrandPreload } from '~/composables/useBrandPreload'
 import { preloadHomeSceneAssets, preloadThreeBundle } from '~/utils/preloadHomeMotion'
 import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
 
-const { locale, t, tm } = useI18n()
-const heroTitleLines = computed(() => {
-  locale.value
-  return tm('home.hero.titleLines') as string[]
-})
+const { t } = useI18n()
 
 /** Keep WebGL alive until morph opacity is nearly gone (both platforms). */
 const SCENE_LIVE_OPACITY = 0.08
@@ -21,7 +17,7 @@ const SCENE_LIVE_OPACITY = 0.08
 const FADE_OUT_START = 0.3
 const FADE_OUT_END = 0.7
 /**
- * Mobile — copy (h1+desc+slogan) opacity corridor.
+ * Mobile — slogan opacity corridor.
  * Y motion starts at morph 0% (separate from opacity).
  */
 const FADE_OUT_START_MOBILE = 0.28
@@ -41,8 +37,13 @@ const SCENE_BLEED_Y = 168
 const SCENE_BLEED_X = 168
 const SCENE_BLEED_Y_LITE = 56
 const SCENE_BLEED_X_LITE = 56
-/** Copy shift over locked vh — driven by the same linear morph as the surface box. */
-const COPY_PARALLAX_VH = 0.55
+/**
+ * The slogan rises more slowly than the page (px per scrolled px). Its initial
+ * offset keeps the whole line below the scene, so the Flow Surface clip reveals
+ * it through the lower edge instead of fading it in around the centre.
+ */
+const SLOGAN_SCROLL_RATE = 0.36
+const SLOGAN_EDGE_OFFSET_VH = 0.16
 
 const props = defineProps<{
   /** Hero-rest viewport origin — stage counters frame morph so copy doesn't slide. */
@@ -64,9 +65,16 @@ const mediaEl = ref<HTMLElement | null>(null)
 const swarmCoverEl = ref<HTMLElement | null>(null)
 const copyEl = ref<HTMLElement | null>(null)
 const sloganEl = ref<HTMLElement | null>(null)
-const titleEl = ref<HTMLElement | null>(null)
-const descEl = ref<HTMLElement | null>(null)
-const introPending = ref(true)
+const sloganY = ref(10_000)
+const titleEl = computed(() =>
+  props.sectionEl?.querySelector<HTMLElement>('[data-hero-title-block]') ?? null,
+)
+const descEls = computed(() =>
+  props.sectionEl
+    ? Array.from(props.sectionEl.querySelectorAll<HTMLElement>('[data-hero-description-line]'))
+    : [],
+)
+const introPending = useState<boolean>('home-hero-intro-pending', () => true)
 
 const mobileLite = ref(false)
 /** Cursor knocks on the swarm — desktop width only (≥1200). */
@@ -207,21 +215,16 @@ async function runHeroGlPrewarm() {
 watch(heroGlPrewarm, () => {
   void runHeroGlPrewarm()
 })
-/** Copy (h1+desc+slogan) opacity — never unmount; eased by morph. */
+/** Slogan opacity — never unmount; eased by morph. */
 const copyOpacity = ref(1)
 /** 3D / media opacity — separate corridor on mobile. */
 const sceneOpacity = ref(1)
-/** Mobile text backing toggles as soon as the page leaves hero rest. */
-const titleBlurOpacity = ref(1)
-/** Text parallax Y (px). Negative = up. */
-const copyY = ref(0)
-
 let ctx: { revert: () => void } | null = null
 let gsapRef: typeof import('gsap').default | null = null
 let stRef: typeof import('gsap/ScrollTrigger').ScrollTrigger | null = null
 let mediaFadeTween: { kill: () => void } | null = null
 let parallaxRaf = 0
-/** Locked vh for copy parallax — ignore mobile chrome show/hide (innerHeight jumps). */
+/** Locked vh for slogan parallax — ignore mobile chrome show/hide (innerHeight jumps). */
 let copyParallaxVh = 0
 let copyParallaxWidth = 0
 
@@ -247,8 +250,7 @@ function onCopyParallaxResize() {
     copyParallaxWidth = 0
   }
   syncSwarmInteractive()
-  updateCopyParallax()
-  updateTitleBlurVisibility()
+  updateSloganMotion()
 }
 
 function opacityInRange(m: number, start: number, end: number) {
@@ -272,52 +274,26 @@ function sceneOpacityForMorph(m: number) {
 }
 
 /**
- * Parallax from morph 0→1 (same progress the surface box uses).
- * Locked vh avoids chrome show/hide jumps; no pixel snap (that stair-stepped text+GL).
+ * One scroll-driven trajectory: start beyond the scene's lower edge, then rise
+ * at a fraction of the scroll speed. The Flow Surface remains the reveal mask.
  */
-function updateCopyParallax() {
-  if (typeof window === 'undefined') return
-  if (pageCanvasOpen.value) {
-    copyY.value = 0
-    return
-  }
+function updateSloganMotion() {
+  if (typeof window === 'undefined' || pageCanvasOpen.value) return
   const vh = copyParallaxBaseVh()
-  if (mobileLite.value) {
-    const t = Math.min(1, Math.max(0, mask.morph))
-    copyY.value = -t * vh * COPY_PARALLAX_VH
-    return
-  }
-  const el = props.sectionEl
-  if (!el) {
-    copyY.value = 0
-    return
-  }
-  const sectionTop = el.getBoundingClientRect().top + window.scrollY
-  const scrolled = Math.max(0, (window.scrollY || 0) - sectionTop)
-  const range = Math.max(1, vh)
-  const t = Math.min(1, scrolled / range)
-  copyY.value = -t * vh * COPY_PARALLAX_VH
-}
-
-/** Not scrubbed: a tiny scroll starts one self-contained fade-out transition. */
-function updateTitleBlurVisibility() {
-  if (typeof window === 'undefined') return
-  if (!mobileLite.value || pageCanvasOpen.value) {
-    titleBlurOpacity.value = 1
-    return
-  }
   const sectionTop = props.sectionEl
     ? props.sectionEl.getBoundingClientRect().top + window.scrollY
     : 0
-  titleBlurOpacity.value = window.scrollY > sectionTop + 2 ? 0 : 1
+  const scrolled = Math.max(0, window.scrollY - sectionTop)
+  const startY = props.stageHeight * 0.5 + vh * SLOGAN_EDGE_OFFSET_VH
+
+  sloganY.value = startY - scrolled * SLOGAN_SCROLL_RATE
 }
 
 function onParallaxScroll() {
   if (parallaxRaf) return
   parallaxRaf = requestAnimationFrame(() => {
     parallaxRaf = 0
-    updateCopyParallax()
-    updateTitleBlurVisibility()
+    updateSloganMotion()
   })
 }
 
@@ -330,7 +306,7 @@ watch(
     const sceneOp = sceneOpacityForMorph(m)
     copyOpacity.value = copyOp
     sceneOpacity.value = sceneOp
-    updateCopyParallax()
+    updateSloganMotion()
     // Freeze only mid-morph — at hero rest edges stay live + cursor dent.
     setFrozen(m > 0.02 && m < 0.98)
 
@@ -344,9 +320,20 @@ watch(
 watch(
   () => props.sectionEl,
   () => {
-    updateCopyParallax()
+    updateSloganMotion()
   },
 )
+
+watch(
+  () => props.stageHeight,
+  () => updateSloganMotion(),
+)
+
+watch(pageCanvasOpen, (open) => {
+  if (!open) {
+    updateSloganMotion()
+  }
+})
 
 async function ensureGsap() {
   if (gsapRef && stRef) return
@@ -673,8 +660,7 @@ onMounted(() => {
 
   // Don't freeze at rest — living edges + hover need an unfrozen silhouette.
   setFrozen(false)
-  updateCopyParallax()
-  updateTitleBlurVisibility()
+  updateSloganMotion()
   syncSwarmInteractive()
   window.addEventListener('scroll', onParallaxScroll, { passive: true })
   window.addEventListener('resize', onCopyParallaxResize, { passive: true })
@@ -716,7 +702,7 @@ onMounted(() => {
       introTl?.kill()
       introTl = null
 
-      // Sync hide before any await — media/copy stay invisible until the intro fade.
+      // Sync hide before any await — media stays invisible until the intro fade.
       if (mediaEl.value) {
         mediaEl.value.style.opacity = '0'
         mediaEl.value.style.visibility = 'hidden'
@@ -725,16 +711,14 @@ onMounted(() => {
       const { default: gsap } = await import('gsap')
       if (gen !== introGen) return
 
-      const titleLines = titleEl.value
-        ? Array.from(titleEl.value.querySelectorAll('.hero-title .block'))
+      const titleChars = titleEl.value
+        ? Array.from(titleEl.value.querySelectorAll('.home-hero__title-char'))
         : []
 
       if (mediaEl.value) gsap.set(mediaEl.value, { autoAlpha: 0 })
-      if (titleLines.length) gsap.set(titleLines, { autoAlpha: 0, y: 22 })
-      else if (titleEl.value) gsap.set(titleEl.value, { autoAlpha: 0, y: 22 })
-      if (descEl.value) gsap.set(descEl.value, { autoAlpha: 0, y: 14 })
-      if (sloganEl.value) gsap.set(sloganEl.value, { autoAlpha: 0, y: 16 })
-      if (titleEl.value) gsap.set(titleEl.value, { autoAlpha: 1 })
+      if (titleChars.length) gsap.set(titleChars, { yPercent: 115 })
+      else if (titleEl.value) gsap.set(titleEl.value, { yPercent: 115 })
+      if (descEls.value.length) gsap.set(descEls.value, { yPercent: 115 })
 
       // Drop CSS hide only after GSAP owns opacity — no one-frame flash.
       introPending.value = false
@@ -785,36 +769,38 @@ onMounted(() => {
       }
 
       if (mobile) {
-        if (titleLines.length) {
+        if (titleChars.length) {
           tl.to(
-            titleLines,
-            { autoAlpha: 1, y: 0, duration: 0.62, stagger: 0.1 },
+            titleChars,
+            { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
             0.12,
           )
         } else if (titleEl.value) {
-          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.62 }, 0.12)
+          tl.to(titleEl.value, { yPercent: 0, duration: 1.1, ease: 'power4.out' }, 0.12)
         }
-        if (descEl.value) {
-          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.56 }, 0.34)
-        }
-        if (sloganEl.value) {
-          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.48 }, 0.5)
+        if (descEls.value.length) {
+          tl.to(
+            descEls.value,
+            { yPercent: 0, duration: 1.1, stagger: 0.18, ease: 'power4.out' },
+            0.34,
+          )
         }
       } else {
-        if (titleLines.length) {
+        if (titleChars.length) {
           tl.to(
-            titleLines,
-            { autoAlpha: 1, y: 0, duration: 0.8, stagger: 0.14 },
+            titleChars,
+            { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
             0.5,
           )
         } else if (titleEl.value) {
-          tl.to(titleEl.value, { autoAlpha: 1, y: 0, duration: 0.8 }, 0.5)
+          tl.to(titleEl.value, { yPercent: 0, duration: 1.1, ease: 'power4.out' }, 0.5)
         }
-        if (descEl.value) {
-          tl.to(descEl.value, { autoAlpha: 1, y: 0, duration: 0.7 }, 0.95)
-        }
-        if (sloganEl.value) {
-          tl.to(sloganEl.value, { autoAlpha: 1, y: 0, duration: 0.75 }, 1.4)
+        if (descEls.value.length) {
+          tl.to(
+            descEls.value,
+            { yPercent: 0, duration: 1.1, stagger: 0.18, ease: 'power4.out' },
+            0.95,
+          )
         }
       }
     },
@@ -912,7 +898,6 @@ onUnmounted(() => {
         :class="{ 'hero-intro-hide': introPending }"
         :style="{
           opacity: copyOpacity,
-          transform: `translate3d(0, ${copyY}px, 0)`,
         }"
       >
         <div
@@ -924,24 +909,14 @@ onUnmounted(() => {
           }"
         >
           <div
-            class="col-span-12 flex min-h-0 flex-col justify-between md:col-span-10 md:col-start-2"
+            class="col-span-12 flex min-h-0 flex-col items-center justify-center md:col-span-10 md:col-start-2"
           >
-            <div
-              ref="titleEl"
-              class="hero-title-block flex flex-col order-2 md:order-1"
-              :style="{ '--hero-title-blur-opacity': titleBlurOpacity }"
-            >
-              <h1 class="hero-title text-milk">
-                <span v-for="line in heroTitleLines" :key="line" class="block">{{ line }}</span>
-              </h1>
-              <p ref="descEl" class="hero-desc text-milk md:max-w-[36ch]">
-                {{ t('home.hero.description') }}
-              </p>
-            </div>
-
             <p
               ref="sloganEl"
-              class="hero-slogan text-milk order-1 md:order-2"
+              class="hero-slogan text-milk"
+              :style="{
+                transform: `translate3d(0, ${sloganY}px, 0)`,
+              }"
             >
               {{ t('home.hero.slogan') }}
             </p>
@@ -975,7 +950,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 2;
   overflow: hidden;
-  background: var(--palette-forest);
+  background: var(--hero-scene-forest);
   pointer-events: none;
   transition: opacity 0.5s var(--motion-ease, ease), visibility 0.5s;
 }
@@ -1006,89 +981,27 @@ onUnmounted(() => {
   }
 }
 
-.hero-title {
-  font-size: clamp(48px, 16cqi, 168px);
-  font-weight: 600;
-  font-synthesis: none;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
-  white-space: nowrap;
-}
-
-.hero-title-block {
-  position: relative;
-  container-type: inline-size;
-  gap: 16px;
-}
-
 .hero-slogan {
-  font-size: calc(var(--type-slogan) * 0.72);
-  font-weight: 400;
-  font-synthesis: none;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
-
-.hero-desc {
   font-size: var(--type-slogan);
   font-weight: 400;
+  font-synthesis: none;
   letter-spacing: -0.02em;
   line-height: 1.2;
-  color: color-mix(in srgb, var(--palette-milk) 76%, transparent);
+  text-align: center;
+  will-change: transform;
 }
 
-/* Mobile: pull type down so 17 Pro–class widths don’t pack the stack. */
+/* Mobile: keep the slogan slightly more emphatic in the portrait scene. */
 @media (max-width: 767px) {
   .hero-slogan {
-    /* Was 0.62 — +25%, centered under the logo. */
-    font-size: calc(var(--type-slogan) * 0.775);
+    font-size: calc(var(--type-slogan) * 1.05);
     text-align: center;
-  }
-
-  .hero-title {
-    line-height: 1.08;
-  }
-
-  .hero-desc {
-    font-size: calc(var(--type-slogan) * 0.9);
-    color: color-mix(in srgb, var(--palette-milk) 72%, transparent);
-  }
-
-  .hero-title-block {
-    gap: 12px;
-    isolation: isolate;
-    transform: translate3d(0, calc(2 * var(--space-block)), 0);
-  }
-
-  /* Local text legibility layer: opaque at the bottom, fading upward. */
-  .hero-title-block::before {
-    position: absolute;
-    z-index: -1;
-    inset: -40px -24px calc(-2 * var(--space-block));
-    content: '';
-    pointer-events: none;
-    opacity: var(--hero-title-blur-opacity, 1);
-    transition: opacity 0.32s var(--motion-ease, ease);
-    background: linear-gradient(
-      to top,
-      color-mix(in srgb, var(--palette-forest) 72%, transparent),
-      transparent 78%
-    );
-    mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);
-  }
-
-  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .hero-title-block::before {
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-    }
   }
 }
 
-@media (min-width: 768px) {
-  .hero-title-block {
-    gap: 40px;
+@media (prefers-reduced-motion: reduce) {
+  .hero-slogan {
+    transform: none !important;
   }
 }
 </style>

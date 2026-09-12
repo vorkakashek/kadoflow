@@ -348,7 +348,7 @@ onUnmounted(() => {
   right: 0;
   left: 0;
   height: clamp(35rem, 39vw, 46rem);
-  border-radius: var(--flow-surface-radius, 12px);
+  border-radius: var(--flow-surface-radius, 24px);
   background: var(--palette-ink);
 }
 
@@ -548,6 +548,10 @@ onUnmounted(() => {
 
   .home-about__copy h3 {
     font-size: calc(var(--type-slogan) * 1.2);
+  }
+
+  .home-about__copy p {
+    font-size: var(--type-body);
   }
 }
 
