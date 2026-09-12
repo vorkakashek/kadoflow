@@ -38,6 +38,7 @@ import {
   swarmHapticArm,
   swarmHapticConfirm,
   swarmHapticContact,
+  swarmHapticDisable,
   swarmHapticIsArmed,
   swarmHapticPairKey,
   swarmHapticPrune,
@@ -59,10 +60,12 @@ const DESKTOP_MIN_WIDTH = 1200
 const BALL_COUNT_DESKTOP = 32
 const BALL_COUNT_TABLET = 16
 /** Mobile: orbit + tilt physics (no pointer). */
-const BALL_COUNT_MOBILE = 12
+const BALL_COUNT_MOBILE = 9
 /** Mobile on-screen diameter vs fluid curve. */
 const MOBILE_BALL_DIAMETER_SCALE = 1.2
-/** Tighter mobile orbit so the 12-ball strand reads as a cluster. */
+/** Desktop needs a more immediate, foreground-weighted swarm. */
+const DESKTOP_BALL_DIAMETER_SCALE = 1.18
+/** Tighter mobile orbit so the reduced strand still reads as a cluster. */
 const MOBILE_ROUTE_SCALE = 0.84
 /**
  * iOS gyro on — attach only after first paint, never with capture-phase
@@ -148,7 +151,6 @@ const MOTION_INTRO_COOKIE = 'kado_motion_intro'
 const MOTION_INTRO_MAX_AGE = 60 * 60 * 24 * 7
 const DESKTOP_MOTION_EASE_MS = 520
 const DESKTOP_ICON_MORPH_S = 0.38
-const HAPTIC_CONTROL_EXIT_MS = 240
 // Tabler player-pause/player-play (MIT); combined paths retain the existing morph.
 const DESKTOP_PAUSE_ICON_PATH = 'M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12 M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12'
 const DESKTOP_PLAY_ICON_PATH = 'M7 4v16l13 -8l-13 -8'
@@ -177,7 +179,14 @@ function swarmLayout(w: number, h: number) {
   // Portrait: trust width more (hero is tall). Landscape: let height pull down.
   const wH = Math.min(0.46, Math.max(0.16, (aspect - 0.48) / 2.4))
   let diameterPx = fromW * (1 - wH) + fromH * wH
-  diameterPx = Math.min(diameterPx, h * 0.16, w * 0.28)
+  // Ease into the larger desktop scale instead of creating a 1200px jump.
+  const desktopScale = lerpStops(
+    w,
+    [1024, 1440],
+    [1, DESKTOP_BALL_DIAMETER_SCALE],
+  )
+  const heightCapRatio = lerpStops(w, [1024, 1440], [0.16, 0.19])
+  diameterPx = Math.min(diameterPx * desktopScale, h * heightCapRatio, w * 0.28)
   diameterPx = Math.max(72, diameterPx)
   const geo = Math.sqrt(w * h)
   const ringScale = lerpStops(
@@ -238,17 +247,9 @@ const motionEnabled = ref(false)
 const motionIntroVisible = ref(false)
 /** The intro is hero-local even though its control layer is teleported. */
 const motionIntroInHero = ref(false)
-const motionEnableRequested = ref(false)
 const gyroPermissionReady = ref(false)
-const motionControlVisible = computed(
-  () => isMobileMotionClient.value && !motionIntroVisible.value,
-)
-const motionControlActive = computed(
-  () => motionEnabled.value && gyroPermissionReady.value,
-)
 const motionControlAtRest = ref(true)
-const androidHapticConfirmed = ref(false)
-const androidHapticLeaving = ref(false)
+const androidHapticEnabled = ref(false)
 const desktopSceneEnabled = ref(true)
 const desktopMotionIconPath = ref<SVGPathElement | null>(null)
 const desktopMotionNotice = ref('')
@@ -263,7 +264,6 @@ let removeMotionControlScroll: (() => void) | null = null
 let motionIntroHeroObserver: IntersectionObserver | null = null
 let motionIntroPointerUpAt = 0
 let desktopMotionNoticeTimer = 0
-let androidHapticExitTimer = 0
 let desktopIconMorph: { kill: () => void } | null = null
 let desktopIconMorphGen = 0
 
@@ -313,14 +313,13 @@ function finishMotionIntro() {
 }
 
 function onMotionIntroTap() {
-  motionEnableRequested.value = true
   motionEnabled.value = true
   swarmHapticReset()
   // iOS can reject or delay its system permission sheet (notably outside HTTPS).
   // The hint is still one-shot: reveal the regular control so a later tap can retry.
   finishMotionIntro()
   if (isAndroidClient.value) {
-    androidHapticConfirmed.value = swarmHapticConfirm()
+    androidHapticEnabled.value = swarmHapticConfirm()
   }
   gyroUnlockFn?.()
 }
@@ -338,35 +337,13 @@ function onMotionIntroClick() {
   onMotionIntroTap()
 }
 
-function onMotionControlTap() {
-  if (motionControlActive.value) {
-    motionEnabled.value = false
-    motionEnableRequested.value = false
-    swarmHapticReset()
-    return
-  }
-  motionEnableRequested.value = true
-  motionEnabled.value = true
-  swarmHapticReset()
-  if (isAndroidClient.value) {
-    androidHapticConfirmed.value =
-      swarmHapticConfirm() || androidHapticConfirmed.value
-  }
-  if (!gyroPermissionReady.value) gyroUnlockFn?.()
-}
-
 function onHapticControlTap() {
-  if (androidHapticLeaving.value || !swarmHapticConfirm()) return
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    androidHapticConfirmed.value = true
+  if (androidHapticEnabled.value) {
+    swarmHapticDisable()
+    androidHapticEnabled.value = false
     return
   }
-  androidHapticLeaving.value = true
-  window.clearTimeout(androidHapticExitTimer)
-  androidHapticExitTimer = window.setTimeout(() => {
-    androidHapticConfirmed.value = true
-    androidHapticLeaving.value = false
-  }, HAPTIC_CONTROL_EXIT_MS)
+  androidHapticEnabled.value = swarmHapticConfirm()
 }
 
 async function morphDesktopMotionIcon(sceneEnabled: boolean) {
@@ -530,14 +507,16 @@ function readAppScreenPx(): number {
 onMounted(() => {
   isIosClient.value = isAppleTouchDevice()
   isAndroidClient.value = /Android/i.test(navigator.userAgent)
-  androidHapticConfirmed.value = isAndroidClient.value && swarmHapticIsArmed()
+  androidHapticEnabled.value = isAndroidClient.value && swarmHapticIsArmed()
   isDesktopMotionClient.value = window.matchMedia(
     `(min-width: ${DESKTOP_MIN_WIDTH}px) and (pointer: fine)`,
   ).matches
   const introSeen = hasMotionIntroCookie()
   motionIntroVisible.value = isMobileMotionClient.value && !introSeen
-  motionEnabled.value = isMobileMotionClient.value && !motionIntroVisible.value
-  motionEnableRequested.value = motionEnabled.value
+  // Gyro is the default mobile mode. Browsers that gate sensor access (notably
+  // iOS) still need the intro/button tap before `gyroPermissionReady` can turn
+  // true, but Android can begin listening as soon as the scene is ready.
+  motionEnabled.value = isMobileMotionClient.value
   observeMotionIntroHero()
   const syncMotionControlRest = () => {
     motionControlAtRest.value = window.scrollY <= 2
@@ -581,7 +560,6 @@ onUnmounted(() => {
   motionIntroHeroObserver?.disconnect()
   motionIntroHeroObserver = null
   window.clearTimeout(desktopMotionNoticeTimer)
-  window.clearTimeout(androidHapticExitTimer)
   disposeScene()
 })
 
@@ -626,7 +604,9 @@ async function bootScene() {
     : lite
       ? BALL_COUNT_MOBILE
       : BALL_COUNT_TABLET
-  const sphereSegments = wide && !isCoarse ? 40 : lite ? 24 : 32
+  // Mobile renders only 9 balls, so smoother geometry is cheaper than
+  // raising DPR and removes faceting from both silhouettes and glossy light.
+  const sphereSegments = wide && !isCoarse ? 40 : lite ? 36 : 32
   const pixelRatioCap = wide && !isCoarse ? 1.35 : lite ? 1 : 1.25
   const cameraZ = layout.cameraZ
   const ballDiameterPx = layout.diameterPx
@@ -645,8 +625,8 @@ async function bootScene() {
     preserveDrawingBuffer: false,
   })
   const surfaceColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--palette-stone')
-    .trim() || '#d8d2c6'
+    .getPropertyValue('--palette-forest')
+    .trim() || '#384738'
   gl.setClearColor(surfaceColor, 1)
   gl.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap))
   // Frosted transmission does not need a full-resolution refraction buffer.
@@ -685,6 +665,7 @@ async function bootScene() {
         const ratio = total > 0 ? loaded / total : 0
         preload.setSceneProgress(0.08 + ratio * 0.55)
       },
+      { surroundingsExposure: 0.16 },
     ),
   )
 
@@ -694,20 +675,18 @@ async function bootScene() {
   // shell as soon as it is behind us; lighting may continue under the cover.
   emit('booted')
 
-  const hemi = new HemisphereLight(0xe8eef5, 0xb8a990, lite ? 0.4 : 0.22)
+  // Neutral, low ambient light keeps the silhouette dimensional without a
+  // coloured cast or a bright studio halo at grazing angles.
+  const hemi = new HemisphereLight(0xd9d8d2, 0x171717, lite ? 0.28 : 0.12)
   scene.add(hemi)
 
-  const key = new DirectionalLight(0xf5f8fc, lite ? 0.6 : 0.55)
+  const key = new DirectionalLight(COLORS.white, lite ? 0.6 : 0.55)
   key.position.set(3.8, 5.2, 4.5)
   scene.add(key)
 
-  const fill = new DirectionalLight(0xc5d4e4, lite ? 0.29 : 0.22)
+  const fill = new DirectionalLight(0xa7aaa5, lite ? 0.2 : 0.12)
   fill.position.set(-4.5, 1.2, 2.8)
   scene.add(fill)
-
-  const rim = new DirectionalLight(0xd0dcea, lite ? 0.26 : 0.32)
-  rim.position.set(-1.8, 2.8, -4.8)
-  scene.add(rim)
 
   const matte = (color: Color) => {
     const material = lite
@@ -725,7 +704,7 @@ async function bootScene() {
           clearcoatRoughness: 0.62,
           sheen: 0.28,
           sheenRoughness: 0.75,
-          sheenColor: new Color('#d7e4f0'),
+          sheenColor: new Color('#d7d5cf'),
           envMapIntensity: 0.7,
           specularIntensity: 0.5,
         })
@@ -753,7 +732,7 @@ async function bootScene() {
           // Depth writing below stabilizes overlapping transmissive spheres.
           transparent: true,
           opacity: 1,
-          attenuationColor: color.clone().lerp(new Color('#e4eef7'), 0.4),
+          attenuationColor: color.clone().lerp(new Color('#e3e0d8'), 0.4),
           attenuationDistance: 1.6,
           clearcoat: 0.4,
           clearcoatRoughness: 0.35,
@@ -886,7 +865,8 @@ async function bootScene() {
     if (!firstSceneReady) preload.setSceneProgress(0.9)
     envMap = preparedEnvironment
     scene.environment = envMap
-    scene.environmentIntensity = lite ? 0.88 : 1.05
+    // The graded HDR is mostly a dark room with isolated bright softboxes.
+    scene.environmentIntensity = lite ? 0.85 : 0.95
 
     await settleAndEmitLit()
   }
@@ -1064,11 +1044,20 @@ async function bootScene() {
         }
 
         let unlocking = false
+        let unlockGestureAttached = false
+        const onUnlockGesture = () => {
+          if (!motionEnabled.value || gyroPermissionReady.value) return
+          unlock()
+        }
         const detachUnlock = () => {
           gyroUnlockFn = null
+          if (!unlockGestureAttached) return
+          window.removeEventListener('pointerup', onUnlockGesture)
+          window.removeEventListener('keydown', onUnlockGesture)
+          unlockGestureAttached = false
         }
 
-        const unlock = () => {
+        function unlock() {
           if (unlocking || gen !== bootGen) return
           unlocking = true
 
@@ -1104,6 +1093,11 @@ async function bootScene() {
         }
 
         gyroUnlockFn = unlock
+        // With no dedicated gyro switch, resume the default-on sensor mode on
+        // the first eligible gesture after a reload or a previous dismissal.
+        window.addEventListener('pointerup', onUnlockGesture, { passive: true })
+        window.addEventListener('keydown', onUnlockGesture)
+        unlockGestureAttached = true
         removeGyroListeners = () => {
           detachUnlock()
           gyroPermissionReady.value = false
@@ -2090,14 +2084,15 @@ async function bootScene() {
         :style="motionOverlayStyle"
       >
     <button
-      v-if="isAndroidClient && !motionIntroVisible && !androidHapticConfirmed"
+      v-if="isAndroidClient && !motionIntroVisible"
       type="button"
       class="motion-control motion-control--haptic"
       :class="{
+        'motion-control--active': androidHapticEnabled,
         'motion-control--scroll-hidden': !motionControlAtRest,
-        'motion-control--haptic-leaving': androidHapticLeaving,
       }"
-      :aria-label="t('accessibility.enableVibration')"
+      :aria-label="androidHapticEnabled ? t('accessibility.disableVibration') : t('accessibility.enableVibration')"
+      :aria-pressed="androidHapticEnabled"
       @click="onHapticControlTap"
     >
       <SiteIcon
@@ -2107,25 +2102,7 @@ async function bootScene() {
     </button>
 
     <button
-      v-if="motionControlVisible"
-      type="button"
-      class="motion-control"
-      :class="{
-        'motion-control--active': motionControlActive,
-        'motion-control--scroll-hidden': !motionControlAtRest,
-      }"
-      :aria-label="motionControlActive ? t('accessibility.disableGyroscope') : t('accessibility.enableGyroscope')"
-      :aria-pressed="motionControlActive"
-      @click="onMotionControlTap"
-    >
-      <SiteIcon
-        name="device-mobile"
-        class="motion-control__icon"
-      />
-    </button>
-
-    <button
-      v-else-if="isDesktopMotionClient"
+      v-if="isDesktopMotionClient"
       type="button"
       class="motion-control"
       :class="{
@@ -2255,12 +2232,6 @@ async function bootScene() {
   pointer-events: none;
 }
 
-.motion-control--haptic-leaving {
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(1.18);
-}
-
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .motion-control {
     backdrop-filter: blur(9px) saturate(1.08);
@@ -2348,15 +2319,35 @@ async function bootScene() {
     transform: rotate(30deg) scale(1.04);
   }
 
-  .motion-control--haptic {
-    right: calc(var(--mobile-motion-control-right) + 42.5px + 8px);
-  }
-
-  .motion-control__icon--haptic,
-  .motion-control--active .motion-control__icon--haptic {
+  .motion-control__icon--haptic {
     width: 24px;
     height: 24px;
+    opacity: 0.48;
     transform: none;
+    transition: opacity 0.28s ease;
+  }
+
+  .motion-control--active .motion-control__icon--haptic {
+    opacity: 1;
+    transform: none;
+  }
+
+  .motion-control--haptic::after {
+    position: absolute;
+    width: 28px;
+    height: 1.5px;
+    background: currentColor;
+    content: '';
+    opacity: 0.82;
+    transform: rotate(-45deg) scaleX(1);
+    transition:
+      opacity 0.24s ease,
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .motion-control--haptic.motion-control--active::after {
+    opacity: 0;
+    transform: rotate(-45deg) scaleX(0.35);
   }
 
 }

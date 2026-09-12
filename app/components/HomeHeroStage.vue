@@ -931,17 +931,17 @@ onUnmounted(() => {
               class="hero-title-block flex flex-col order-2 md:order-1"
               :style="{ '--hero-title-blur-opacity': titleBlurOpacity }"
             >
-              <h1 class="hero-title text-ink">
+              <h1 class="hero-title text-milk">
                 <span v-for="line in heroTitleLines" :key="line" class="block">{{ line }}</span>
               </h1>
-              <p ref="descEl" class="hero-desc text-ash md:max-w-[36ch]">
+              <p ref="descEl" class="hero-desc text-milk md:max-w-[36ch]">
                 {{ t('home.hero.description') }}
               </p>
             </div>
 
             <p
               ref="sloganEl"
-              class="hero-slogan text-ink order-1 md:order-2"
+              class="hero-slogan text-milk order-1 md:order-2"
             >
               {{ t('home.hero.slogan') }}
             </p>
@@ -975,7 +975,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 2;
   overflow: hidden;
-  background: var(--palette-stone);
+  background: var(--palette-forest);
   pointer-events: none;
   transition: opacity 0.5s var(--motion-ease, ease), visibility 0.5s;
 }
@@ -1007,15 +1007,17 @@ onUnmounted(() => {
 }
 
 .hero-title {
-  font-size: var(--type-hero);
+  font-size: clamp(48px, 16cqi, 168px);
   font-weight: 600;
   font-synthesis: none;
   letter-spacing: -0.02em;
   line-height: 1.05;
+  white-space: nowrap;
 }
 
 .hero-title-block {
   position: relative;
+  container-type: inline-size;
   gap: 16px;
 }
 
@@ -1032,6 +1034,7 @@ onUnmounted(() => {
   font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.2;
+  color: color-mix(in srgb, var(--palette-milk) 76%, transparent);
 }
 
 /* Mobile: pull type down so 17 Pro–class widths don’t pack the stack. */
@@ -1043,13 +1046,12 @@ onUnmounted(() => {
   }
 
   .hero-title {
-    font-size: calc(var(--type-hero) * 0.84);
     line-height: 1.08;
   }
 
   .hero-desc {
     font-size: calc(var(--type-slogan) * 0.9);
-    color: color-mix(in srgb, var(--palette-ink) 68%, var(--palette-ash));
+    color: color-mix(in srgb, var(--palette-milk) 72%, transparent);
   }
 
   .hero-title-block {
@@ -1069,7 +1071,7 @@ onUnmounted(() => {
     transition: opacity 0.32s var(--motion-ease, ease);
     background: linear-gradient(
       to top,
-      color-mix(in srgb, var(--palette-stone) 44%, transparent),
+      color-mix(in srgb, var(--palette-forest) 72%, transparent),
       transparent 78%
     );
     mask-image: linear-gradient(to top, #000 0%, #000 46%, transparent 100%);

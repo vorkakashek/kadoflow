@@ -1457,7 +1457,10 @@ onBeforeUnmount(() => {
                 class="cases-intro__char"
               >{{ char === ' ' ? '\u00a0' : char }}</span>
             </span>
-            <span v-if="lineIndex === 1" class="cases-intro__count">
+            <span
+              v-if="lineIndex === casesIntroTitleLines.length - 1"
+              class="cases-intro__count"
+            >
               <span class="cases-intro__char">{{ homeCases.length }}</span>
             </span>
           </span>

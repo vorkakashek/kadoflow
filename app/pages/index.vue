@@ -30,7 +30,6 @@ const aboutTitleEl = computed(() => about.value?.titleEl ?? null)
 const aboutEndEl = computed(() => about.value?.contentEndEl ?? null)
 const contactSectionEl = computed(() => contact.value?.rootEl ?? null)
 const contactSurfaceEl = computed(() => contact.value?.surfaceEl ?? null)
-const contactTaskEl = computed(() => contact.value?.taskInputEl ?? null)
 
 /**
  * Yield one frame so router paint commits, then mount the surface.
@@ -71,11 +70,10 @@ onMounted(() => {
       :about-end-el="aboutEndEl"
       :contact-section-el="contactSectionEl"
       :contact-surface-el="contactSurfaceEl"
-      :contact-task-el="contactTaskEl"
       :plan="heroToKadoPlan"
       @ready="surfaceReady = true"
     />
-    <main class="pointer-events-none relative z-10">
+    <main class="home-page pointer-events-none relative z-10">
       <HomeHero ref="hero" :surface-ready="surfaceReady" />
       <HomeKado ref="kado" />
       <HomeCases ref="cases" />
@@ -88,6 +86,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.home-page :deep(h2) {
+  text-transform: lowercase;
+}
+
 .home-scroll-tail {
   min-height: 50svh;
 }

@@ -71,8 +71,10 @@ function submitForm() {
       enctype="text/plain"
       @submit.prevent="submitForm"
     >
-      <div class="contact-form__row">
-        <span class="contact-form__index" aria-hidden="true">002</span>
+      <div
+        class="contact-form__row"
+        :class="{ 'has-value': description.length > 0 }"
+      >
         <label class="contact-form__field">
           <span class="contact-form__label">коротко о проекте</span>
           <textarea
@@ -80,6 +82,7 @@ function submitForm() {
             name="description"
             rows="2"
             required
+            placeholder="коротко о проекте"
             :aria-describedby="`${props.formId}-description-hint`"
           />
           <span :id="`${props.formId}-description-hint`" class="contact-form__hint">
@@ -89,8 +92,10 @@ function submitForm() {
         </label>
       </div>
 
-      <div class="contact-form__row">
-        <span class="contact-form__index" aria-hidden="true">003</span>
+      <div
+        class="contact-form__row"
+        :class="{ 'has-value': contact.length > 0 }"
+      >
         <label class="contact-form__field">
           <span class="contact-form__label">как с вами связаться?</span>
           <input
@@ -99,6 +104,7 @@ function submitForm() {
             type="text"
             autocomplete="email"
             required
+            placeholder="как с вами связаться?"
             :aria-describedby="`${props.formId}-channel-hint`"
           >
           <span :id="`${props.formId}-channel-hint`" class="contact-form__hint">имя, telegram или email</span>
@@ -106,7 +112,6 @@ function submitForm() {
       </div>
 
       <div class="contact-form__row contact-form__row--consent">
-        <span class="contact-form__index" aria-hidden="true">004</span>
         <div class="contact-form__field">
           <label class="contact-form__consent">
             <input v-model="consent" name="consent" type="checkbox" required>
@@ -128,7 +133,7 @@ function submitForm() {
       <details class="contact-form__details">
         <summary>
           <span aria-hidden="true">+</span>
-          <strong>Добавить детали,</strong> чтобы разговор получился предметнее
+          <strong>Добавить детали</strong>
         </summary>
         <div class="contact-form__details-grid">
           <label>
@@ -172,56 +177,60 @@ function submitForm() {
   min-height: inherit;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: var(--layout-gutter);
-  padding: clamp(4rem, 6vw, 7rem) var(--layout-margin-content)
+  padding: clamp(2rem, 3vw, 3.5rem) var(--layout-margin-content)
     clamp(3.5rem, 5vw, 6rem);
   color: var(--palette-ink);
 }
 
 .contact-form {
-  grid-column: 4 / span 7;
+  grid-column: 4 / span 6;
 }
 
 .contact-form {
   display: flex;
   flex-direction: column;
-  gap: clamp(2.1rem, 3.1vw, 3.8rem);
+  gap: clamp(2.5rem, 3.25vw, 4rem);
 }
 
 .contact-form__row {
-  display: grid;
-  grid-template-columns: minmax(2.2rem, 0.8fr) minmax(0, 7fr);
-  column-gap: var(--layout-gutter);
-}
-
-.contact-form__index {
-  padding-top: 0.15rem;
-  color: var(--palette-moss);
-  font-size: clamp(0.8rem, 0.95vw, 1rem);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1;
+  position: relative;
 }
 
 .contact-form__field {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
 }
 
 .contact-form__label {
-  display: block;
-  margin: 0;
-  color: color-mix(in srgb, var(--palette-ink) 24%, transparent);
-  font-size: clamp(1rem, 1.25vw, 1.35rem);
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
+  position: absolute;
+  z-index: 1;
+  top: clamp(0.8rem, 1.2vw, 1.25rem);
+  left: 0;
+  color: color-mix(in srgb, var(--palette-ink) 48%, transparent);
+  cursor: text;
+  font-size: clamp(1.65rem, 3vw, 3.5rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  pointer-events: none;
+  transform-origin: left top;
+  transition:
+    color 0.28s var(--motion-ease, ease),
+    transform 0.32s var(--motion-ease, ease);
+}
+
+.contact-form__row:focus-within .contact-form__label,
+.contact-form__row.has-value .contact-form__label {
+  color: var(--palette-forest);
+  transform: translateY(clamp(-2.1rem, -2.7vw, -1.5rem)) scale(0.43);
 }
 
 .contact-form textarea,
 .contact-form__field > input {
   width: 100%;
-  min-height: 2.25rem;
+  min-height: clamp(4.25rem, 6vw, 6.8rem);
   border: 0;
   border-bottom: 1.5px solid var(--palette-ink);
   border-radius: 0;
@@ -229,14 +238,22 @@ function submitForm() {
   background: transparent;
   color: var(--palette-ink);
   font: inherit;
-  font-size: 1rem;
+  font-size: clamp(1.65rem, 3vw, 3.5rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
   resize: vertical;
+}
+
+.contact-form textarea::placeholder,
+.contact-form__field > input::placeholder {
+  color: transparent;
 }
 
 .contact-form textarea:focus,
 .contact-form__field > input:focus {
-  border-bottom-color: var(--palette-moss);
-  box-shadow: 0 1px 0 var(--palette-moss);
+  border-bottom-color: var(--palette-forest);
+  box-shadow: 0 1px 0 var(--palette-forest);
 }
 
 .contact-form__hint {
@@ -305,13 +322,12 @@ function submitForm() {
 }
 
 .contact-form__details {
-  margin-left: calc((100% + var(--layout-gutter)) / 8 * -1);
+  width: 100%;
 }
 
 .contact-form__details summary {
-  display: grid;
-  grid-template-columns: minmax(2.2rem, 0.8fr) minmax(0, 7fr);
-  column-gap: var(--layout-gutter);
+  display: flex;
+  gap: 0.7rem;
   align-items: baseline;
   cursor: pointer;
   font-size: clamp(1rem, 1.2vw, 1.25rem);
@@ -340,7 +356,7 @@ function submitForm() {
 
 .contact-form__details-grid {
   display: grid;
-  margin: 1.5rem 0 0 calc((100% + var(--layout-gutter)) / 8);
+  margin: 1.5rem 0 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem var(--layout-gutter);
 }
@@ -397,19 +413,23 @@ function submitForm() {
 @media (max-width: 767.98px) {
   .contact-form-shell {
     display: block;
-    padding: clamp(3rem, 14vw, 4.5rem) var(--layout-margin-content) 3rem;
+    padding: 2rem var(--layout-margin-content) 3rem;
   }
 
   .contact-form {
-    gap: 2.6rem;
+    gap: 2.75rem;
   }
 
-  .contact-form__row {
-    grid-template-columns: 2.5rem minmax(0, 1fr);
-    column-gap: 0.75rem;
+  .contact-form__label,
+  .contact-form textarea,
+  .contact-form__field > input {
+    font-size: clamp(1.45rem, 7.2vw, 2.3rem);
   }
 
-  .contact-form__label { font-size: 1rem; }
+  .contact-form__row:focus-within .contact-form__label,
+  .contact-form__row.has-value .contact-form__label {
+    transform: translateY(-1.8rem) scale(0.5);
+  }
 
   .contact-form__row--consent .contact-form__field {
     min-width: 0;
@@ -426,29 +446,22 @@ function submitForm() {
     height: 1.25rem;
   }
 
-  .contact-form__details {
-    margin-left: 0;
-  }
-
   .contact-form__details summary {
-    grid-template-columns: 2.5rem minmax(0, 1fr);
-    column-gap: 0.75rem;
     font-size: 1rem;
   }
 
   .contact-form__details-grid {
-    margin-left: 3.25rem;
     grid-template-columns: 1fr;
   }
 
   .contact-form__actions {
-    margin-left: 3.25rem;
     flex-direction: column;
     align-items: flex-start;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .contact-form__label,
   .contact-form__details summary > span { transition: none; }
 }
 </style>

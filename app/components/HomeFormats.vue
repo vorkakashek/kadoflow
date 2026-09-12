@@ -633,7 +633,8 @@ onUnmounted(() => {
 <style scoped>
 .work-formats {
   min-height: var(--app-screen);
-  padding: var(--space-section) var(--layout-margin-content);
+  padding: var(--space-section) var(--layout-margin-content)
+    calc(var(--space-section) * 0.5);
 }
 
 .work-formats__layout {
@@ -989,7 +990,8 @@ onUnmounted(() => {
 
 @media (max-width: 767.98px) {
   .work-formats {
-    padding-block: calc(var(--space-section) * 0.75);
+    padding-block: calc(var(--space-section) * 0.75)
+      calc(var(--space-section) * 0.375);
   }
 
   .work-formats__title {

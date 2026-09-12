@@ -318,7 +318,7 @@ onUnmounted(() => {
 
 <style scoped>
 .home-about {
-  padding: var(--space-section) var(--layout-margin-content)
+  padding: calc(var(--space-section) * 0.5) var(--layout-margin-content)
     calc(var(--space-section) * 0.625);
 }
 
@@ -509,7 +509,7 @@ onUnmounted(() => {
 
 @media (max-width: 767.98px) {
   .home-about {
-    padding-block: calc(var(--space-section) * 0.75) calc(var(--space-section) * 1.5);
+    padding-block: calc(var(--space-section) * 0.375) calc(var(--space-section) * 1.5);
   }
 
   .home-about__layout,

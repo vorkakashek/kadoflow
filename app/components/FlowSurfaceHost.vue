@@ -82,9 +82,11 @@ const FORMATS_SCRUB_END = 'top 35%'
 /** Work formats → author block: the stone surface settles into its dark panel. */
 const ABOUT_SCRUB_START = 'top 92%'
 const ABOUT_SCRUB_END = 'top 25%'
-/** Begin as Biography leaves; finish once the first contact input reaches the fold. */
+/** Begin as Biography leaves; settle only after the form surface is well in view. */
 const CONTACT_SCRUB_START = 'bottom bottom+=72px'
-const CONTACT_SCRUB_END = 'bottom bottom'
+const CONTACT_SCRUB_END = 'top 18%'
+/** Let the dark Biography tone clear 20% faster than the surface geometry. */
+const CONTACT_TONE_SPEED = 1.2
 /** Global scroll-driven surface limit, in normalized morph segments/sec. */
 const SURFACE_MORPH_MAX_VELOCITY = 1.55
 const SURFACE_MORPH_EPSILON = 0.0008
@@ -140,6 +142,8 @@ const MOBILE_CASE_TO_FORMATS_HOLD_PX = 200
 const MOBILE_FORMATS_SCROLL_SPAN_VH = 0.62
 const MOBILE_ABOUT_SCROLL_SPAN_VH = 0.3
 const MOBILE_CONTACT_ENTRY_LEAD_PX = 32
+/** Keep the Biography → form flight on-screen long enough to expose the form through the mask. */
+const MOBILE_CONTACT_SETTLE_VIEWPORT_P = 0.18
 /** Stretch Formats ↔ Biography equally at both ends of the reversible range. */
 const MOBILE_ABOUT_ENTRY_LEAD_PX = 80
 const MOBILE_ABOUT_EXIT_RUNWAY_PX = 80
@@ -179,8 +183,6 @@ const props = withDefaults(
     contactSectionEl?: HTMLElement | null
     /** Form field destination; the live Surface also clips the form UI. */
     contactSurfaceEl?: HTMLElement | null
-    /** First contact input — marks the end of the Biography → contact morph. */
-    contactTaskEl?: HTMLElement | null
     plan?: SurfaceMorphPlan
     toneClass?: string
   }>(),
@@ -201,7 +203,6 @@ const props = withDefaults(
     aboutEndEl: null,
     contactSectionEl: null,
     contactSurfaceEl: null,
-    contactTaskEl: null,
     plan: () => heroToKadoPlan,
     toneClass: 'bg-stone',
   },
@@ -596,7 +597,6 @@ function captureMobileScrollBounds() {
   const aboutDocRaw = readDocBox(props.aboutSurfaceEl)
   const aboutEndDocRaw = readDocBox(props.aboutEndEl)
   const contactDocRaw = readDocBox(props.contactSurfaceEl)
-  const contactTaskDocRaw = readDocBox(props.contactTaskEl)
   if (
     !stoneMark
     || !stoneDoc
@@ -611,7 +611,6 @@ function captureMobileScrollBounds() {
     || !aboutDocRaw
     || !aboutEndDocRaw
     || !contactDocRaw
-    || !contactTaskDocRaw
   ) {
     mobileScrollBounds = null
     return false
@@ -635,7 +634,6 @@ function captureMobileScrollBounds() {
   const aboutDoc = afterCaseCollapse(aboutDocRaw)
   const aboutEndDoc = afterCaseCollapse(aboutEndDocRaw)
   const contactDoc = afterCaseCollapse(contactDocRaw)
-  const contactTaskDoc = afterCaseCollapse(contactTaskDocRaw)
 
   const viewportHeight = stableMobileTriggerViewportHeight()
   const termStart = scrubEndY
@@ -705,7 +703,7 @@ function captureMobileScrollBounds() {
   )
   const contactEnd = Math.max(
     contactStart + 1,
-    contactTaskDoc.top + contactTaskDoc.height - viewportHeight,
+    contactDoc.top - viewportHeight * MOBILE_CONTACT_SETTLE_VIEWPORT_P,
   )
 
   mobileScrollBounds = {
@@ -1322,7 +1320,7 @@ function paintAboutToContactSegment(t: number) {
     ? lerpBox(from, to, t)
     : (to ?? from)!
   const contactReveal = smoothUnit((t - 0.58) / 0.3)
-  paintAboutSurfaceTone(1 - t)
+  paintAboutSurfaceTone(1 - clampUnit(t * CONTACT_TONE_SPEED))
   paintBox(box, 1)
   paintAboutTitleContrast(box, 1 - smoothUnit(t / 0.55))
   setContactStageProgress(contactReveal)
@@ -2137,7 +2135,7 @@ function paintMobileScrollCorridor(
   setSurfaceDocked(false)
   setCaseMediaVisible(false)
   clearCaseMediaFlight()
-  paintAboutSurfaceTone(1 - t)
+  paintAboutSurfaceTone(1 - clampUnit(t * CONTACT_TONE_SPEED))
   paintBox(box, 1)
   paintAboutTitleContrast(box, 1 - smoothUnit(t / 0.55))
   setContactStageProgress(contactReveal)
@@ -2926,7 +2924,6 @@ let lastAboutTitleEl: HTMLElement | null = null
 let lastAboutEndEl: HTMLElement | null = null
 let lastContactSectionEl: HTMLElement | null = null
 let lastContactSurfaceEl: HTMLElement | null = null
-let lastContactTaskEl: HTMLElement | null = null
 
 /** Prevent re-entrant buildMorph ↔ ScrollTrigger.refresh softlocks (SPA return to `/`). */
 let morphGen = 0
@@ -3123,7 +3120,6 @@ function buildMorph() {
       lastAboutEndEl = props.aboutEndEl ?? null
       lastContactSectionEl = props.contactSectionEl ?? null
       lastContactSurfaceEl = props.contactSurfaceEl ?? null
-      lastContactTaskEl = props.contactTaskEl ?? null
       return
     }
 
@@ -3201,10 +3197,10 @@ function buildMorph() {
       aboutTrigger = null
     }
 
-    if (props.aboutEndEl && props.contactSurfaceEl && props.contactTaskEl) {
+    if (props.aboutEndEl && props.contactSurfaceEl) {
       contactTrigger = ScrollTrigger.create({
         trigger: props.aboutEndEl,
-        endTrigger: props.contactTaskEl,
+        endTrigger: props.contactSurfaceEl,
         start: CONTACT_SCRUB_START,
         end: CONTACT_SCRUB_END,
         invalidateOnRefresh: true,
@@ -3248,7 +3244,6 @@ function buildMorph() {
     lastAboutEndEl = props.aboutEndEl ?? null
     lastContactSectionEl = props.contactSectionEl ?? null
     lastContactSurfaceEl = props.contactSurfaceEl ?? null
-    lastContactTaskEl = props.contactTaskEl ?? null
   } finally {
     if (gen === morphGen) {
       beginMorphQuiet(1800)
@@ -3358,7 +3353,6 @@ onUnmounted(() => {
   lastAboutEndEl = null
   lastContactSectionEl = null
   lastContactSurfaceEl = null
-  lastContactTaskEl = null
   surfaceViewportWidth = 0
   fontsResyncBound = false
   captureFailCount = 0
@@ -3411,7 +3405,6 @@ watch(
       props.aboutEndEl,
       props.contactSectionEl,
       props.contactSurfaceEl,
-      props.contactTaskEl,
       props.plan,
     ] as const,
   () => {
@@ -3437,7 +3430,6 @@ watch(
         && props.aboutEndEl === lastAboutEndEl
         && props.contactSectionEl === lastContactSectionEl
         && props.contactSurfaceEl === lastContactSurfaceEl
-        && props.contactTaskEl === lastContactTaskEl
       if (sameCorridor) {
         // Stone/term/body often arrive a tick later — soft resync, not kill+rebuild.
         resyncAfterLayout()

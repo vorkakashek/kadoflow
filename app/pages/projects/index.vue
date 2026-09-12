@@ -11,6 +11,7 @@ const preloaderEnabled = useBrandPreloaderEnabled()
 const { pageIrisLive } = usePageCanvas()
 const projectsCatalogEl = ref<HTMLElement | null>(null)
 const projectsHeaderEl = ref<HTMLElement | null>(null)
+const projectsSurfaceEl = ref<HTMLElement | null>(null)
 const projectsGridEl = ref<HTMLElement | null>(null)
 
 let catalogRevealCtx: { revert: () => void } | null = null
@@ -41,8 +42,9 @@ function prefersReducedMotion() {
 async function setupCatalogRevealMotion() {
   const catalog = projectsCatalogEl.value
   const header = projectsHeaderEl.value
+  const surface = projectsSurfaceEl.value
   const grid = projectsGridEl.value
-  if (!catalog || !header || !grid) return
+  if (!catalog || !header || !surface || !grid) return
 
   const [{ default: gsap }, { ScrollTrigger }] = await Promise.all([
     import('gsap'),
@@ -145,10 +147,10 @@ async function setupCatalogRevealMotion() {
     })
 
     if (!reduced) {
-      const parallaxDistance = () => Math.min(
-        header.offsetHeight * (window.matchMedia('(max-width: 767px)').matches ? 1.45 : 0.72),
-        document.documentElement.clientHeight * (window.matchMedia('(max-width: 767px)').matches ? 0.52 : 0.38),
-      )
+      const surfaceParallaxDistance = () => Math.min(
+        header.offsetHeight * (window.matchMedia('(max-width: 767px)').matches ? 1.35 : 1.05),
+        document.documentElement.clientHeight * (window.matchMedia('(max-width: 767px)').matches ? 0.58 : 0.48),
+      ) * 1.1
       const parallaxTimeline = gsap.timeline({
         scrollTrigger: {
           trigger: catalog,
@@ -159,12 +161,8 @@ async function setupCatalogRevealMotion() {
         },
       })
       parallaxTimeline
-        .to(grid, {
-          y: () => -parallaxDistance(),
-          ease: 'none',
-        }, 0)
-        .to(header, {
-          y: () => parallaxDistance(),
+        .to(surface, {
+          y: () => -surfaceParallaxDistance(),
           ease: 'none',
         }, 0)
     }
@@ -386,6 +384,8 @@ function openCase(item: HomeCase, event: MouseEvent) {
           <span class="projects-catalog__header-motion" aria-hidden="true">{{ homeCases.length }}</span>
         </p>
       </header>
+    </div>
+    <div ref="projectsSurfaceEl" class="projects-catalog__surface">
       <ul ref="projectsGridEl" class="projects-catalog__grid">
         <li v-for="(item, index) in homeCases" :key="item.id">
           <a
@@ -440,15 +440,17 @@ function openCase(item: HomeCase, event: MouseEvent) {
 </template>
 
 <style scoped>
-.projects-catalog { min-height: var(--app-screen); padding-block: calc(var(--layout-surface-top) + var(--space-section)) var(--space-section); }
-.projects-catalog__inner { display: grid; row-gap: var(--space-4); width: min(var(--layout-content-max), calc(100% - 2 * var(--layout-margin-content))); margin: 0 auto; }
+.projects-catalog { min-height: var(--app-screen); padding-top: calc(var(--layout-surface-top) + var(--space-section)); background-color: var(--semantic-bg-surface); }
+.projects-catalog__inner { width: min(var(--layout-content-max), calc(100% - 2 * var(--layout-margin-content))); margin: 0 auto; }
 .projects-catalog__header { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--layout-gutter); align-items: start; }
 .projects-catalog__title, .projects-catalog__count { margin: 0; font-weight: 400; line-height: .8; }
-.projects-catalog__title { grid-column: 1 / span 10; overflow: hidden; font-size: var(--type-catalog-title); letter-spacing: -.065em; text-transform: uppercase; white-space: nowrap; }
+.projects-catalog__title { grid-column: 1 / span 10; overflow: hidden; margin-bottom: -.16em; padding-bottom: .16em; font-size: var(--type-catalog-title); letter-spacing: -.065em; text-transform: lowercase; white-space: nowrap; }
 .projects-catalog__title-char, .projects-catalog__header-motion { display: inline-block; will-change: transform; }
 .projects-catalog__count { grid-column: 12; justify-self: end; overflow: hidden; font-size: var(--type-case-title); font-variant-numeric: tabular-nums; letter-spacing: -.06em; transform: translateY(.035em); }
-@supports (text-box-trim: trim-both) { .projects-catalog__title, .projects-catalog__count { text-box-trim: trim-both; text-box-edge: cap alphabetic; } .projects-catalog__count { transform: none; } }
-.projects-catalog__grid { --projects-grid-gap: clamp(1rem, 3vw, 3rem); position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--projects-grid-gap); row-gap: calc(var(--projects-grid-gap) * 2); margin: 0; padding: var(--layout-margin-content) 0; background-color: var(--semantic-bg-page); list-style: none; }
+@supports (text-box-trim: trim-both) { .projects-catalog__title { margin-bottom: 0; padding-bottom: 0; text-box-trim: trim-both; text-box-edge: cap text; } .projects-catalog__count { text-box-trim: trim-both; text-box-edge: cap alphabetic; transform: none; } }
+.projects-catalog__surface { position: relative; z-index: 2; width: 100%; margin-top: var(--space-4); padding-bottom: var(--space-section); background-color: var(--semantic-bg-page); }
+.projects-catalog__surface::after { position: absolute; top: 100%; right: 0; left: 0; z-index: 0; height: 60svh; background-color: inherit; content: ''; pointer-events: none; }
+.projects-catalog__grid { --projects-grid-gap: clamp(1rem, 3vw, 3rem); position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--projects-grid-gap); row-gap: calc(var(--projects-grid-gap) * 2); width: min(var(--layout-content-max), calc(100% - 2 * var(--layout-margin-content))); margin: 0 auto; padding: var(--layout-margin-content) 0; list-style: none; }
 .projects-card { display: block; color: inherit; text-decoration: none; }
 .projects-card__cover { height: clamp(18rem, 42vw, 42rem); overflow: hidden; }
 .projects-card__cover picture { display: contents; }

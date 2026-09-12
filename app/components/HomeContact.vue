@@ -112,9 +112,12 @@ defineExpose({ rootEl, surfaceEl, taskInputEl })
   column-gap: var(--layout-gutter);
 }
 
-.home-contact__intro,
-.home-contact__task {
+.home-contact__intro {
   grid-column: 3 / span 8;
+}
+
+.home-contact__task {
+  grid-column: 4 / span 6;
 }
 
 .home-contact__intro h2 {
@@ -127,7 +130,7 @@ defineExpose({ rootEl, surfaceEl, taskInputEl })
 
 .home-contact__intro p {
   margin: clamp(1.5rem, 2.25vw, 2.5rem) 0 0;
-  font-size: clamp(1rem, 1.25vw, 1.4rem);
+  font-size: var(--type-case-body-large);
   letter-spacing: -0.025em;
   line-height: 1.3;
 }
@@ -237,7 +240,7 @@ defineExpose({ rootEl, surfaceEl, taskInputEl })
   position: relative;
   width: 100%;
   min-height: max(52rem, calc(var(--app-screen) - var(--layout-margin-content) * 2));
-  margin-top: clamp(4.5rem, 8vw, 9rem);
+  margin-top: clamp(1.25rem, 2vw, 2.5rem);
   overflow: hidden;
   border-radius: var(--flow-surface-radius, 12px);
   background: var(--palette-stone);
@@ -261,10 +264,6 @@ defineExpose({ rootEl, surfaceEl, taskInputEl })
     font-size: clamp(2rem, 9.5vw, 3.25rem);
   }
 
-  .home-contact__intro p {
-    font-size: 1rem;
-  }
-
   .home-contact__task {
     margin-top: clamp(4rem, 20vw, 6rem);
   }
@@ -282,7 +281,7 @@ defineExpose({ rootEl, surfaceEl, taskInputEl })
   .home-contact__surface {
     width: auto;
     min-height: 69rem;
-    margin-top: clamp(4rem, 18vw, 6rem);
+    margin-top: 1.5rem;
     margin-inline: calc(-1 * var(--layout-margin-content));
   }
 }
