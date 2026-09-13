@@ -213,11 +213,13 @@ const props = withDefaults(
   defineProps<{
     /** When false, rAF + draws stop (keeps GPU assets warm for return). */
     active?: boolean
+    /** Keep desktop playback chrome hidden until the scene entrance has settled. */
+    controlsReady?: boolean
     /** Canvas extends past the visible hero; keep overlay chrome inside that edge. */
     overlayInsetX?: number
     overlayInsetY?: number
   }>(),
-  { active: true, overlayInsetX: 0, overlayInsetY: 0 },
+  { active: true, controlsReady: true, overlayInsetX: 0, overlayInsetY: 0 },
 )
 
 const motionOverlayStyle = computed<Record<string, string>>(() => ({
@@ -245,7 +247,7 @@ const gyroPermissionReady = ref(false)
 const androidHapticEnabled = ref(false)
 const desktopSceneEnabled = ref(true)
 const desktopMotionControlVisible = computed(
-  () => flowSurfaceMask.morph <= 0.001,
+  () => props.controlsReady && flowSurfaceMask.morph <= 0.001,
 )
 const desktopMotionIconPath = ref<SVGPathElement | null>(null)
 const desktopMotionNotice = ref('')

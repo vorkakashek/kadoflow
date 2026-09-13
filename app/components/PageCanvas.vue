@@ -757,7 +757,7 @@ async function playPlaqueEnter() {
       }, at + LINK_INDEX_LEAD_S)
     }
     if (shell.classList.contains('pc-link-shell--current')) {
-      activeBgAt = at + LINK_INDEX_LEAD_S + LINK_ENTER_S
+      activeBgAt = at
     }
   })
   if (chrome.length) {
@@ -1773,7 +1773,7 @@ onUnmounted(() => {
 }
 
 .pc-link--current :deep(.chip-scale-bg__fill) {
-  background-color: color-mix(in srgb, var(--palette-sand) 55%, var(--palette-moss));
+  background-color: var(--palette-ink);
 }
 
 .pc-link__index,
@@ -1818,7 +1818,7 @@ onUnmounted(() => {
 
 .pc-link--current .pc-link__label,
 .pc-link--current .pc-link__index {
-  color: var(--palette-forest);
+  color: var(--palette-milk);
 }
 
 @media (prefers-reduced-motion: reduce) {

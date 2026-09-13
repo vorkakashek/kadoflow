@@ -787,14 +787,17 @@ async function startSceneEntryReveal() {
   const startY = Math.max(0, window.innerHeight - destination.top + 1)
   sceneEntryTween = gsap.fromTo(
     scene,
-    { y: startY, opacity: 0 },
+    { y: startY, '--hero-scene-entry-opacity': 0 },
     {
       y: 0,
-      opacity: 1,
+      '--hero-scene-entry-opacity': 1,
       duration: mobileLite.value ? 0.92 : 1.12,
       ease: 'power4.out',
       onComplete: () => {
-        gsap.set(scene, { clearProps: 'transform,opacity' })
+        // Keep the settled entry factor inline. Scroll opacity remains a
+        // separate live multiplier, so completing either motion cannot snap
+        // the other clock to a stale value.
+        gsap.set(scene, { clearProps: 'transform' })
         finishSceneEntryReveal()
       },
     },
@@ -1042,49 +1045,52 @@ onUnmounted(() => {
         ref="sceneEntryEl"
         class="hero-scene-entry-shell absolute inset-0"
         :style="{
-          opacity: sceneEntryArmed ? 0 : sceneOpacity,
+          '--hero-scene-scroll-opacity': sceneOpacity,
         }"
         :class="{ 'hero-scene-entry-pending': sceneEntryArmed }"
       >
-        <div
-          ref="mediaEl"
-          class="absolute"
-          :style="{
-            top: `-${sceneBleedY}px`,
-            left: `-${sceneBleedX}px`,
-            width: `calc(100% + ${sceneBleedX * 2}px)`,
-            height: `calc(100% + ${sceneBleedY * 2}px)`,
-            '--hero-scene-bleed-x': `${sceneBleedX}px`,
-            '--hero-scene-bleed-y': `${sceneBleedY}px`,
-          }"
-          :class="[
-            swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
-            introPending ? 'hero-intro-hide' : '',
-          ]"
-        >
-        <ClientOnly>
-          <LazyHeroSwarmCanvas
-            v-if="swarmMount"
-            class="size-full"
-            :class="{ 'hero-swarm--cold': !swarmVisible }"
-            :active="swarmActive"
-            :overlay-inset-x="sceneBleedX"
-            :overlay-inset-y="sceneBleedY"
-            @booted="onSwarmBooted"
-            @lit="onSwarmLit"
-          />
-        </ClientOnly>
-        <!-- Neutral Surface-colour lid stays up until the first live GL frame. -->
-        <div
-          ref="swarmCoverEl"
-          class="hero-swarm-cover"
-          :class="{
-            'hero-swarm-cover--up': swarmCoverUp,
-            'hero-swarm-cover--lock': glCoverLocked,
-            'hero-swarm-cover--entry': sceneEntryArmed,
-          }"
-          aria-hidden="true"
-        />
+        <div class="hero-scene-scroll-shell absolute inset-0">
+          <div
+            ref="mediaEl"
+            class="absolute"
+            :style="{
+              top: `-${sceneBleedY}px`,
+              left: `-${sceneBleedX}px`,
+              width: `calc(100% + ${sceneBleedX * 2}px)`,
+              height: `calc(100% + ${sceneBleedY * 2}px)`,
+              '--hero-scene-bleed-x': `${sceneBleedX}px`,
+              '--hero-scene-bleed-y': `${sceneBleedY}px`,
+            }"
+            :class="[
+              swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
+              introPending ? 'hero-intro-hide' : '',
+            ]"
+          >
+            <ClientOnly>
+              <LazyHeroSwarmCanvas
+                v-if="swarmMount"
+                class="size-full"
+                :class="{ 'hero-swarm--cold': !swarmVisible }"
+                :active="swarmActive"
+                :controls-ready="!sceneEntryArmed"
+                :overlay-inset-x="sceneBleedX"
+                :overlay-inset-y="sceneBleedY"
+                @booted="onSwarmBooted"
+                @lit="onSwarmLit"
+              />
+            </ClientOnly>
+            <!-- Neutral Surface-colour lid stays up until the first live GL frame. -->
+            <div
+              ref="swarmCoverEl"
+              class="hero-swarm-cover"
+              :class="{
+                'hero-swarm-cover--up': swarmCoverUp,
+                'hero-swarm-cover--lock': glCoverLocked,
+                'hero-swarm-cover--entry': sceneEntryArmed,
+              }"
+              aria-hidden="true"
+            />
+          </div>
         </div>
       </div>
 
@@ -1195,7 +1201,21 @@ onUnmounted(() => {
   transition: none;
 }
 
+.hero-scene-entry-shell {
+  /*
+   * Scroll and entrance are independent clocks. Vue updates only the exit
+   * factor; GSAP owns only the entry factor. Their product avoids either
+   * renderer resetting the other's in-flight opacity for one frame.
+   */
+  opacity: var(--hero-scene-entry-opacity, 1);
+}
+
+.hero-scene-scroll-shell {
+  opacity: var(--hero-scene-scroll-opacity, 1);
+}
+
 .hero-scene-entry-pending {
+  --hero-scene-entry-opacity: 0;
   overflow: hidden;
   border-radius: var(--flow-surface-radius, 24px);
   will-change: transform, opacity;

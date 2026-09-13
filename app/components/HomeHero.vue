@@ -34,12 +34,9 @@ const titleBlock = ref<HTMLElement | null>(null)
 const COPY_DESCENT_RATE = 0.22
 const COPY_FADE_START_VH = 0.38
 const COPY_FADE_END_VH = 0.72
-/**
- * Let the rising scene physically wipe the complete mobile headline first.
- * The late fade only clears any copy left outside the narrowing Surface.
- */
-const MOBILE_COPY_COVER_START = 0.92
-const MOBILE_COPY_COVER_END = 1
+/** Clear the already-covered copy as the full-width Hero field starts docking. */
+const MOBILE_COPY_COVER_START = 0
+const MOBILE_COPY_COVER_END = 0.04
 let copyMotionRaf = 0
 let copyMotionVh = 0
 let copyMotionWidth = 0
@@ -418,6 +415,11 @@ defineExpose({ section, surfaceSlot })
     grid-column: 1 / -1;
     grid-row: 3;
     justify-self: center;
+  }
+
+  .home-hero__surface-slot {
+    /* The in-flow scene must paint over the sticky copy during its physical wipe. */
+    z-index: 2;
   }
 
   .home-hero__surface-primer-grain {

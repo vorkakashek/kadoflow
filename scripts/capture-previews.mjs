@@ -24,7 +24,7 @@ const pages = [
   { id: 'home', path: '/' },
   { id: 'projects', path: '/projects' },
   { id: 'services', path: '/services' },
-  { id: 'about', path: '/about' },
+  { id: 'about', path: '/#about' },
   { id: 'contact', path: '/contact' },
 ]
 

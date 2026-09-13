@@ -63,13 +63,17 @@ onMounted(() => {
 </template>
 
 <style>
-/* Scroll lock while menu is open — page keeps running underneath the overlay. */
+/* Opaque startup/navigation overlays must not let the document move underneath.
+   In particular, an early wheel/touch during preload must not advance the
+   scroll-owned Flow Surface while its Hero scene is still being revealed. */
+html.preload-lock,
 html.page-canvas-lock,
 html.page-iris-lock {
   overflow: hidden;
   overscroll-behavior: none;
 }
 
+html.preload-lock body,
 html.page-canvas-lock body,
 html.page-iris-lock body {
   overflow: hidden;

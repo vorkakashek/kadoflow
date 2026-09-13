@@ -74,7 +74,7 @@ export const canvasFrames: SiteNavFrame[] = [
   {
     id: 'about',
     kind: 'page',
-    to: '/about',
+    to: '/#about',
     labelKey: 'navigation.frames.about.label',
     blurbKey: 'navigation.frames.about.blurb',
     index: '04',
