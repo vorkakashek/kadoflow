@@ -765,7 +765,7 @@ onUnmounted(() => {
   z-index: 0;
   overflow: hidden;
   border-radius: var(--flow-surface-radius, 24px);
-  background: var(--palette-stone);
+  background: var(--semantic-bg-surface, var(--palette-stone));
   opacity: 0;
   pointer-events: none;
 }

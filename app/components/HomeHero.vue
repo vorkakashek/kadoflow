@@ -3,15 +3,21 @@
  * Hero scroll section — in-flow title/description + the morph pose target.
  * Only the swarm and slogan live inside FlowSurfaceHost's clipped window.
  */
-import { isMobileChromeHeightOnlyResize } from '~/utils/mobileViewport'
+import { isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
+import {
+  isLenisScrollFrameConnected,
+  subscribeLenisScrollFrame,
+} from '~/utils/lenisScrollFrame'
 
 const { locale, tm } = useI18n()
 const heroTitleLines = computed(() => {
   locale.value
   return tm('home.hero.titleLines') as string[]
 })
-const heroTitleLineChars = computed(() => (
-  heroTitleLines.value.map(line => Array.from(line))
+const heroTitleLineWords = computed(() => (
+  heroTitleLines.value.map(line => (
+    line.trim().split(/\s+/).map(word => Array.from(word))
+  ))
 ))
 const heroDescriptionLines = computed(() => {
   locale.value
@@ -19,18 +25,26 @@ const heroDescriptionLines = computed(() => {
 })
 
 const heroIntroPending = useState<boolean>('home-hero-intro-pending', () => true)
+const flowSurfaceMask = useFlowSurfaceMask()
 const section = ref<HTMLElement | null>(null)
 const surfaceSlot = ref<HTMLElement | null>(null)
-const copyExitY = ref(0)
-const copyExitOpacity = ref(1)
+const titleBlock = ref<HTMLElement | null>(null)
 
-const COPY_EXIT_RANGE_VH = 0.42
-const COPY_EXIT_TRAVEL_VH = 0.5
-const COPY_FADE_START_VH = 0.3
-const COPY_FADE_END_VH = 0.55
+/** Visible downward travel on desktop; mobile copy stays fixed in its sticky wrapper. */
+const COPY_DESCENT_RATE = 0.22
+const COPY_FADE_START_VH = 0.38
+const COPY_FADE_END_VH = 0.72
+/**
+ * Let the rising scene physically wipe the complete mobile headline first.
+ * The late fade only clears any copy left outside the narrowing Surface.
+ */
+const MOBILE_COPY_COVER_START = 0.92
+const MOBILE_COPY_COVER_END = 1
 let copyMotionRaf = 0
 let copyMotionVh = 0
 let copyMotionWidth = 0
+let copyMotionSectionTop: number | null = null
+let removeLenisScrollFrame: (() => void) | null = null
 
 function copyMotionBaseVh() {
   if (typeof window === 'undefined') return 1
@@ -42,14 +56,12 @@ function copyMotionBaseVh() {
   return copyMotionVh
 }
 
-function updateCopyExit() {
-  if (typeof window === 'undefined') return
+function copyExitTarget(scrollY: number) {
   const vh = copyMotionBaseVh()
-  const sectionTop = section.value
-    ? section.value.getBoundingClientRect().top + window.scrollY
-    : 0
-  const scrolled = Math.max(0, window.scrollY - sectionTop)
-  const progress = Math.min(1, scrolled / (vh * COPY_EXIT_RANGE_VH))
+  if (copyMotionSectionTop === null && section.value) {
+    copyMotionSectionTop = section.value.getBoundingClientRect().top + scrollY
+  }
+  const scrolled = Math.max(0, scrollY - (copyMotionSectionTop ?? 0))
   const fadeProgress = Math.min(
     1,
     Math.max(
@@ -59,11 +71,47 @@ function updateCopyExit() {
     ),
   )
   const easedFade = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
-  copyExitY.value = progress * vh * COPY_EXIT_TRAVEL_VH
-  copyExitOpacity.value = 1 - easedFade
+  const mobile = isNarrowViewport()
+  if (mobile) {
+    const coverFade = Math.min(
+      1,
+      Math.max(
+        0,
+        (flowSurfaceMask.morph - MOBILE_COPY_COVER_START)
+          / (MOBILE_COPY_COVER_END - MOBILE_COPY_COVER_START),
+      ),
+    )
+    const easedCoverFade = coverFade * coverFade * (3 - 2 * coverFade)
+    return {
+      y: 0,
+      // The sticky block never chases the Surface. Keep it readable until the
+      // scene has crossed the complete title, then clear only the edge remnants.
+      opacity: 1 - easedCoverFade,
+    }
+  }
+  return {
+    y: Math.min(scrolled, vh * COPY_FADE_END_VH) * (1 + COPY_DESCENT_RATE),
+    opacity: 1 - easedFade,
+  }
+}
+
+function paintCopyExit(y: number, opacity: number) {
+  const el = titleBlock.value
+  if (!el) return
+  el.style.transform = `translate3d(0, ${y.toFixed(3)}px, 0)`
+  el.style.opacity = opacity.toFixed(4)
+}
+
+function updateCopyExit(scrollY?: number) {
+  if (typeof window === 'undefined') return
+  const target = copyExitTarget(scrollY ?? window.scrollY)
+  paintCopyExit(target.y, target.opacity)
 }
 
 function onCopyScroll() {
+  // Desktop Lenis also republishes native scrollbar, keyboard and programmatic
+  // scrolls. Keep this listener only as the mobile / reduced-motion fallback.
+  if (isLenisScrollFrameConnected()) return
   if (copyMotionRaf) return
   copyMotionRaf = requestAnimationFrame(() => {
     copyMotionRaf = 0
@@ -71,22 +119,42 @@ function onCopyScroll() {
   })
 }
 
+function onLenisCopyFrame(scrollY: number) {
+  if (copyMotionRaf) {
+    cancelAnimationFrame(copyMotionRaf)
+    copyMotionRaf = 0
+  }
+  updateCopyExit(scrollY)
+}
+
 function onCopyResize() {
   if (!isMobileChromeHeightOnlyResize()) {
     copyMotionVh = 0
     copyMotionWidth = 0
+    copyMotionSectionTop = null
   }
   updateCopyExit()
 }
 
 onMounted(() => {
   updateCopyExit()
+  removeLenisScrollFrame = subscribeLenisScrollFrame(onLenisCopyFrame)
   window.addEventListener('scroll', onCopyScroll, { passive: true })
   window.addEventListener('resize', onCopyResize, { passive: true })
 })
 
+watch(
+  () => flowSurfaceMask.morph,
+  () => {
+    if (typeof window !== 'undefined' && isNarrowViewport()) updateCopyExit()
+  },
+  { flush: 'sync' },
+)
+
 onUnmounted(() => {
   if (copyMotionRaf) cancelAnimationFrame(copyMotionRaf)
+  removeLenisScrollFrame?.()
+  removeLenisScrollFrame = null
   window.removeEventListener('scroll', onCopyScroll)
   window.removeEventListener('resize', onCopyResize)
 })
@@ -113,28 +181,33 @@ defineExpose({ section, surfaceSlot })
       }"
     >
       <div
+        ref="titleBlock"
         data-hero-title-block
-        class="home-hero__title-block relative z-0 col-span-12 flex flex-col md:col-span-8 md:col-start-3"
-        :style="{
-          opacity: copyExitOpacity,
-          transform: `translate3d(0, ${copyExitY}px, 0)`,
-        }"
+        class="home-hero__title-block relative z-0 col-span-12 flex flex-col"
       >
         <h1
           class="home-hero__title"
           :aria-label="heroTitleLines.join(' ')"
         >
           <span
-            v-for="(line, lineIndex) in heroTitleLineChars"
+            v-for="(lineWords, lineIndex) in heroTitleLineWords"
             :key="lineIndex"
             class="home-hero__title-line-mask"
+            :data-hero-title-line="lineIndex"
             aria-hidden="true"
           >
             <span
-              v-for="(char, charIndex) in line"
-              :key="`${char}-${charIndex}`"
-              class="home-hero__title-char"
-            >{{ char === ' ' ? '\u00a0' : char }}</span>
+              v-for="(word, wordIndex) in lineWords"
+              :key="wordIndex"
+              class="home-hero__title-word-mask"
+              :data-hero-title-mobile-row="lineIndex + wordIndex"
+            >
+              <span
+                v-for="(char, charIndex) in word"
+                :key="`${char}-${charIndex}`"
+                class="home-hero__title-char"
+              >{{ char }}</span>
+            </span>
           </span>
         </h1>
         <div
@@ -159,7 +232,7 @@ defineExpose({ section, surfaceSlot })
     <div class="home-hero__scene-grid mx-auto grid">
       <div
         ref="surfaceSlot"
-        class="home-hero__surface-slot pointer-events-none relative col-span-12 md:col-span-10 md:col-start-2"
+        class="home-hero__surface-slot pointer-events-none relative col-span-12"
       >
         <!--
           SSR first frame for the surface. The live FlowSurface is intentionally
@@ -191,7 +264,7 @@ defineExpose({ section, surfaceSlot })
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--flow-surface-radius, 24px);
 }
 
 .hero {
@@ -219,22 +292,34 @@ defineExpose({ section, surfaceSlot })
 }
 
 .home-hero__title {
+  --home-hero-title-size: min(168px, 12cqi);
+
   width: 100%;
-  font-size: clamp(48px, 15cqi, 168px);
+  margin-inline: auto;
+  font-size: var(--home-hero-title-size);
   font-weight: 600;
   font-synthesis: none;
   letter-spacing: -0.03em;
   line-height: 0.9;
+  text-align: center;
   white-space: nowrap;
 }
 
 .home-hero__title-line-mask {
-  display: block;
+  display: flex;
   width: max-content;
   margin-inline: auto;
+}
+
+.home-hero__title-word-mask {
+  display: inline-block;
   overflow: hidden;
   padding-top: 0.08em;
   padding-right: 0.04em;
+}
+
+.home-hero__title-word-mask + .home-hero__title-word-mask {
+  margin-left: 0.22em;
 }
 
 .home-hero__title-char {
@@ -285,8 +370,64 @@ defineExpose({ section, surfaceSlot })
 }
 
 @media (max-width: 767.98px) {
+  .home-hero__copy {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .home-hero__title {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    justify-content: center;
+    column-gap: 0.22em;
+    font-size: clamp(40px, 13cqi, 96px);
+  }
+
+  .home-hero__title-line-mask {
+    display: contents;
+  }
+
+  .home-hero__title-word-mask {
+    display: block;
+    width: max-content;
+    margin: 0;
+  }
+
+  .home-hero__title-word-mask + .home-hero__title-word-mask {
+    margin-left: 0;
+  }
+
+  .home-hero__title-line-mask:first-child .home-hero__title-word-mask:first-child {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+  }
+
+  .home-hero__title-line-mask:first-child .home-hero__title-word-mask:last-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .home-hero__title-line-mask:last-child .home-hero__title-word-mask:first-child {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .home-hero__title-line-mask:last-child .home-hero__title-word-mask:last-child {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: center;
+  }
+
   .home-hero__surface-primer-grain {
     background-size: 176px 176px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-hero__title-block {
+    transform: none !important;
   }
 }
 
@@ -304,7 +445,12 @@ defineExpose({ section, surfaceSlot })
   }
 
   .home-hero__surface-slot {
-    aspect-ratio: 16 / 9;
+    aspect-ratio: auto;
+    height: calc(
+      var(--app-screen)
+      - var(--layout-surface-top)
+      - var(--layout-margin)
+    );
   }
 }
 
@@ -318,9 +464,4 @@ defineExpose({ section, surfaceSlot })
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .home-hero__title-block {
-    transform: none !important;
-  }
-}
 </style>

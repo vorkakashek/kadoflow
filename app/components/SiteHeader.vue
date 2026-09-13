@@ -1185,7 +1185,10 @@ onUnmounted(() => {
             :key="link.to"
             :to="link.to"
             class="nav-link chip-scale-host text-ink"
-            :class="{ 'nav-link--here': isNavHere(link.to) }"
+            :class="{
+              'nav-link--here': isNavHere(link.to),
+              'is-chip-on': link.to === '/projects' && isNavHere(link.to),
+            }"
             :aria-current="isNavHere(link.to) ? 'page' : undefined"
             @pointerenter="onChipPointer"
             @pointerleave="onChipPointer"
@@ -1931,6 +1934,10 @@ html.page-canvas-surface .menu-fab[aria-expanded='true'] .menu-dots {
 
 .header-nav .nav-link {
   color: var(--palette-ink, #171915) !important;
+}
+
+.header-nav .nav-link.is-chip-on {
+  color: var(--palette-milk, #f5f1e8) !important;
 }
 
 @media (hover: hover) and (pointer: fine) {

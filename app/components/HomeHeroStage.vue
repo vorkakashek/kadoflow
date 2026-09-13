@@ -8,26 +8,24 @@ import { flowSurfaceMask, useFlowSurfaceMask } from '~/composables/useFlowSurfac
 import { useBrandPreload } from '~/composables/useBrandPreload'
 import { preloadHomeSceneAssets, preloadThreeBundle } from '~/utils/preloadHomeMotion'
 import { isCoarsePointer, isMobileChromeHeightOnlyResize, isNarrowViewport } from '~/utils/mobileViewport'
+import {
+  isLenisScrollFrameConnected,
+  subscribeLenisScrollFrame,
+} from '~/utils/lenisScrollFrame'
 
 const { t } = useI18n()
 
 /** Keep WebGL alive until morph opacity is nearly gone (both platforms). */
 const SCENE_LIVE_OPACITY = 0.08
-/** Morph-driven stage fade — keyed to min(h,v) arrive progress. */
-const FADE_OUT_START = 0.3
-const FADE_OUT_END = 0.7
-/**
- * Mobile — slogan opacity corridor.
- * Y motion starts at morph 0% (separate from opacity).
- */
-const FADE_OUT_START_MOBILE = 0.28
-const FADE_OUT_END_MOBILE = 0.62
-/**
- * Mobile — 3D opacity corridor (+0.40 vs previous scene/copy window).
- * Finish 10 percentage points earlier than the current surface morph.
- */
-const SCENE_FADE_START_MOBILE = 0.7
-const SCENE_FADE_END_MOBILE = 0.92
+/** Desktop 3D fade — keyed to min(h,v) arrive progress. */
+const SCENE_FADE_START = 0.3
+const SCENE_FADE_END = 0.7
+/** Fallback mobile 3D fade while the stone geometry is not measurable. */
+const SCENE_FADE_START_MOBILE = 0.92
+const SCENE_FADE_END_MOBILE = 1
+/** Fade scene + slogan as the Surface bottom travels through the stone. */
+const MOBILE_HERO_FADE_STONE_START = 0.45
+const MOBILE_HERO_FADE_STONE_END = 0.6
 /**
  * Swarm/media bleed past the stage box (px).
  * Desktop: cover stacked roam+hover outward (~2× dent + bow).
@@ -37,13 +35,15 @@ const SCENE_BLEED_Y = 168
 const SCENE_BLEED_X = 168
 const SCENE_BLEED_Y_LITE = 56
 const SCENE_BLEED_X_LITE = 56
-/**
- * The slogan rises more slowly than the page (px per scrolled px). Its initial
- * offset keeps the whole line below the scene, so the Flow Surface clip reveals
- * it through the lower edge instead of fading it in around the centre.
- */
-const SLOGAN_SCROLL_RATE = 0.36
-const SLOGAN_EDGE_OFFSET_VH = 0.16
+/** Desktop: start at 60% of the scene height, then travel to its upper fifth. */
+const SLOGAN_START_TOP_DESKTOP = 0.6
+const SLOGAN_END_TOP_DESKTOP = 0.2
+const SLOGAN_FADE_IN_END_DESKTOP = 0.22
+/** Mobile: settle from transparent to opaque over the first 15% of the route. */
+const SLOGAN_FADE_IN_END_MOBILE = 0.15
+/** Desktop: fade the slogan through 64–82% of the scroll route. */
+const SLOGAN_FADE_OUT_START_DESKTOP = 0.64
+const SLOGAN_FADE_OUT_END_DESKTOP = 0.82
 
 const props = defineProps<{
   /** Hero-rest viewport origin — stage counters frame morph so copy doesn't slide. */
@@ -52,23 +52,57 @@ const props = defineProps<{
   stageWidth: number
   stageHeight: number
   sectionEl?: HTMLElement | null
+  toEl?: HTMLElement | null
+  routeEndEl?: HTMLElement | null
+}>()
+
+const emit = defineEmits<{
+  sceneEntryChange: [active: boolean]
 }>()
 
 const mask = useFlowSurfaceMask()
 const preload = useBrandPreload()
 const heroIntroSettled = useState('home-hero-intro-settled', () => false)
-/** Frame-local offset: keep stage glued to rest pose in the viewport. */
-const stageLeft = computed(() => props.restLeft - mask.left)
-const stageTop = computed(() => props.restTop - mask.top)
 const focusEl = ref<HTMLElement | null>(null)
+const sceneEntryEl = ref<HTMLElement | null>(null)
 const mediaEl = ref<HTMLElement | null>(null)
 const swarmCoverEl = ref<HTMLElement | null>(null)
 const copyEl = ref<HTMLElement | null>(null)
 const sloganEl = ref<HTMLElement | null>(null)
-const sloganY = ref(10_000)
+const sloganY = ref(0)
+/** Cold entry: the complete green scene rises before the Surface crop is restored. */
+const sceneEntryArmed = ref(false)
+const sceneEntryRunning = ref(false)
+let sceneEntryTween: { kill: () => void } | null = null
 const titleEl = computed(() =>
   props.sectionEl?.querySelector<HTMLElement>('[data-hero-title-block]') ?? null,
 )
+/** Group chars by their rendered title rows so every row can reveal in parallel. */
+function titleCharGroups(mobileLayout: boolean): HTMLElement[][] {
+  const root = titleEl.value
+  if (!root) return []
+
+  const containers = Array.from(root.querySelectorAll<HTMLElement>(
+    mobileLayout ? '[data-hero-title-mobile-row]' : '[data-hero-title-line]',
+  ))
+  if (!mobileLayout) {
+    return containers.map(container => (
+      Array.from(container.querySelectorAll<HTMLElement>('.home-hero__title-char'))
+    ))
+  }
+
+  const rows = new Map<number, HTMLElement[]>()
+  containers.forEach((container) => {
+    const row = Number(container.dataset.heroTitleMobileRow)
+    const chars = Array.from(
+      container.querySelectorAll<HTMLElement>('.home-hero__title-char'),
+    )
+    rows.set(row, [...(rows.get(row) ?? []), ...chars])
+  })
+  return Array.from(rows.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, chars]) => chars)
+}
 const descEls = computed(() =>
   props.sectionEl
     ? Array.from(props.sectionEl.querySelectorAll<HTMLElement>('[data-hero-description-line]'))
@@ -215,8 +249,8 @@ async function runHeroGlPrewarm() {
 watch(heroGlPrewarm, () => {
   void runHeroGlPrewarm()
 })
-/** Slogan opacity — never unmount; eased by morph. */
-const copyOpacity = ref(1)
+/** Slogan opacity — never unmount; start transparent before scroll paints it. */
+const copyOpacity = ref(0)
 /** 3D / media opacity — separate corridor on mobile. */
 const sceneOpacity = ref(1)
 let ctx: { revert: () => void } | null = null
@@ -227,6 +261,8 @@ let parallaxRaf = 0
 /** Locked vh for slogan parallax — ignore mobile chrome show/hide (innerHeight jumps). */
 let copyParallaxVh = 0
 let copyParallaxWidth = 0
+let copyParallaxSectionTop: number | null = null
+let removeLenisScrollFrame: (() => void) | null = null
 
 function setFrozen(on: boolean) {
   flowSurfaceMask.freezeSilhouette = on
@@ -245,9 +281,12 @@ function copyParallaxBaseVh() {
 
 function onCopyParallaxResize() {
   // Width / orientation change: re-lock. Chrome toolbar only: keep the same vh.
-  if (!isMobileChromeHeightOnlyResize()) {
+  const widthChanged = copyParallaxWidth !== 0 && window.innerWidth !== copyParallaxWidth
+  const heightOnly = isMobileChromeHeightOnlyResize()
+  if (widthChanged || !heightOnly) {
     copyParallaxVh = 0
     copyParallaxWidth = 0
+    copyParallaxSectionTop = null
   }
   syncSwarmInteractive()
   updateSloganMotion()
@@ -259,37 +298,106 @@ function opacityInRange(m: number, start: number, end: number) {
   return 1 - (m - start) / (end - start)
 }
 
-function opacityForMorph(m: number) {
-  const start = mobileLite.value ? FADE_OUT_START_MOBILE : FADE_OUT_START
-  const end = mobileLite.value ? FADE_OUT_END_MOBILE : FADE_OUT_END
-  return opacityInRange(m, start, end)
-}
-
 function sceneOpacityForMorph(m: number) {
   if (mobileLite.value) {
     return opacityInRange(m, SCENE_FADE_START_MOBILE, SCENE_FADE_END_MOBILE)
   }
-  // Desktop: same corridor as copy (0.3→0.7). GL stays up for the whole fade.
-  return opacityForMorph(m)
+  return opacityInRange(m, SCENE_FADE_START, SCENE_FADE_END)
 }
 
 /**
- * One scroll-driven trajectory: start beyond the scene's lower edge, then rise
- * at a fraction of the scroll speed. The Flow Surface remains the reveal mask.
+ * Spatial mobile exit: both measurements are viewport-relative, so browser
+ * chrome changes and the exact Hero→Kado scroll span do not shift the fade.
  */
-function updateSloganMotion() {
-  if (typeof window === 'undefined' || pageCanvasOpen.value) return
-  const vh = copyParallaxBaseVh()
-  const sectionTop = props.sectionEl
-    ? props.sectionEl.getBoundingClientRect().top + window.scrollY
-    : 0
-  const scrolled = Math.max(0, window.scrollY - sectionTop)
-  const startY = props.stageHeight * 0.5 + vh * SLOGAN_EDGE_OFFSET_VH
+function mobileHeroExitOpacity() {
+  const stone = props.routeEndEl ?? props.toEl
+  if (!stone) return sceneOpacityForMorph(mask.morph)
+  const stoneBox = stone.getBoundingClientRect()
+  if (stoneBox.height <= 1) return sceneOpacityForMorph(mask.morph)
 
-  sloganY.value = startY - scrolled * SLOGAN_SCROLL_RATE
+  const surfaceBottom = mask.top + mask.height
+  const fadeStart = stoneBox.top + stoneBox.height * MOBILE_HERO_FADE_STONE_START
+  const fadeEnd = stoneBox.top + stoneBox.height * MOBILE_HERO_FADE_STONE_END
+  return opacityInRange(surfaceBottom, fadeStart, fadeEnd)
+}
+
+/**
+ * Both routes start at the Hero section and end at the platform's actual second-
+ * block arrival marker. This keeps the rise slow and continuous through the
+ * complete scroll corridor instead of compressing it into the Surface morph.
+ */
+function updateSloganMotion(scrollY?: number) {
+  if (typeof window === 'undefined' || pageCanvasOpen.value) return
+  const currentScrollY = scrollY ?? window.scrollY
+  const vh = copyParallaxBaseVh()
+  const startY = props.stageHeight * (SLOGAN_START_TOP_DESKTOP - 0.5)
+  const endY = props.stageHeight * (SLOGAN_END_TOP_DESKTOP - 0.5)
+  if (copyParallaxSectionTop === null && props.sectionEl) {
+    copyParallaxSectionTop = props.sectionEl.getBoundingClientRect().top + currentScrollY
+  }
+  const routeStart = copyParallaxSectionTop ?? 0
+  const scrolled = Math.max(0, currentScrollY - routeStart)
+  let routeEnd: number
+  if (mobileLite.value) {
+    const destination = props.routeEndEl ?? props.toEl
+    const destinationTop = destination
+      ? destination.getBoundingClientRect().top + currentScrollY
+      : null
+    // Matches the mobile Hero → stone arrival: the rock reaches 10% viewport Y.
+    routeEnd = destinationTop !== null
+      ? destinationTop - vh * 0.1
+      : routeStart + (props.sectionEl?.offsetHeight ?? vh)
+  } else {
+    const destinationSection = props.toEl
+      ? (props.toEl.closest('section') as HTMLElement | null) ?? props.toEl
+      : null
+    const destinationTop = destinationSection
+      ? destinationSection.getBoundingClientRect().top + currentScrollY
+      : null
+    routeEnd = destinationSection && destinationTop !== null
+      ? destinationTop + destinationSection.offsetHeight * 0.5 - vh * 0.5
+      : routeStart + (props.sectionEl?.offsetHeight ?? vh)
+  }
+  const routeProgress = Math.min(1, scrolled / Math.max(1, routeEnd - routeStart))
+  const fadeInEnd = mobileLite.value
+    ? SLOGAN_FADE_IN_END_MOBILE
+    : SLOGAN_FADE_IN_END_DESKTOP
+  const fadeInProgress = Math.min(1, routeProgress / fadeInEnd)
+  const revealOpacity = fadeInProgress * fadeInProgress * (3 - 2 * fadeInProgress)
+  const exitOpacity = mobileLite.value
+    ? mobileHeroExitOpacity()
+    : (() => {
+        const fadeOutProgress = Math.min(
+          1,
+          Math.max(
+            0,
+            (routeProgress - SLOGAN_FADE_OUT_START_DESKTOP)
+            / (SLOGAN_FADE_OUT_END_DESKTOP - SLOGAN_FADE_OUT_START_DESKTOP),
+          ),
+        )
+        const easedFadeOut = fadeOutProgress * fadeOutProgress * (3 - 2 * fadeOutProgress)
+        return 1 - easedFadeOut
+      })()
+  const opacity = revealOpacity * exitOpacity
+  // The mobile copy is centred by the flex container and no longer follows
+  // scroll vertically. Desktop retains its existing authored rise.
+  const nextY = mobileLite.value
+    ? 0
+    : startY + (endY - startY) * routeProgress
+  sloganY.value = nextY
+  copyOpacity.value = opacity
+  // The sync mask watcher paints these in the same JS turn as the Surface box.
+  // Refs remain as the mount/SSR fallback; direct styles avoid a Vue-frame lag.
+  if (sloganEl.value) {
+    sloganEl.value.style.transform = `translate3d(0, ${nextY.toFixed(3)}px, 0)`
+  }
+  if (copyEl.value) copyEl.value.style.opacity = opacity.toFixed(4)
 }
 
 function onParallaxScroll() {
+  // Desktop Lenis republishes every scroll source, not only smoothed wheel
+  // input. Native rAF remains solely for mobile and reduced-motion fallback.
+  if (isLenisScrollFrameConnected()) return
   if (parallaxRaf) return
   parallaxRaf = requestAnimationFrame(() => {
     parallaxRaf = 0
@@ -297,14 +405,22 @@ function onParallaxScroll() {
   })
 }
 
+function onLenisParallaxFrame(scrollY: number) {
+  if (parallaxRaf) {
+    cancelAnimationFrame(parallaxRaf)
+    parallaxRaf = 0
+  }
+  updateSloganMotion(scrollY)
+}
+
 watch(
   () => mask.morph,
   (m) => {
     // Page Canvas freezes the live page — don't dismiss/restore mid-flight.
     if (pageCanvasOpen.value) return
-    const copyOp = opacityForMorph(m)
-    const sceneOp = sceneOpacityForMorph(m)
-    copyOpacity.value = copyOp
+    const sceneOp = mobileLite.value
+      ? mobileHeroExitOpacity()
+      : sceneOpacityForMorph(m)
     sceneOpacity.value = sceneOp
     updateSloganMotion()
     // Freeze only mid-morph — at hero rest edges stay live + cursor dent.
@@ -314,12 +430,13 @@ watch(
     // (Desktop used to kill at morph 0.3 → hard pop via hero-swarm--cold.)
     sceneLive.value = sceneOp > SCENE_LIVE_OPACITY
   },
-  { immediate: true },
+  { immediate: true, flush: 'sync' },
 )
 
 watch(
-  () => props.sectionEl,
+  [() => props.sectionEl, () => props.toEl, () => props.routeEndEl],
   () => {
+    copyParallaxSectionTop = null
     updateSloganMotion()
   },
 )
@@ -633,6 +750,57 @@ function onSwarmBooted() {
   heroWebglBooted.value = true
 }
 
+function finishSceneEntryReveal() {
+  sceneEntryTween?.kill()
+  sceneEntryTween = null
+  sceneEntryRunning.value = false
+  sceneEntryArmed.value = false
+  emit('sceneEntryChange', false)
+}
+
+async function startSceneEntryReveal() {
+  if (!sceneEntryArmed.value || sceneEntryRunning.value || stageUnmounted) return
+  sceneEntryRunning.value = true
+  // The canvas is lit now. Remove its safety cover without crossfading a flat
+  // colour through the wipe, then begin on the next painted frame.
+  coverMayLift.value = true
+  await nextTick()
+  await waitGlFrames(2)
+  if (
+    stageUnmounted
+    || !sceneEntryArmed.value
+    || !sceneEntryEl.value
+    || !mediaEl.value
+  ) return
+
+  const { default: gsap } = await import('gsap')
+  if (stageUnmounted || !sceneEntryArmed.value) return
+  // The intro timeline keeps the complete media layer at opacity: 0 while GL
+  // warms under its cover. The entrance tween below animates a child of that
+  // layer, so reveal the parent first; otherwise both desktop and mobile render
+  // a healthy canvas underneath a permanently transparent ancestor.
+  gsap.set(mediaEl.value, { opacity: 1, visibility: 'visible' })
+  // Animate the normal-size rounded viewport. The larger render-bleed layer
+  // stays nested inside it, so the entering panel cannot widen and then snap.
+  const scene = sceneEntryEl.value
+  const destination = scene.getBoundingClientRect()
+  const startY = Math.max(0, window.innerHeight - destination.top + 1)
+  sceneEntryTween = gsap.fromTo(
+    scene,
+    { y: startY, opacity: 0 },
+    {
+      y: 0,
+      opacity: 1,
+      duration: mobileLite.value ? 0.92 : 1.12,
+      ease: 'power4.out',
+      onComplete: () => {
+        gsap.set(scene, { clearProps: 'transform,opacity' })
+        finishSceneEntryReveal()
+      },
+    },
+  )
+}
+
 watch(
   [swarmLit, swarmVisible],
   () => {
@@ -641,11 +809,15 @@ watch(
   { immediate: true },
 )
 
-/** Mobile: lift the lid only when both the copy entrance and HDR-lit scene are ready. */
+/** Reveal a lit canvas first; ordinary SPA returns only need the safety lid. */
 watch(
-  [swarmLit, () => preload.revealed.value, heroIntroSettled],
-  ([lit, rev, introSettled]) => {
-    if (!lit || !rev || !introSettled || !mobileLite.value) return
+  [swarmLit, () => preload.revealed.value, glCoverLocked, sceneEntryArmed],
+  ([lit, rev, coverLocked, entryArmed]) => {
+    if (!lit || !rev || coverLocked) return
+    if (entryArmed) {
+      void startSceneEntryReveal()
+      return
+    }
     coverMayLift.value = true
   },
 )
@@ -662,11 +834,17 @@ onMounted(() => {
   setFrozen(false)
   updateSloganMotion()
   syncSwarmInteractive()
+  removeLenisScrollFrame = subscribeLenisScrollFrame(onLenisParallaxFrame)
   window.addEventListener('scroll', onParallaxScroll, { passive: true })
   window.addEventListener('resize', onCopyParallaxResize, { passive: true })
 
   const fromNav = skipHeroIntro.value
   if (fromNav) skipHeroIntro.value = false
+  const animateSceneEntry = !fromNav
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  sceneEntryArmed.value = animateSceneEntry
+  sceneEntryRunning.value = false
+  emit('sceneEntryChange', animateSceneEntry)
 
   heroIntroSettled.value = fromNav
   introPending.value = !fromNav
@@ -711,9 +889,9 @@ onMounted(() => {
       const { default: gsap } = await import('gsap')
       if (gen !== introGen) return
 
-      const titleChars = titleEl.value
-        ? Array.from(titleEl.value.querySelectorAll('.home-hero__title-char'))
-        : []
+      const mobile = mobileLite.value
+      const titleGroups = titleCharGroups(isNarrowViewport())
+      const titleChars = titleGroups.flat()
 
       if (mediaEl.value) gsap.set(mediaEl.value, { autoAlpha: 0 })
       if (titleChars.length) gsap.set(titleChars, { yPercent: 115 })
@@ -725,7 +903,6 @@ onMounted(() => {
       await nextTick()
       if (gen !== introGen) return
 
-      const mobile = mobileLite.value
       const tl = gsap.timeline({
         defaults: { ease: 'power3.out' },
         onComplete: () => {
@@ -734,17 +911,17 @@ onMounted(() => {
       })
       introTl = tl
 
-      const allowSwarmCoverLift = (at = 0) => {
-        tl.call(() => {
-          coverMayLift.value = true
-        }, [], at)
-      }
-
       if (mobile) {
-        // The Surface grows from its lower edge after the compact preloader.
-        // Reveal lower copy first, then the slogan as the top edge arrives.
+        // Keep the layer paintable for WebGL, but leave its opacity to the
+        // viewport-edge scene entrance below.
         if (mediaEl.value) {
-          tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.65 }, 0)
+          tl.set(
+            mediaEl.value,
+            sceneEntryArmed.value
+              ? { opacity: 0, visibility: 'visible' }
+              : { autoAlpha: 1 },
+            0,
+          )
         }
         if (!mobileSwarmDeferred) {
           // Resources were warmed under the brand screen. Mount only after the
@@ -752,29 +929,33 @@ onMounted(() => {
           // under the opaque stone lid while the copy finishes its entrance.
           tl.call(() => requestSwarmMount?.(), [], 0.08)
         }
-        // Start the gather under the opaque lid during the slogan entrance.
-        // At reveal time the nearest silhouettes are already crossing the frame,
-        // instead of beginning 2.25 ring radii away on a blank visible canvas.
+        // Begin motion early; shader/HDR readiness still owns the cover lift.
         tl.call(() => {
           if (gen === introGen) swarmLoopReady.value = true
-        }, [], 0.58)
+        }, [], 0.18)
       } else {
-        // Desktop: run GL under the stone lid first, then fade media + lift lid.
+        // Desktop uses the same scene + backing entrance as mobile.
         swarmLoopReady.value = true
         if (mediaEl.value) {
-          tl.to(mediaEl.value, { autoAlpha: 1, duration: 0.85 }, 0.28)
+          tl.set(
+            mediaEl.value,
+            sceneEntryArmed.value
+              ? { opacity: 0, visibility: 'visible' }
+              : { autoAlpha: 1 },
+            0,
+          )
         }
-        // Lid lifts after IBL is on — never show unlit black balls.
-        allowSwarmCoverLift(0.42)
       }
 
       if (mobile) {
         if (titleChars.length) {
-          tl.to(
-            titleChars,
-            { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
-            0.12,
-          )
+          titleGroups.forEach((chars) => {
+            tl.to(
+              chars,
+              { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
+              0.12,
+            )
+          })
         } else if (titleEl.value) {
           tl.to(titleEl.value, { yPercent: 0, duration: 1.1, ease: 'power4.out' }, 0.12)
         }
@@ -787,11 +968,13 @@ onMounted(() => {
         }
       } else {
         if (titleChars.length) {
-          tl.to(
-            titleChars,
-            { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
-            0.5,
-          )
+          titleGroups.forEach((chars) => {
+            tl.to(
+              chars,
+              { yPercent: 0, duration: 1.1, stagger: 0.055, ease: 'power4.out' },
+              0.5,
+            )
+          })
         } else if (titleEl.value) {
           tl.to(titleEl.value, { yPercent: 0, duration: 1.1, ease: 'power4.out' }, 0.5)
         }
@@ -822,6 +1005,9 @@ onUnmounted(() => {
   introGen += 1
   introTl?.kill()
   introTl = null
+  sceneEntryTween?.kill()
+  sceneEntryTween = null
+  emit('sceneEntryChange', false)
   heroSwarmReady.value = false
   cancelGlCoverHold()
   glCoverHopSession.value = false
@@ -830,6 +1016,8 @@ onUnmounted(() => {
   mediaFadeTween?.kill()
   ctx?.revert()
   if (parallaxRaf) cancelAnimationFrame(parallaxRaf)
+  removeLenisScrollFrame?.()
+  removeLenisScrollFrame = null
   window.removeEventListener('scroll', onParallaxScroll)
   window.removeEventListener('resize', onCopyParallaxResize)
 })
@@ -839,8 +1027,9 @@ onUnmounted(() => {
   <div
     class="hero-stage pointer-events-none absolute overflow-visible"
     :style="{
-      top: `${stageTop}px`,
-      left: `${stageLeft}px`,
+      top: '0px',
+      left: '0px',
+      transform: 'translate3d(var(--hero-stage-left, 0px), var(--hero-stage-top, 0px), 0)',
       width: `${Math.max(1, props.stageWidth)}px`,
       height: `${Math.max(1, props.stageHeight)}px`,
     }"
@@ -850,18 +1039,24 @@ onUnmounted(() => {
       class="hero-focus relative size-full min-h-0"
     >
       <div
-        class="absolute"
+        ref="sceneEntryEl"
+        class="hero-scene-entry-shell absolute inset-0"
         :style="{
-          top: `-${sceneBleedY}px`,
-          left: `-${sceneBleedX}px`,
-          width: `calc(100% + ${sceneBleedX * 2}px)`,
-          height: `calc(100% + ${sceneBleedY * 2}px)`,
-          opacity: sceneOpacity,
+          opacity: sceneEntryArmed ? 0 : sceneOpacity,
         }"
+        :class="{ 'hero-scene-entry-pending': sceneEntryArmed }"
       >
         <div
           ref="mediaEl"
-          class="absolute inset-0"
+          class="absolute"
+          :style="{
+            top: `-${sceneBleedY}px`,
+            left: `-${sceneBleedX}px`,
+            width: `calc(100% + ${sceneBleedX * 2}px)`,
+            height: `calc(100% + ${sceneBleedY * 2}px)`,
+            '--hero-scene-bleed-x': `${sceneBleedX}px`,
+            '--hero-scene-bleed-y': `${sceneBleedY}px`,
+          }"
           :class="[
             swarmInteractive ? 'pointer-events-auto' : 'pointer-events-none',
             introPending ? 'hero-intro-hide' : '',
@@ -886,6 +1081,7 @@ onUnmounted(() => {
           :class="{
             'hero-swarm-cover--up': swarmCoverUp,
             'hero-swarm-cover--lock': glCoverLocked,
+            'hero-swarm-cover--entry': sceneEntryArmed,
           }"
           aria-hidden="true"
         />
@@ -898,6 +1094,7 @@ onUnmounted(() => {
         :class="{ 'hero-intro-hide': introPending }"
         :style="{
           opacity: copyOpacity,
+          transform: 'translate3d(var(--hero-copy-x, 0px), 0, 0)',
         }"
       >
         <div
@@ -913,7 +1110,7 @@ onUnmounted(() => {
           >
             <p
               ref="sloganEl"
-              class="hero-slogan text-milk"
+              class="hero-slogan"
               :style="{
                 transform: `translate3d(0, ${sloganY}px, 0)`,
               }"
@@ -982,8 +1179,9 @@ onUnmounted(() => {
 }
 
 .hero-slogan {
-  font-size: var(--type-slogan);
-  font-weight: 400;
+  color: var(--semantic-bg-page);
+  font-size: calc(var(--type-slogan) * 1.4);
+  font-weight: 500;
   font-synthesis: none;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -991,10 +1189,22 @@ onUnmounted(() => {
   will-change: transform;
 }
 
-/* Mobile: keep the slogan slightly more emphatic in the portrait scene. */
+.hero-swarm-cover--entry {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+
+.hero-scene-entry-pending {
+  overflow: hidden;
+  border-radius: var(--flow-surface-radius, 24px);
+  will-change: transform, opacity;
+}
+
+/* Mobile keeps the same enlarged scale in the portrait scene. */
 @media (max-width: 767px) {
   .hero-slogan {
-    font-size: calc(var(--type-slogan) * 1.05);
+    font-size: calc(var(--type-slogan) * 1.4);
     text-align: center;
   }
 }

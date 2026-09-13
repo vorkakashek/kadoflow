@@ -1091,7 +1091,7 @@ const slotInsetStyle = computed(() => {
     <div
       v-if="props.mode === 'window'"
       ref="clipEl"
-      class="absolute"
+      class="flow-surface__clip absolute"
       :style="overscanBoxStyle"
     >
       <div
@@ -1128,7 +1128,7 @@ const slotInsetStyle = computed(() => {
     <div
       v-else-if="props.paintFill"
       ref="clipEl"
-      class="absolute"
+      class="flow-surface__clip absolute"
       :style="overscanBoxStyle"
     >
       <div

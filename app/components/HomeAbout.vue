@@ -262,12 +262,12 @@ onUnmounted(() => {
             <source
               type="image/avif"
               srcset="/home/me-640.avif 640w, /home/me-1024.avif 1024w"
-              sizes="(max-width: 767px) 88vw, 34vw"
+              sizes="(max-width: 767px) 95vw, 34vw"
             >
             <source
               type="image/webp"
               srcset="/home/me-640.webp 640w, /home/me-1024.webp 1024w"
-              sizes="(max-width: 767px) 88vw, 34vw"
+              sizes="(max-width: 767px) 95vw, 34vw"
             >
             <img
               src="/home/me.png"
@@ -531,8 +531,7 @@ onUnmounted(() => {
   }
 
   .home-about__portrait {
-    width: 88%;
-    max-width: 32rem;
+    width: 100%;
     margin-top: clamp(2.75rem, 12vw, 4rem);
     grid-column: 1 / -1;
   }

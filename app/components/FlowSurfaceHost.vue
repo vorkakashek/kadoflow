@@ -87,6 +87,8 @@ const CONTACT_SCRUB_START = 'bottom bottom+=72px'
 const CONTACT_SCRUB_END = 'top 18%'
 /** Let the dark Biography tone clear 20% faster than the surface geometry. */
 const CONTACT_TONE_SPEED = 1.2
+/** Mobile Biography → Contact: clear the dark tone in the opening 13% of travel. */
+const MOBILE_CONTACT_TONE_END_P = 0.13
 /** Global scroll-driven surface limit, in normalized morph segments/sec. */
 const SURFACE_MORPH_MAX_VELOCITY = 1.55
 const SURFACE_MORPH_EPSILON = 0.0008
@@ -236,11 +238,8 @@ function setCaseSurfaceDocked(on: boolean) {
 const frame = ref<HTMLElement | null>(null)
 const shellEl = ref<HTMLElement | null>(null)
 const clipPathEl = ref<SVGPathElement | null>(null)
-/** Cold mobile entry: reveal the complete Hero surface from its lower edge. */
-const heroEntryArmed = ref(false)
-const heroEntryRunning = ref(false)
-let heroEntryTimer = 0
-let stopHeroEntryRevealWatch: (() => void) | null = null
+/** Keep the cold Hero scene free of the Surface crop until its rise completes. */
+const heroSceneEntryActive = ref(!preload.revealed.value)
 /** Teleport target for a pinned hop — null keeps the frame in the fixed shell. */
 const pinTo = ref<HTMLElement | null>(null)
 /** Mobile rest poses use a cheap CSS backplate; the live frame only owns flights. */
@@ -788,6 +787,11 @@ function ensureHeroRestPlaceholder() {
   const pose = poseAtScrollY(doc, Math.min(window.scrollY, revealEnd))
   syncStageRest(pose)
   if (window.scrollY <= revealEnd + window.innerHeight * 0.35) {
+    if (useMobileCorridor() && window.scrollY < revealEnd - 0.5) {
+      pinMobileHeroRevealFrame(pose)
+      announceSurfaceReady()
+      return
+    }
     paintBox(pose, 0)
     announceSurfaceReady()
   }
@@ -813,6 +817,29 @@ function viewportToDoc(box: SurfaceBox): SurfaceBox {
 function paintBox(box: SurfaceBox, morph: number) {
   if (!frame.value || pinTo.value || proxyParked.value) return
   const next = morphBox(box)
+  // Desktop keeps the Hero stage in one stable viewport pose while the Surface
+  // window moves around it. Mobile keeps the stage attached to the window: its
+  // old counter-shift exposed an empty strip above the 3D scene during morph.
+  // Write in the same turn as the frame box so the two layers cannot diverge.
+  // This must happen before the box dedupe: a layout recapture may move the
+  // stage rest pose even when the visible Surface rectangle itself is unchanged.
+  const stageTop = mobileActive ? 0 : stageRest.top - next.top
+  const stageLeft = mobileActive ? 0 : stageRest.left - next.left
+  frame.value.style.setProperty(
+    '--hero-stage-top',
+    `${stageTop.toFixed(3)}px`,
+  )
+  frame.value.style.setProperty(
+    '--hero-stage-left',
+    `${stageLeft.toFixed(3)}px`,
+  )
+  // The mobile stage stays attached to its crop to avoid exposed edges, but
+  // the slogan itself must remain centred in the viewport while the crop moves
+  // and narrows toward Kado.
+  const heroCopyX = mobileActive
+    ? window.innerWidth * 0.5 - next.left - stageRest.w * 0.5
+    : 0
+  frame.value.style.setProperty('--hero-copy-x', `${heroCopyX.toFixed(3)}px`)
   if (
     liveBox
     && boxesNear(next, liveBox)
@@ -875,6 +902,58 @@ function paintHeroReveal(scrollY = window.scrollY) {
   return true
 }
 
+function heroRevealFramePinned() {
+  return !!props.fromEl && pinTo.value === props.fromEl
+}
+
+/**
+ * Before the mobile morph starts, let the real Hero slot own the live frame.
+ * Native touch scroll can then move scene, slogan and crop in one compositor
+ * layer instead of JS chasing the in-flow slot with viewport coordinates.
+ */
+function pinMobileHeroRevealFrame(pose?: SurfaceBox | null) {
+  const host = props.fromEl
+  const el = frame.value
+  if (!host || !el) return
+  const box = pose ?? readBox(host)
+  if (!box) return
+
+  syncStageRest(box)
+  el.style.setProperty('--hero-stage-top', '0px')
+  el.style.setProperty('--hero-stage-left', '0px')
+  el.style.setProperty(
+    '--hero-copy-x',
+    `${(window.innerWidth * 0.5 - box.left - box.width * 0.5).toFixed(3)}px`,
+  )
+  liveBox = morphBox(box)
+  writeMaskBox(liveBox, 0)
+  flushFlowSurfacePath(liveBox)
+
+  if (heroRevealFramePinned()) return
+  if (frameDocked()) {
+    unpinFrame(flowSurfaceMask.morph)
+    void nextTick(() => pinMobileHeroRevealFrame())
+    return
+  }
+
+  // Preserve the current viewport pose until Teleport has moved the frame.
+  el.style.position = 'fixed'
+  applyBox(el, box)
+  pinHost = host
+  pinTo.value = host
+  void nextTick(() => {
+    if (!frame.value || pinTo.value !== host) return
+    frame.value.style.position = 'absolute'
+    frame.value.style.top = '0px'
+    frame.value.style.left = '0px'
+    frame.value.style.width = '100%'
+    frame.value.style.height = '100%'
+    frame.value.style.right = 'auto'
+    frame.value.style.bottom = 'auto'
+    frame.value.style.transform = ''
+  })
+}
+
 function caseMediaPose(): SurfaceBox | null {
   const box = readBox(props.caseMediaEl)
   if (box) {
@@ -910,6 +989,38 @@ function caseMediaExitOpacity(progress: number) {
 
 let lastCaseToneCss = ''
 
+/** Keep the Hero field's edge colour when the Surface settles under the stone. */
+function paintKadoSurfaceTone() {
+  const el = frame.value
+  if (!el) return
+  const css = 'var(--hero-scene-forest)'
+  if (css === lastCaseToneCss) return
+  lastCaseToneCss = css
+  el.style.setProperty('--flow-surface-tone', css)
+}
+
+/** Return from the green Kado plate to the neutral project surface. */
+function paintKadoToCaseSurfaceTone(progress: number) {
+  const el = frame.value
+  if (!el) return
+  const mix = clampUnit(progress)
+  if (mix <= 0.001) {
+    paintKadoSurfaceTone()
+    return
+  }
+  if (mix >= 0.999) {
+    paintCaseSurfaceTone()
+    return
+  }
+
+  const stonePercent = Math.round(mix * 1000) / 10
+  const greenPercent = Math.round((100 - stonePercent) * 10) / 10
+  const css = `color-mix(in srgb, var(--hero-scene-forest) ${greenPercent}%, var(--palette-stone) ${stonePercent}%)`
+  if (css === lastCaseToneCss) return
+  lastCaseToneCss = css
+  el.style.setProperty('--flow-surface-tone', css)
+}
+
 function paintCaseSurfaceTone() {
   const el = frame.value
   if (!el) return
@@ -920,8 +1031,9 @@ function paintCaseSurfaceTone() {
 function paintSurfaceUnderCaseMedia(
   box: SurfaceBox,
   mediaOpacity: number,
+  kadoExitProgress = 1,
 ) {
-  paintCaseSurfaceTone()
+  paintKadoToCaseSurfaceTone(kadoExitProgress)
   // Reach the inset before the raster becomes opaque. The exact integer inset
   // prevents independently composited rounded edges from exposing stone pixels.
   const inset = CASE_MEDIA_SURFACE_INSET_PX
@@ -1176,6 +1288,7 @@ function computeDesktopTarget(): number {
 
 function paintHeroToKadoSegment(t: number) {
   if (paintHeroReveal()) return
+  paintKadoSurfaceTone()
   setContactStageProgress(0)
   clearAboutTitleContrast()
   if (
@@ -1253,7 +1366,7 @@ function paintKadoToCasesSegment(t: number) {
   // t===1 -> case pose; t===0 -> live stone. Same path both ways, no seam.
   const box = lerpBox(from, to, t)
   const mediaOpacity = caseMediaApproachOpacity(t)
-  paintSurfaceUnderCaseMedia(box, mediaOpacity)
+  paintSurfaceUnderCaseMedia(box, mediaOpacity, t)
   paintCaseMediaFlight(box, to, mediaOpacity)
 }
 
@@ -1350,29 +1463,6 @@ function paintAboutToContactSegment(t: number) {
   setContactStageProgress(contactReveal)
 
   if (t >= 1 - SURFACE_MORPH_EPSILON) pinContactFrame()
-}
-
-function finishHeroEntryReveal() {
-  if (heroEntryTimer) window.clearTimeout(heroEntryTimer)
-  heroEntryTimer = 0
-  heroEntryRunning.value = false
-  heroEntryArmed.value = false
-  stopHeroEntryRevealWatch?.()
-  stopHeroEntryRevealWatch = null
-}
-
-function startHeroEntryReveal() {
-  if (!heroEntryArmed.value || heroEntryRunning.value) return
-  requestAnimationFrame(() => {
-    if (hostUnmounted || !heroEntryArmed.value) return
-    heroEntryRunning.value = true
-    // Safety cleanup if animationend is lost during mobile browser chrome resize.
-    heroEntryTimer = window.setTimeout(finishHeroEntryReveal, 1100)
-  })
-}
-
-function onFrameAnimationEnd(event: AnimationEvent) {
-  if (event.animationName === 'flow-surface-hero-entry') finishHeroEntryReveal()
 }
 
 /**
@@ -1729,8 +1819,18 @@ function paintScrubAt(p: number) {
     ensureHeroRestPlaceholder()
     return
   }
-  // Linear box+morph from the same P — lag only on scrubLiveP (stage/copy/GL stay in phase).
   const t = Math.min(1, Math.max(0, p))
+  paintKadoSurfaceTone()
+  if (mobileActive) {
+    // Carry the complete portrait scene upward over the sticky Hero copy on one
+    // linear clock for position, size, silhouette, GL and copy. Splitting this
+    // into eased cover/morph phases caused a direction change and a visible
+    // hesitation around the title.
+    paintBox(lerpBox(heroPose, stonePose, t), t)
+    return
+  }
+
+  // Desktop keeps box and morph on the same clock.
   paintBox(lerpBox(heroPose, stonePose, t), t)
 }
 
@@ -1861,9 +1961,6 @@ function paintMobileScrollCorridor(
 ) {
   if (!mobileActive || !frame.value) return
   if (scrollY < scrubStartY) {
-    prepareMobileScrollFlight()
-  }
-  if (scrollY < scrubStartY && paintHeroReveal(scrollY)) {
     mobileStage = 'scrub'
     mobileCaseProgress = 0
     mobileCaseArrived = false
@@ -1879,6 +1976,14 @@ function paintMobileScrollCorridor(
     clearAboutTitleContrast()
     paintAboutSurfaceTone(0)
     setContactStageProgress(0)
+    pinMobileHeroRevealFrame()
+    return
+  }
+  if (heroRevealFramePinned()) {
+    // Release only at the fixed morph boundary. `unpinFrame` preserves the
+    // viewport box through Teleport; repaint after Vue has restored the shell.
+    unpinFrame(0)
+    void nextTick(() => paintMobileScrollCorridor(window.scrollY))
     return
   }
   if (!mobileScrollBounds && !captureMobileScrollBounds()) {
@@ -1903,7 +2008,11 @@ function paintMobileScrollCorridor(
     ranges.length,
   )
   const segmentId = ranges[segmentIndex]!.id
-  const t = smoothUnit(localT)
+  // Hero is a direct continuation of the user's finger: easing this first
+  // segment made the Surface slow down near both ends even though its box was
+  // otherwise interpolated linearly. Later waypoint-to-waypoint morphs retain
+  // their softer easing.
+  const t = segmentId === 'hero-stone' ? localT : smoothUnit(localT)
   const exits = mobileCaseExitBounds(bounds)
   const wordCasesRange = ranges[3]!
   const casesFormatsRange = ranges[4]!
@@ -2082,7 +2191,9 @@ function paintMobileScrollCorridor(
     setCaseMediaVisible(false)
     clearCaseMediaFlight()
     clearAboutTitleContrast()
-    paintAboutSurfaceTone(0)
+    // Leave the Hero green on the stone, then resolve to the standard neutral
+    // Surface while travelling toward “Кадо — путь…”.
+    paintKadoToCaseSurfaceTone(t)
     paintBox(lerpBox(stoneAtTermStart, termAtTermEnd, t), 1)
     return
   }
@@ -2099,7 +2210,7 @@ function paintMobileScrollCorridor(
     setCaseMediaVisible(false)
     clearCaseMediaFlight()
     clearAboutTitleContrast()
-    paintAboutSurfaceTone(0)
+    paintCaseSurfaceTone()
     paintBox(lerpBox(termAtWordStart, wordAtWordEnd, t), 1)
     return
   }
@@ -2116,10 +2227,10 @@ function paintMobileScrollCorridor(
     setCaseMediaVisible(false)
     clearCaseMediaFlight()
     clearAboutTitleContrast()
-    paintAboutSurfaceTone(0)
     paintSurfaceUnderCaseMedia(
       lerpBox(wordAtCaseStart, caseAtCaseEnd, t),
       caseMediaApproachOpacity(t),
+      1,
     )
     return
   }
@@ -2180,7 +2291,9 @@ function paintMobileScrollCorridor(
   setSurfaceDocked(false)
   setCaseMediaVisible(false)
   clearCaseMediaFlight()
-  paintAboutSurfaceTone(1 - clampUnit(t * CONTACT_TONE_SPEED))
+  // Use raw distance rather than the eased geometry clock, so the colour starts
+  // responding on the first scroll pixels and reaches Contact tone by 13%.
+  paintAboutSurfaceTone(1 - clampUnit(localT / MOBILE_CONTACT_TONE_END_P))
   paintBox(box, 1)
   paintAboutTitleContrast(box, 1 - smoothUnit(t / 0.55))
   setContactStageProgress(contactReveal)
@@ -2410,7 +2523,7 @@ function pinContactFrame() {
   void nextTick(syncPinnedMask)
 }
 
-function unpinFrame() {
+function unpinFrame(morph = 1) {
   const el = frame.value
   if (!el) return
   if (proxyHost) {
@@ -2425,7 +2538,7 @@ function unpinFrame() {
       el.style.position = 'absolute'
       applyBox(el, next)
       liveBox = next
-      writeMaskBox(next, 1)
+      writeMaskBox(next, morph)
       flushFlowSurfacePath(next)
     }
     return
@@ -2444,7 +2557,7 @@ function unpinFrame() {
   el.style.position = 'fixed'
   applyBox(el, box)
   liveBox = box
-  writeMaskBox(box, 1)
+  writeMaskBox(box, morph)
   flushFlowSurfacePath(box)
   pinTo.value = null
   pinHost = null
@@ -2561,6 +2674,7 @@ function tweenToHop(hop: MobileHop, animate: boolean) {
     : null
   unpinFrame()
   mobileStage = hop
+  paintCaseSurfaceTone()
   killHopTween()
 
   const startHop = () => {
@@ -2944,7 +3058,7 @@ function killMorph() {
   mobileCorridorLastY = null
   mobileCorridorDirection = 'forward'
   clearAboutTitleContrast()
-  unpinFrame()
+  unpinFrame(flowSurfaceMask.morph)
   pinRo?.disconnect()
   pinRo = null
   clearLayoutResync()
@@ -3343,20 +3457,6 @@ onMounted(async () => {
   const coldDirectEntry = !preload.revealed.value
     && !returningHomeFromCaseDetail()
     && !initialCasesHashEntry.value
-  const animateMobileHeroEntry = coldDirectEntry
-    && (isNarrowViewport() || isCoarsePointer())
-    && !systemReducedMotion()
-  if (animateMobileHeroEntry) {
-    heroEntryArmed.value = true
-    heroEntryRunning.value = false
-    stopHeroEntryRevealWatch = watch(
-      () => preload.revealed.value,
-      (revealed) => {
-        if (revealed) startHeroEntryReveal()
-      },
-      { immediate: true },
-    )
-  }
   await nextTick()
   // Let the route/page DOM settle before ST — avoids refresh↔pin softlock on SPA entry.
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
@@ -3379,7 +3479,6 @@ onUnmounted(() => {
   hostUnmounted = true
   if (motionBootTimer) window.clearTimeout(motionBootTimer)
   motionBootTimer = 0
-  finishHeroEntryReveal()
   if (motionIdleId !== null && 'cancelIdleCallback' in window) {
     window.cancelIdleCallback(motionIdleId)
   }
@@ -3570,19 +3669,18 @@ watch(
         data-flow-surface-frame
         class="absolute overflow-visible"
         :class="{
-          'flow-surface-frame--hero-entry': heroEntryArmed,
-          'flow-surface-frame--hero-entry-running': heroEntryRunning,
           'flow-surface-frame--case-hidden': caseSurfaceReady,
           'flow-surface-frame--proxy-hidden': proxyParked,
         }"
         style="top: var(--layout-surface-top); left: var(--layout-margin); width: calc(100% - var(--layout-margin) * 2); height: calc(100% - var(--layout-surface-top) - var(--layout-margin));"
-        @animationend="onFrameAnimationEnd"
       >
         <FlowSurface
           mode="window"
           class="inset-0 size-full"
+          :class="{ 'flow-surface--hero-entry-open': heroSceneEntryActive }"
           :tone-class="toneClass"
           tone-color="var(--flow-surface-tone, var(--palette-stone))"
+          :tone-opacity="heroSceneEntryActive ? 0 : 1"
           :active="!caseSurfaceReady"
         >
           <HomeHeroStage
@@ -3592,6 +3690,9 @@ watch(
             :stage-width="stageRest.w"
             :stage-height="stageRest.h"
             :section-el="heroSectionEl"
+            :to-el="toEl"
+            :route-end-el="stoneEl"
+            @scene-entry-change="heroSceneEntryActive = $event"
           />
           <HomeContactStage
             :progress="contactStageProgress"
@@ -3604,22 +3705,18 @@ watch(
 </template>
 
 <style>
-.flow-surface-frame--hero-entry {
-  clip-path: inset(100% 0 0 0);
-}
-
-.flow-surface-frame--hero-entry-running {
-  animation: flow-surface-hero-entry 0.86s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
 .flow-surface-frame--case-hidden,
 .flow-surface-frame--proxy-hidden {
   opacity: 0;
 }
 
-@keyframes flow-surface-hero-entry {
-  from { clip-path: inset(100% 0 0 0); }
-  to { clip-path: inset(0 0 0 0); }
+/* The cold scene rises as one translucent layer. Restore the Surface mask only
+   after it settles, otherwise the movement reads as a vertical crop reveal. */
+.flow-surface--hero-entry-open > .flow-surface__clip {
+  overflow: visible !important;
+  border-radius: 0 !important;
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
 }
 
 </style>

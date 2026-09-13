@@ -110,14 +110,9 @@ const SEPARATION_FORCE = 0.01
 const SPIRAL_TUBE_RATIO = 0.3
 /** How many helix twists per full lap around the ring. */
 const SPIRAL_TURNS = 2.75
-/**
- * Must match HomeHero media padding — used to place the swarm at a
- * fraction of the *surface* height (not the taller media canvas).
- */
-const MEDIA_TOP_EXTRA_VH = 0.14
-const MEDIA_DIVE_VH = 0.6
-/** Mobile cluster center: fraction down the visible surface (0 = top). Negative = into headroom. */
-const MOBILE_ANCHOR_SURFACE_Y = -0.4
+/** Breathing room between the slogan silhouette and the nearest ball. */
+const FOCUS_GUTTER_X_PX = 28
+const FOCUS_GUTTER_Y_PX = 18
 const MAX_SPEED = 0.26
 const SOFT_BOUND_SCALE = 12.5
 /**
@@ -210,7 +205,6 @@ type Ball = {
 }
 
 const COLORS = {
-  green: new Color('#49573f'),
   white: new Color('#f5f1e8'),
   dark: new Color('#171915'),
 } as const
@@ -248,9 +242,11 @@ const motionIntroVisible = ref(false)
 /** The intro is hero-local even though its control layer is teleported. */
 const motionIntroInHero = ref(false)
 const gyroPermissionReady = ref(false)
-const motionControlAtRest = ref(true)
 const androidHapticEnabled = ref(false)
 const desktopSceneEnabled = ref(true)
+const desktopMotionControlVisible = computed(
+  () => flowSurfaceMask.morph <= 0.001,
+)
 const desktopMotionIconPath = ref<SVGPathElement | null>(null)
 const desktopMotionNotice = ref('')
 const desktopMotionNoticeVisible = ref(false)
@@ -260,7 +256,6 @@ const motionIntroText = computed(() =>
     : t('accessibility.enableGyroscopeHint'),
 )
 let gyroUnlockFn: (() => void) | null = null
-let removeMotionControlScroll: (() => void) | null = null
 let motionIntroHeroObserver: IntersectionObserver | null = null
 let motionIntroPointerUpAt = 0
 let desktopMotionNoticeTimer = 0
@@ -508,14 +503,6 @@ onMounted(() => {
   // true, but Android can begin listening as soon as the scene is ready.
   motionEnabled.value = isMobileMotionClient.value
   observeMotionIntroHero()
-  const syncMotionControlRest = () => {
-    motionControlAtRest.value = window.scrollY <= 2
-  }
-  syncMotionControlRest()
-  window.addEventListener('scroll', syncMotionControlRest, { passive: true })
-  removeMotionControlScroll = () => {
-    window.removeEventListener('scroll', syncMotionControlRest)
-  }
   lastLayoutKey = layoutKey()
   void bootScene()
   const onWinResize = () => {
@@ -545,8 +532,6 @@ onUnmounted(() => {
   desktopIconMorph = null
   removeWindowResize?.()
   removeWindowResize = null
-  removeMotionControlScroll?.()
-  removeMotionControlScroll = null
   motionIntroHeroObserver?.disconnect()
   motionIntroHeroObserver = null
   window.clearTimeout(desktopMotionNoticeTimer)
@@ -751,22 +736,37 @@ async function bootScene() {
 
   const materialPlan: Material[] = []
   if (lite) {
-    // Mobile: brand green + white only (no ink/black). Standard stand-ins, no transmission.
+    // Mobile: one material per initial orbit seat. Five of nine are ink, with
+    // the whole lower arc dark so the balls first revealed beneath the slogan
+    // carry most of the visual weight. The upper arc stays light for contrast.
     materialPlan.push(
-      matte(COLORS.green.clone()),
+      glossy(COLORS.dark.clone()),
       frosted(COLORS.white.clone()),
-      glossy(COLORS.green.clone()),
-      matte(COLORS.green.clone()),
-      frosted(COLORS.green.clone()),
+      glossy(COLORS.white.clone()),
       matte(COLORS.white.clone()),
+      frosted(COLORS.white.clone()),
+      glossy(COLORS.dark.clone()),
+      matte(COLORS.dark.clone()),
+      glossy(COLORS.dark.clone()),
+      matte(COLORS.dark.clone()),
     )
   } else {
-    // Desktop: roughly one third real frosted glass. Keep both opaque brand
-    // finishes, but replace part of the repeating green/ink mass with glass.
+    // Paired cycles split the former beige group evenly between ink and white.
+    // This yields 7 ink / 9 white at 16 balls and 14 / 18 at 32 balls, while
+    // keeping exactly one third of the material plan frosted glass.
     materialPlan.push(
-      matte(COLORS.green.clone()),
-      glossy(COLORS.green.clone()),
-      frosted(COLORS.green.clone()),
+      matte(COLORS.dark.clone()),
+      glossy(COLORS.dark.clone()),
+      frosted(COLORS.white.clone()),
+      matte(COLORS.dark.clone()),
+      glossy(COLORS.dark.clone()),
+      frosted(COLORS.white.clone()),
+      matte(COLORS.white.clone()),
+      frosted(COLORS.white.clone()),
+      glossy(COLORS.white.clone()),
+      matte(COLORS.white.clone()),
+      glossy(COLORS.dark.clone()),
+      frosted(COLORS.white.clone()),
       matte(COLORS.dark.clone()),
       glossy(COLORS.dark.clone()),
       frosted(COLORS.white.clone()),
@@ -867,7 +867,7 @@ async function bootScene() {
     void settleAndEmitLit()
   }, lite ? 1800 : 6000)
 
-  const anchor = new Vector3(1.55, 0.05, 0)
+  const anchor = new Vector3(0, 0, 0)
   /** Base ring orientation: tilted, receding into depth — then slowly drifts. */
   const ringBaseEuler = new Euler(-0.62, 0.78, 0.18, 'XYZ')
   // Match the phase-zero drift formula immediately; otherwise the first tick
@@ -910,9 +910,6 @@ async function bootScene() {
    * follows the absolute tip, while the balls receive a short high-pass impulse.
    */
   const GYRO_PHYSICS_RELEASE_MS = 500
-  /** Visible camera travel on a vertical cylinder centred on the swarm. */
-  const GYRO_CAMERA_ARC = 1.2
-  const GYRO_CAMERA_LIFT = 0.56
   /** Near/far layers travel at different rates, creating controlled contacts. */
   const GYRO_DEPTH_RESPONSE = 0.32
   /** Average the initial handheld pose; it becomes neutral instead of table-flat. */
@@ -1137,7 +1134,10 @@ async function bootScene() {
   const camRight = new Vector3()
   const camUp = new Vector3()
   const camForward = new Vector3()
+  const focusOffset = new Vector3()
   let lastBallRadius = 0
+  let focusHalfWidth = 0
+  let focusHalfHeight = 0
   let settleLeft = SETTLE_MS
   /** Once true, orbit anchor/radius ignore host size churn (morph / pin). */
   let orbitLocked = false
@@ -1167,6 +1167,38 @@ async function bootScene() {
     out.copy(anchor).add(local)
   }
 
+  /**
+   * Bend the moving seats around a rounded central field reserved for the
+   * slogan. Physical knocks may enter it briefly, then ease back out instead
+   * of hitting a hard invisible wall.
+   */
+  const moveOutsideFocus = (
+    point: Vector3,
+    ballRadius: number,
+    mix = 1,
+  ) => {
+    if (focusHalfWidth <= 0 || focusHalfHeight <= 0) return false
+    focusOffset.copy(point).sub(anchor)
+    const sx = focusOffset.dot(camRight)
+    const sy = focusOffset.dot(camUp)
+    const halfW = focusHalfWidth + ballRadius * 0.9
+    const halfH = focusHalfHeight + ballRadius * 0.9
+    const nx = sx / Math.max(halfW, 0.001)
+    const ny = sy / Math.max(halfH, 0.001)
+    const superellipse = nx ** 4 + ny ** 4
+    if (superellipse >= 1) return false
+
+    if (superellipse < 1e-8) {
+      point.addScaledVector(camRight, halfW * mix)
+      return true
+    }
+    const scale = 1 / Math.pow(superellipse, 0.25)
+    point
+      .addScaledVector(camRight, (sx * scale - sx) * mix)
+      .addScaledVector(camUp, (sy * scale - sy) * mix)
+    return true
+  }
+
   const seatAll = () => {
     if (!reduced) {
       // Scatter outside the ring, then let springs pull home — avoids the
@@ -1185,6 +1217,7 @@ async function bootScene() {
       for (let i = 0; i < n; i++) {
         const ball = balls[i]
         pointOnOrbit(ball.angle, ball.phase, seat)
+        moveOutsideFocus(seat, ball.radius)
         ball.seat.copy(seat)
         push.copy(seat).sub(anchor)
         const sz = MathUtils.clamp(
@@ -1211,6 +1244,7 @@ async function bootScene() {
 
     for (const ball of balls) {
       pointOnOrbit(ball.angle, ball.phase, ball.position)
+      moveOutsideFocus(ball.position, ball.radius)
       ball.seat.copy(ball.position)
       ball.velocity.set(0, 0, 0)
       ball.pointerInside = false
@@ -1225,6 +1259,23 @@ async function bootScene() {
     const visibleHeight =
       2 * Math.tan(MathUtils.degToRad(camera.fov) * 0.5) * dist
     return (diameterPx * 0.5 * visibleHeight) / Math.max(layoutH, 1)
+  }
+
+  const syncFocusKeepout = () => {
+    if (lastBallRadius <= 0) return
+    const slogan = document.querySelector<HTMLElement>('.hero-slogan')
+    const box = slogan?.getBoundingClientRect()
+    const fallbackWidth = lite
+      ? Math.min(size.w * 0.76, 380)
+      : Math.min(size.w * 0.58, 920)
+    const widthPx = box?.width || fallbackWidth
+    const heightPx = box?.height || (lite ? 64 : 52)
+    const renderedDiameterPx = lite
+      ? ballDiameterPx * MOBILE_BALL_DIAMETER_SCALE
+      : ballDiameterPx
+    const worldPerPixel = lastBallRadius / Math.max(renderedDiameterPx * 0.5, 1)
+    focusHalfWidth = (widthPx * 0.5 + FOCUS_GUTTER_X_PX) * worldPerPixel
+    focusHalfHeight = (heightPx * 0.5 + FOCUS_GUTTER_Y_PX) * worldPerPixel
   }
 
   const syncCamera = (opts?: { unlock?: boolean; force?: boolean }) => {
@@ -1251,18 +1302,10 @@ async function bootScene() {
     // so hide→show cycles can't ratchet the cluster upward.
     if (orbitLocked && !opts?.unlock) return
 
+    // One compositional centre on desktop and mobile. The previous mobile
+    // anchor lived above the visible field and made the scene read top-heavy.
     const anchorNdcX = 0
-    let anchorNdcY = 0.02
-    if (lite) {
-      // Stable screen metrics — not the morphing host box.
-      const screen = readAppScreenPx()
-      const layoutH = Math.max(screen * 0.92, h)
-      const topExtraPx = screen * MEDIA_TOP_EXTRA_VH
-      const divePx = screen * MEDIA_DIVE_VH
-      const slotPx = Math.max(layoutH - topExtraPx - divePx, layoutH * 0.45)
-      const cssY = topExtraPx + slotPx * MOBILE_ANCHOR_SURFACE_Y
-      anchorNdcY = 1 - (2 * cssY) / layoutH
-    }
+    const anchorNdcY = 0
 
     camera.getWorldDirection(planeNormal)
     hitPlane.setFromNormalAndCoplanarPoint(
@@ -1272,11 +1315,15 @@ async function bootScene() {
     pointerNdc.set(anchorNdcX, anchorNdcY)
     raycaster.setFromCamera(pointerNdc, camera)
     if (!raycaster.ray.intersectPlane(hitPlane, anchor)) {
-      anchor.set(0, lite ? 0.55 : 0.05, 0)
+      anchor.set(0, 0, 0)
     }
 
-    camera.lookAt(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
-    lookTarget.set(anchor.x * (lite ? 0.5 : 0.28), anchor.y, 0)
+    camera.lookAt(anchor)
+    lookTarget.copy(anchor)
+    camera.updateMatrixWorld(true)
+    camRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize()
+    camUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize()
+    camForward.setFromMatrixColumn(camera.matrixWorld, 2).normalize().negate()
 
     const layoutH = lite ? Math.max(readAppScreenPx() * 0.92, h) : h
     const diameterPx = lite
@@ -1291,8 +1338,9 @@ async function bootScene() {
       ball.mesh.scale.setScalar(radius)
     }
 
-    seatAll()
     lastBallRadius = radius
+    syncFocusKeepout()
+    seatAll()
     orbitLocked = true
   }
 
@@ -1456,10 +1504,14 @@ async function bootScene() {
     else if (props.active && keepAliveActive) startLoop()
   }
   document.addEventListener('visibilitychange', onPageVisibility)
+  const slogan = document.querySelector<HTMLElement>('.hero-slogan')
+  const focusResizeObserver = new ResizeObserver(() => syncFocusKeepout())
+  if (slogan) focusResizeObserver.observe(slogan)
   const prevRemovePointer = removePointerListeners
   removePointerListeners = () => {
     prevRemovePointer?.()
     removeGyroListeners?.()
+    focusResizeObserver.disconnect()
     document.removeEventListener('visibilitychange', onPageVisibility)
   }
 
@@ -1554,6 +1606,8 @@ async function bootScene() {
       hapticAlive.clear()
 
       // Device gravity X arrives opposite to the visual lean on tested phones.
+      // Scrolling must not switch the physics mode. Cutting gyro input at the
+      // first 2px made the complete swarm snap back to neutral on touch-scroll.
       const motionActive = motionEnabled.value && gyroPermissionReady.value
       const tipRight = motionActive ? -gyroRoll : 0
       // Lowering the phone should pull the swarm toward the viewer / screen
@@ -1569,11 +1623,12 @@ async function bootScene() {
         : 0
 
       if (!reduced) {
-        const cameraArc = tipRight * GYRO_CAMERA_ARC
+        // Keep the mobile camera fixed. Device motion may disturb individual
+        // balls, but must not translate the complete 3D composition.
         camera.position.set(
-          lookTarget.x + Math.sin(cameraArc) * cameraZ,
-          0.12 + tipUp * ringRadius * GYRO_CAMERA_LIFT,
-          lookTarget.z + Math.cos(cameraArc) * cameraZ,
+          0,
+          0.12,
+          cameraZ,
         )
         camera.up.set(0, 1, 0)
         camera.lookAt(lookTarget)
@@ -1608,6 +1663,7 @@ async function bootScene() {
         const ball = balls[i]
         if (!reduced) ball.angle += ORBIT_SPEED * step
         pointOnOrbit(ball.angle, ball.phase, seat)
+        moveOutsideFocus(seat, ball.radius)
         const seatDepth = flattenSeat()
 
         // Reduced-motion: stick to seats. Intro settle: physics gathers from scatter.
@@ -1711,6 +1767,9 @@ async function bootScene() {
             .addScaledVector(camUp, ny)
         }
         ball.position.addScaledVector(ball.velocity, 1)
+        if (moveOutsideFocus(ball.position, ball.radius, 0.18)) {
+          ball.velocity.multiplyScalar(0.92)
+        }
 
         {
           const rel = push.copy(ball.position).sub(anchor)
@@ -1787,6 +1846,7 @@ async function bootScene() {
 
       if (!reduced) ball.angle += ORBIT_SPEED * step
       pointOnOrbit(ball.angle, ball.phase, seat)
+      moveOutsideFocus(seat, ball.radius)
 
       if (!settling) {
         // Inherit the seat's exact world-space travel first. Physics then owns
@@ -1998,6 +2058,9 @@ async function bootScene() {
       const speed = ball.velocity.length()
       if (speed > MAX_SPEED) ball.velocity.multiplyScalar(MAX_SPEED / speed)
       ball.position.addScaledVector(ball.velocity, 1)
+      if (moveOutsideFocus(ball.position, ball.radius, 0.14)) {
+        ball.velocity.multiplyScalar(0.94)
+      }
 
       // Absolute safety around ring center — never let a ball reach the scene edge.
       tmp.copy(ball.position).sub(anchor)
@@ -2057,69 +2120,69 @@ async function bootScene() {
     }"
     :style="motionOverlayStyle"
   >
+    <div class="hero-swarm-backdrop pointer-events-none absolute inset-0" />
     <div
       ref="canvasHost"
-      class="hero-swarm size-full touch-pan-y"
+      class="hero-swarm relative z-[1] size-full touch-pan-y"
       aria-hidden="true"
     />
+
+    <Teleport to="body">
+      <button
+        v-if="isAndroidClient && !motionIntroVisible && props.active"
+        type="button"
+        class="motion-control motion-control--haptic motion-control--haptic-fixed"
+        :class="{ 'motion-control--active': androidHapticEnabled }"
+        :aria-label="androidHapticEnabled ? t('accessibility.disableVibration') : t('accessibility.enableVibration')"
+        :aria-pressed="androidHapticEnabled"
+        @click="onHapticControlTap"
+      >
+        <SiteIcon
+          name="device-mobile-vibration"
+          class="motion-control__icon motion-control__icon--haptic"
+        />
+      </button>
+    </Teleport>
 
     <Teleport to="#hero-motion-controls">
       <div
         class="hero-swarm-controls size-full"
         :style="motionOverlayStyle"
       >
-    <button
-      v-if="isAndroidClient && !motionIntroVisible"
-      type="button"
-      class="motion-control motion-control--haptic"
-      :class="{
-        'motion-control--active': androidHapticEnabled,
-        'motion-control--scroll-hidden': !motionControlAtRest,
-      }"
-      :aria-label="androidHapticEnabled ? t('accessibility.disableVibration') : t('accessibility.enableVibration')"
-      :aria-pressed="androidHapticEnabled"
-      @click="onHapticControlTap"
-    >
-      <SiteIcon
-        name="device-mobile-vibration"
-        class="motion-control__icon motion-control__icon--haptic"
-      />
-    </button>
-
-    <button
-      v-if="isDesktopMotionClient"
-      type="button"
-      class="motion-control"
-      :class="{
-        'motion-control--active': desktopSceneEnabled,
-        'motion-control--scroll-hidden': !motionControlAtRest,
-      }"
-      :aria-label="desktopSceneEnabled ? t('accessibility.disableSceneMotion') : t('accessibility.enableSceneMotion')"
-      :aria-pressed="desktopSceneEnabled"
-      @click="onDesktopMotionControlTap"
-    >
-      <span
-        class="motion-control__notice"
-        :class="{ 'motion-control__notice--visible': desktopMotionNoticeVisible }"
-        aria-hidden="true"
-      >{{ desktopMotionNotice }}</span>
-      <svg
-        class="motion-control__icon motion-control__icon--desktop"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="butt"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path
-          ref="desktopMotionIconPath"
-          :d="DESKTOP_PAUSE_ICON_PATH"
-        />
-      </svg>
-    </button>
+        <button
+          v-if="isDesktopMotionClient"
+          type="button"
+          class="motion-control"
+          :class="{
+            'motion-control--active': desktopSceneEnabled,
+            'motion-control--scroll-hidden': !desktopMotionControlVisible,
+          }"
+          :aria-label="desktopSceneEnabled ? t('accessibility.disableSceneMotion') : t('accessibility.enableSceneMotion')"
+          :aria-pressed="desktopSceneEnabled"
+          @click="onDesktopMotionControlTap"
+        >
+          <span
+            class="motion-control__notice"
+            :class="{ 'motion-control__notice--visible': desktopMotionNoticeVisible }"
+            aria-hidden="true"
+          >{{ desktopMotionNotice }}</span>
+          <svg
+            class="motion-control__icon motion-control__icon--desktop"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="butt"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              ref="desktopMotionIconPath"
+              :d="DESKTOP_PAUSE_ICON_PATH"
+            />
+          </svg>
+        </button>
 
     <button
       v-if="motionIntroVisible && motionIntroInHero"
@@ -2151,20 +2214,23 @@ async function bootScene() {
   position: relative;
 }
 
-.hero-swarm {
-  cursor: grab;
+.hero-swarm-backdrop {
   background: radial-gradient(
     ellipse 88% 96% at 70% 42%,
     var(--hero-scene-moss) 0%,
     var(--hero-scene-forest) 72%,
     var(--hero-scene-forest) 100%
   );
+}
+
+.hero-swarm {
+  cursor: grab;
   /* Belt-and-suspenders: never let the GL surface own vertical gestures. */
   touch-action: pan-y;
 }
 
 @media (max-width: 1199px) {
-  .hero-swarm {
+  .hero-swarm-backdrop {
     background: radial-gradient(
       ellipse 105% 78% at 50% 30%,
       var(--hero-scene-moss) 0%,
@@ -2199,9 +2265,9 @@ async function bootScene() {
 
 .motion-control {
   position: absolute;
-  top: auto;
+  top: calc(var(--motion-scene-inset-y, 0px) + 1.25rem + env(safe-area-inset-top));
   right: calc(var(--motion-scene-inset-x, 0px) + 1.25rem + env(safe-area-inset-right));
-  bottom: calc(var(--motion-scene-inset-y, 0px) + 1.25rem + env(safe-area-inset-bottom));
+  bottom: auto;
   z-index: 6;
   display: grid;
   place-items: center;
@@ -2285,15 +2351,12 @@ async function bootScene() {
 
 @media (max-width: 767.98px), (pointer: coarse) {
   .motion-control {
-    --mobile-motion-control-right: calc(
+    top: auto;
+    right: calc(
       var(--motion-scene-inset-x, 0px)
       + var(--layout-margin)
       + var(--safe-right, 0px)
-      + var(--menu-fab-expanded-width, 108px)
-      + 8px
     );
-    top: auto;
-    right: var(--mobile-motion-control-right);
     width: 42.5px;
     height: 42.5px;
     padding: 0;
@@ -2309,6 +2372,14 @@ async function bootScene() {
       + var(--safe-bottom, 0px)
     );
     left: auto;
+  }
+
+  .motion-control--haptic-fixed {
+    position: fixed;
+    z-index: 114;
+    right: auto;
+    bottom: calc(2 * var(--layout-margin) + var(--safe-bottom, 0px));
+    left: calc(2 * var(--layout-margin) + var(--safe-left, 0px));
   }
 
   .motion-control__icon {

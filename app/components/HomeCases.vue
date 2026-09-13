@@ -2522,7 +2522,7 @@ onBeforeUnmount(() => {
   z-index: 1;
   inset: 0;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: var(--flow-surface-radius, 24px);
   background: transparent;
   opacity: 0;
   pointer-events: none;

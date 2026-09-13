@@ -1,3 +1,8 @@
+import {
+  publishLenisScrollFrame,
+  setLenisScrollFrameConnected,
+} from '~/utils/lenisScrollFrame'
+
 const SMOOTH_SCROLL_ENABLED =
   '(prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine)'
 
@@ -79,6 +84,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   function destroy() {
     createGeneration += 1
     removeTicker()
+    setLenisScrollFrameConnected(false)
     lockObserver?.disconnect()
     lockObserver = null
     lenis?.destroy()
@@ -125,7 +131,13 @@ export default defineNuxtPlugin((nuxtApp) => {
       // attach its animation ticker for them: native scrolling needs no Lenis RAF.
       if (event.type.includes('wheel')) requestTicker()
     })
-    lenis.on('scroll', ScrollTrigger.update)
+    lenis.on('scroll', ({ scroll }) => {
+      ScrollTrigger?.update()
+      // Manual scroll paints run here, in the same ticker turn as Lenis,
+      // instead of waiting for a separate frame after the native event.
+      publishLenisScrollFrame(scroll)
+    })
+    setLenisScrollFrameConnected(true)
 
     lockObserver = new MutationObserver(syncRunState)
     lockObserver.observe(document.documentElement, {
